@@ -53,7 +53,6 @@
         "title": "Show Table Properties",
         "icon": "$(info)"
       },
-
       {
         "command": "postgres-explorer.newNotebook",
         "title": "New PostgreSQL Notebook",
@@ -71,13 +70,23 @@
         "command": "postgres-explorer.refresh",
         "title": "Refresh",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "postgres-explorer.deleteConnection",
+        "title": "Delete Connection",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "postgresExplorer.openColumnNotebook",
+        "title": "Open Column Analysis",
+        "category": "Postgres Explorer"
       }
     ],
     "viewsContainers": {
       "activitybar": [
         {
           "id": "postgres-explorer",
-          "title": "PostgreSQL",
+          "title": "PostgreSQL Explorer",
           "icon": "$(database)"
         }
       ]
@@ -86,8 +95,7 @@
       "postgres-explorer": [
         {
           "id": "postgresExplorer",
-          "name": "Database Explorer",
-          "icon": "$(database)",
+          "name": "Connections",
           "contextualTitle": "PostgreSQL Explorer"
         }
       ]
@@ -101,6 +109,22 @@
             "filenamePattern": "*.pgsql"
           }
         ]
+      },
+      {
+        "type": "postgres-query",
+        "displayName": "Postgres Query",
+        "selector": [
+          {
+            "filenamePattern": "*.pgquery"
+          }
+        ]
+      }
+    ],
+    "notebookRenderer": [
+      {
+        "id": "postgres-query-renderer",
+        "displayName": "Postgres Query Renderer",
+        "entrypoint": "./out/renderer.js"
       }
     ],
     "configuration": {
@@ -162,7 +186,6 @@
         }
       ],
       "view/item/context": [
-
         {
           "command": "postgres-explorer.showTableProperties",
           "when": "view == postgresExplorer && viewItem == table",
@@ -172,13 +195,28 @@
           "command": "postgres-explorer.newNotebook",
           "when": "view == postgresExplorer && viewItem =~ /(database|schema|table)/",
           "group": "inline@1"
+        },
+        {
+          "command": "postgres-explorer.deleteConnection",
+          "when": "view == postgresExplorer && viewItem == connection",
+          "group": "inline@0"
         }
       ]
     }
   },
-  "activationEvents": [],
+  "activationEvents": [
+    "onView:postgresExplorer",
+    "onCommand:postgres-explorer.addConnection",
+    "onCommand:postgres-explorer.refreshConnections",
+    "onCommand:postgres-explorer.showTableProperties",
+    "onCommand:postgres-explorer.newNotebook",
+    "onCommand:postgres-explorer.connect",
+    "onCommand:postgres-explorer.disconnect",
+    "onCommand:postgres-explorer.refresh",
+    "onNotebook:postgres-notebook",
+    "onCommand:postgres-explorer.deleteConnection"
+  ],
   "main": "./out/extension.js",
-
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
