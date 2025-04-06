@@ -23,12 +23,8 @@ export class ConnectionFormPanel {
 
         this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
         this._initialize();
-        // Make sure configuration is registered
         vscode.workspace.getConfiguration().update('postgresExplorer.connections', [], true);
 
-
-
-        // Handle messages from the webview
         this._panel.webview.onDidReceiveMessage(
             async (message) => {
                 switch (message.command) {
@@ -39,14 +35,20 @@ export class ConnectionFormPanel {
                                 port: message.connection.port,
                                 user: message.connection.username,
                                 password: message.connection.password,
-                                database: 'postgres'
+                                database: message.connection.database
                             });
                             await client.connect();
+                            const result = await client.query('SELECT version()');
                             await client.end();
-                            vscode.window.showInformationMessage('Connection test successful!');
+                            this._panel.webview.postMessage({ 
+                                type: 'testSuccess',
+                                version: result.rows[0].version
+                            });
                         } catch (err: any) {
-                            const errorMessage = err?.message || 'Unknown error occurred';
-                            vscode.window.showErrorMessage(`Connection test failed: ${errorMessage}`);
+                            this._panel.webview.postMessage({ 
+                                type: 'testError',
+                                error: err.message
+                            });
                         }
                         break;
 
@@ -57,16 +59,14 @@ export class ConnectionFormPanel {
                                 port: message.connection.port,
                                 user: message.connection.username,
                                 password: message.connection.password,
-                                database: 'postgres' // Connect to default db first
+                                database: 'postgres'
                             });
 
                             await client.connect();
                             
-                            // Get list of databases
                             const result = await client.query('SELECT datname FROM pg_database WHERE datistemplate = false');
                             await client.end();
 
-                            // Save connection info
                             const connections = this.getStoredConnections();
                             const newConnection: ConnectionInfo = {
                                 id: Date.now().toString(),
@@ -113,177 +113,257 @@ export class ConnectionFormPanel {
     }
 
     private async _initialize() {
-        // Make sure configuration is registered
-        await vscode.workspace.getConfiguration().update('postgresExplorer.connections', [], true);
+        this._panel.webview.onDidReceiveMessage(async (message) => {
+            switch (message.command) {
+                case 'testConnection':
+                    try {
+                        const client = new Client({
+                            host: message.connection.host,
+                            port: message.connection.port,
+                            user: message.connection.username,
+                            password: message.connection.password,
+                            database: message.connection.database
+                        });
+                        await client.connect();
+                        const result = await client.query('SELECT version()');
+                        await client.end();
+                        this._panel.webview.postMessage({ 
+                            type: 'testSuccess',
+                            version: result.rows[0].version
+                        });
+                    } catch (err: any) {
+                        this._panel.webview.postMessage({ 
+                            type: 'testError',
+                            error: err.message
+                        });
+                    }
+                    break;
 
-        // Handle messages from the webview
-        this._panel.webview.onDidReceiveMessage(
-            async (message) => {
-                switch (message.command) {
-                    case 'testConnection':
-                        try {
-                            const client = new Client({
-                                host: message.connection.host,
-                                port: message.connection.port,
-                                user: message.connection.username,
-                                password: message.connection.password,
-                                database: 'postgres'
-                            });
-                            await client.connect();
-                            await client.end();
-                            vscode.window.showInformationMessage('Connection test successful!');
-                        } catch (err: any) {
-                            const errorMessage = err?.message || 'Unknown error occurred';
-                            vscode.window.showErrorMessage(`Connection test failed: ${errorMessage}`);
-                        }
-                        break;
+                case 'saveConnection':
+                    try {
+                        const client = new Client({
+                            host: message.connection.host,
+                            port: message.connection.port,
+                            user: message.connection.username,
+                            password: message.connection.password,
+                            database: 'postgres'
+                        });
 
-                    case 'saveConnection':
-                        try {
-                            const client = new Client({
-                                host: message.connection.host,
-                                port: message.connection.port,
-                                user: message.connection.username,
-                                password: message.connection.password,
-                                database: 'postgres' // Connect to default db first
-                            });
+                        await client.connect();
+                        
+                        const result = await client.query('SELECT datname FROM pg_database WHERE datistemplate = false');
+                        await client.end();
 
-                            await client.connect();
-                            
-                            // Get list of databases
-                            const result = await client.query('SELECT datname FROM pg_database WHERE datistemplate = false');
-                            await client.end();
+                        const connections = this.getStoredConnections();
+                        const newConnection: ConnectionInfo = {
+                            id: Date.now().toString(),
+                            name: message.connection.name,
+                            host: message.connection.host,
+                            port: message.connection.port,
+                            username: message.connection.username,
+                            password: message.connection.password
+                        };
+                        connections.push(newConnection);
+                        await this.storeConnections(connections);
 
-                            // Save connection info
-                            const connections = this.getStoredConnections();
-                            const newConnection: ConnectionInfo = {
-                                id: Date.now().toString(),
-                                name: message.connection.name,
-                                host: message.connection.host,
-                                port: message.connection.port,
-                                username: message.connection.username,
-                                password: message.connection.password
-                            };
-                            connections.push(newConnection);
-                            await this.storeConnections(connections);
-
-                            vscode.window.showInformationMessage('Connection saved successfully!');
-                            vscode.commands.executeCommand('postgres-explorer.refreshConnections');
-                            this._panel.dispose();
-                        } catch (err: any) {
-                            const errorMessage = err?.message || 'Unknown error occurred';
-                            vscode.window.showErrorMessage(`Failed to connect: ${errorMessage}`);
-                        }
-                        break;
-                }
-            },
-            undefined,
-            this._disposables
-        );
-
+                        vscode.window.showInformationMessage('Connection saved successfully!');
+                        vscode.commands.executeCommand('postgres-explorer.refreshConnections');
+                        this._panel.dispose();
+                    } catch (err: any) {
+                        const errorMessage = err?.message || 'Unknown error occurred';
+                        vscode.window.showErrorMessage(`Failed to connect: ${errorMessage}`);
+                    }
+                    break;
+            }
+        });
         await this._update();
     }
 
     private async _update() {
-        this._panel.webview.html = await this._getHtml();
+        this._panel.webview.html = await this._getHtmlForWebview(this._panel.webview);
     }
 
-    private async _getHtml(): Promise<string> {
-        const nonce = this._getNonce();
-
+    private _getHtmlForWebview(webview: vscode.Webview): string {
+        const logoPath = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'resources', 'postgres-explorer.png'));
+        
         return `<!DOCTYPE html>
-        <html>
+        <html lang="en">
         <head>
             <meta charset="UTF-8">
-            <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Add PostgreSQL Connection</title>
             <style>
-                .button-group { 
-                    display: flex; 
-                    gap: 10px;
-                    margin-top: 20px;
+                body {
+                    padding: 20px;
+                    color: var(--vscode-foreground);
+                    font-family: var(--vscode-font-family);
                 }
-                .button-group button {
-                    flex: 1;
+                .header {
+                    display: flex;
+                    align-items: center;
+                    margin-bottom: 30px;
+                    gap: 20px;
                 }
-
-                body { padding: 20px; }
-                .form-group { margin-bottom: 15px; }
-                label { display: block; margin-bottom: 5px; }
-                input {
+                .header img {
+                    width: 64px;
+                    height: 64px;
+                }
+                .header-text h1 {
+                    margin: 0;
+                    font-size: 24px;
+                    color: var(--vscode-foreground);
+                }
+                .header-text p {
+                    margin: 5px 0 0 0;
+                    opacity: 0.8;
+                }
+                .form-container {
+                    max-width: 50%;
+                    margin: 0;
+                }
+                .form-group {
+                    margin-bottom: 15px;
+                }
+                label {
+                    display: block;
+                    margin-bottom: 5px;
+                    color: var(--vscode-foreground);
+                }
+                input, select {
                     width: 100%;
-                    padding: 5px;
+                    padding: 8px;
                     border: 1px solid var(--vscode-input-border);
                     background: var(--vscode-input-background);
                     color: var(--vscode-input-foreground);
+                    border-radius: 2px;
                 }
                 button {
+                    padding: 8px 16px;
                     background: var(--vscode-button-background);
                     color: var(--vscode-button-foreground);
                     border: none;
-                    padding: 8px 16px;
+                    border-radius: 2px;
                     cursor: pointer;
+                    margin-top: 10px;
                 }
                 button:hover {
                     background: var(--vscode-button-hoverBackground);
                 }
+                .required::after {
+                    content: " *";
+                    color: var(--vscode-errorForeground);
+                }
+                .button-group {
+                    display: flex;
+                    gap: 10px;
+                    margin-top: 20px;
+                }
+                .message {
+                    margin-top: 15px;
+                    padding: 10px;
+                    border-radius: 3px;
+                }
+                .error {
+                    background: var(--vscode-inputValidation-errorBackground);
+                    border: 1px solid var(--vscode-inputValidation-errorBorder);
+                    color: var(--vscode-inputValidation-errorForeground);
+                }
+                .success {
+                    background: var(--vscode-inputValidation-infoBackground);
+                    border: 1px solid var(--vscode-inputValidation-infoBorder);
+                    color: var(--vscode-inputValidation-infoForeground);
+                }
             </style>
         </head>
         <body>
-            <form id="connectionForm">
-                <div class="form-group">
-                    <label for="name">Connection Name</label>
-                    <input type="text" id="name" required>
+            <div class="header">
+                <img src="${logoPath}" alt="PostgreSQL Explorer">
+                <div class="header-text">
+                    <h1>PostgreSQL Explorer</h1>
+                    <p>Connect to your PostgreSQL database and explore your data with ease.</p>
                 </div>
-                <div class="form-group">
-                    <label for="host">Host</label>
-                    <input type="text" id="host" required>
-                </div>
-                <div class="form-group">
-                    <label for="port">Port</label>
-                    <input type="number" id="port" value="5432" required>
-                </div>
-                <div class="form-group">
-                    <label for="username">Username</label>
-                    <input type="text" id="username" required>
-                </div>
-                <div class="form-group">
-                    <label for="password">Password</label>
-                    <input type="password" id="password" required>
-                </div>
-                <div class="button-group">
-                <button type="button" id="testConnection">Test Connection</button>
-                <button type="submit">Save Connection</button>
             </div>
-            </form>
-            <script nonce="${nonce}">
+            <div class="form-container">
+                <form id="connectionForm">
+                    <div class="form-group">
+                        <label for="name" class="required">Connection Name</label>
+                        <input type="text" id="name" name="name" required placeholder="My Database Connection">
+                    </div>
+                    <div class="form-group">
+                        <label for="host" class="required">Host</label>
+                        <input type="text" id="host" name="host" required placeholder="localhost">
+                    </div>
+                    <div class="form-group">
+                        <label for="port" class="required">Port</label>
+                        <input type="number" id="port" name="port" value="5432" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="database">Database</label>
+                        <input type="text" id="database" name="database" placeholder="postgres">
+                    </div>
+                    <div class="form-group">
+                        <label for="username" class="required">Username</label>
+                        <input type="text" id="username" name="username" required placeholder="postgres">
+                    </div>
+                    <div class="form-group">
+                        <label for="password" class="required">Password</label>
+                        <input type="password" id="password" name="password" required>
+                    </div>
+                    <div id="message" style="display: none;" class="message"></div>
+                    <div class="button-group">
+                        <button type="submit">Add Connection</button>
+                        <button type="button" id="testConnection">Test Connection</button>
+                    </div>
+                </form>
+            </div>
+            <script>
                 const vscode = acquireVsCodeApi();
-                document.getElementById('testConnection').addEventListener('click', () => {
-                    const connection = {
+                const messageDiv = document.getElementById('message');
+
+                function showMessage(text, isError = false) {
+                    messageDiv.textContent = text;
+                    messageDiv.className = 'message ' + (isError ? 'error' : 'success');
+                    messageDiv.style.display = 'block';
+                }
+
+                function getFormData() {
+                    return {
                         name: document.getElementById('name').value,
                         host: document.getElementById('host').value,
                         port: parseInt(document.getElementById('port').value),
+                        database: document.getElementById('database').value || 'postgres',
                         username: document.getElementById('username').value,
                         password: document.getElementById('password').value
                     };
+                }
+
+                document.getElementById('testConnection').addEventListener('click', () => {
+                    messageDiv.style.display = 'none';
                     vscode.postMessage({
                         command: 'testConnection',
-                        connection
+                        connection: getFormData()
                     });
                 });
 
                 document.getElementById('connectionForm').addEventListener('submit', (e) => {
                     e.preventDefault();
-                    const connection = {
-                        name: document.getElementById('name').value,
-                        host: document.getElementById('host').value,
-                        port: parseInt(document.getElementById('port').value),
-                        username: document.getElementById('username').value,
-                        password: document.getElementById('password').value
-                    };
+                    messageDiv.style.display = 'none';
                     vscode.postMessage({
                         command: 'saveConnection',
-                        connection
+                        connection: getFormData()
                     });
+                });
+
+                window.addEventListener('message', event => {
+                    const message = event.data;
+                    switch (message.type) {
+                        case 'testSuccess':
+                            showMessage('Connection successful! Server version: ' + message.version);
+                            break;
+                        case 'testError':
+                            showMessage(message.error, true);
+                            break;
+                    }
                 });
             </script>
         </body>

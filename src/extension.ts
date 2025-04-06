@@ -5,6 +5,7 @@ import { DatabaseTreeProvider, DatabaseTreeItem } from './databaseTreeProvider';
 import { TablePropertiesPanel } from './tableProperties';
 import { PostgresNotebookProvider } from './notebookProvider';
 import { PostgresKernel } from './notebookKernel';
+import { PostgresNotebookSerializer } from './postgresNotebook';
 
 let client: Client | undefined;
 
@@ -17,6 +18,11 @@ export function activate(context: vscode.ExtensionContext) {
     // Register notebook provider
     context.subscriptions.push(
         vscode.workspace.registerNotebookSerializer('postgres-notebook', new PostgresNotebookProvider())
+    );
+
+    // Register notebook serializer
+    context.subscriptions.push(
+        vscode.workspace.registerNotebookSerializer('postgres-query', new PostgresNotebookSerializer())
     );
 
     // Register commands
@@ -162,6 +168,23 @@ LIMIT 100;`, 'sql')
 
             const notebook = await vscode.workspace.openNotebookDocument('postgres-notebook', notebookData);
             await vscode.window.showNotebookDocument(notebook);
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('postgres-explorer.deleteConnection', async (item: DatabaseTreeItem) => {
+            const answer = await vscode.window.showWarningMessage(
+                `Are you sure you want to delete connection '${item.label}'?`,
+                'Yes', 'No'
+            );
+            
+            if (answer === 'Yes') {
+                const config = vscode.workspace.getConfiguration();
+                const connections = config.get<any[]>('postgresExplorer.connections') || [];
+                const updatedConnections = connections.filter(c => c.id !== item.connectionId);
+                await config.update('postgresExplorer.connections', updatedConnections, vscode.ConfigurationTarget.Global);
+                databaseTreeProvider.refresh();
+            }
         })
     );
 }

@@ -120,10 +120,53 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseTre
                     'table',
                     element.connectionId,
                     element.databaseName,
-                    element.schema
+                    element.schema,
+                    row.table_name
                 ));
             } catch (err: any) {
                 vscode.window.showErrorMessage(`Failed to list tables: ${err.message}`);
+                return [];
+            }
+        }
+
+        if (element.type === 'table') {
+            const connection = connections.find(c => c.id === element.connectionId);
+            if (!connection) return [];
+
+            try {
+                const client = new Client({
+                    host: connection.host,
+                    port: connection.port,
+                    user: connection.username,
+                    password: String(connection.password),
+                    database: element.databaseName
+                });
+
+                await client.connect();
+                const result = await client.query(
+                    `SELECT column_name, data_type, character_maximum_length 
+                     FROM information_schema.columns 
+                     WHERE table_schema = $1 AND table_name = $2`,
+                    [element.schema, element.label]
+                );
+                await client.end();
+
+                return result.rows.map(row => {
+                    const dataType = row.character_maximum_length 
+                        ? `${row.data_type}(${row.character_maximum_length})`
+                        : row.data_type;
+                    return new DatabaseTreeItem(
+                        `${row.column_name} (${dataType})`,
+                        vscode.TreeItemCollapsibleState.None,
+                        'column',
+                        element.connectionId,
+                        element.databaseName,
+                        element.schema,
+                        element.label
+                    );
+                });
+            } catch (err: any) {
+                vscode.window.showErrorMessage(`Failed to list columns: ${err.message}`);
                 return [];
             }
         }
@@ -140,7 +183,8 @@ export class DatabaseTreeItem extends vscode.TreeItem {
         public readonly connectionId?: string,
         public readonly databaseName?: string,
         public readonly schema?: string,
-        public readonly tableName?: string
+        public readonly tableName?: string,
+        public readonly columnName?: string
     ) {
         super(label, collapsibleState);
         this.contextValue = type;
