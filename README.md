@@ -1,132 +1,140 @@
 # PostgreSQL Explorer for VS Code
 
-A powerful Visual Studio Code extension for exploring and querying PostgreSQL databases with an integrated notebook experience.
+[![Version](https://img.shields.io/visual-studio-marketplace/v/ric-v.postgres-explorer)](https://marketplace.visualstudio.com/items?itemName=ric-v.postgres-explorer)
+[![Downloads](https://img.shields.io/visual-studio-marketplace/d/ric-v.postgres-explorer)](https://marketplace.visualstudio.com/items?itemName=ric-v.postgres-explorer)
+[![Rating](https://img.shields.io/visual-studio-marketplace/r/ric-v.postgres-explorer)](https://marketplace.visualstudio.com/items?itemName=ric-v.postgres-explorer)
 
-## Features
+A powerful PostgreSQL database explorer with interactive SQL notebooks, table visualization, and data export capabilities.
 
-- 🌳 **Database Explorer**: Tree view of databases, schemas, and tables
-- 📝 **SQL Notebooks**: Interactive SQL notebooks with rich output
-- 📊 **Table Properties**: Detailed view of table structure, constraints, and indexes
-- 📥 **Export Capabilities**: Export query results to CSV and Excel formats
-- 🔄 **Auto-refresh**: Real-time updates of database structure
-- 🔒 **Secure**: Safe storage of connection credentials
+## ✨ Key Features
 
-### Interactive SQL Notebooks
-- Execute SQL queries with rich output formatting
-- Sort results by clicking on column headers
-- Export results to CSV or Excel format
+### 🔌 Easy Database Connection
+- Quick connection setup with secure credential storage
+- Support for multiple database connections
+- Auto-reconnect and connection health monitoring
+
+### 📊 Interactive SQL Notebooks
+- Write and execute SQL queries in notebook cells
+- Rich table output with sorting capabilities
+- Export results to CSV and Excel formats
 - View execution status and row counts
 
-### Table Properties
-- View detailed table structure
-- See column definitions, data types, and constraints
-- Examine indexes and their definitions
-- Quick access to table statistics
+### 🌳 Smart Database Explorer
+- Tree view of databases, schemas, and tables
+- Quick access to table properties and structure
+- Real-time database structure updates
+- Context-aware actions for each item
 
-## Installation
+### 📋 Table Properties Panel
+- Detailed view of table structure
+- Column definitions and data types
+- Primary keys and foreign key relationships
+- Index information and constraints
 
-1. Download the VSIX file from the latest release
-2. Install in VS Code:
-   ```bash
-   code --install-extension postgres-explorer-0.0.1.vsix
+## 🚀 Quick Start
+
+### 1. Connect to Your Database
+
+1. Click the PostgreSQL icon in the Activity Bar (or press `Ctrl+Shift+P` and search for "PostgreSQL: Add Connection")
+2. Click the "+" button to add a new connection
+3. Enter your connection details:
    ```
-   Or install through VS Code:
-   - Press `Ctrl+Shift+X` to open the Extensions view
-   - Click the "..." menu
-   - Select "Install from VSIX..."
-   - Choose the downloaded VSIX file
-
-## Usage
-
-1. **Connect to Database**
-   - Click the PostgreSQL icon in the Activity Bar
-   - Click the "+" button to add a new connection
-   - Enter connection details:
-     - Host
-     - Port
-     - Username
-     - Password
-     - Database name
-
-2. **Create SQL Notebook**
-   - Right-click on a database, schema, or table
-   - Select "New PostgreSQL Notebook"
-   - Write and execute SQL queries
-
-3. **View Table Properties**
-   - Click on any table in the explorer
-   - View detailed information about the table structure
-
-4. **Export Results**
-   - Execute a query in a notebook
-   - Use the "Export CSV" or "Export Excel" buttons
-   - Files will be saved in your workspace root
-
-## Development Setup
-
-1. **Prerequisites**
-   ```bash
-   node >= 16.x
-   npm >= 8.x
+   Host: localhost (or your database host)
+   Port: 5432 (default PostgreSQL port)
+   Username: your_username
+   Password: your_password
+   Database: your_database
    ```
+4. Save the connection
 
-2. **Clone and Install**
-   ```bash
-   git clone <repository-url>
-   cd postgres-explorer
-   npm install
+### 2. Explore Your Database
+
+- Expand the connection in the tree view to see databases
+- Navigate through schemas and tables
+- Right-click items for context actions
+
+### 3. Create SQL Notebooks
+
+1. Right-click on any database, schema, or table
+2. Select "New PostgreSQL Notebook"
+3. Write SQL in notebook cells:
+   ```sql
+   -- Example query
+   SELECT * FROM users
+   WHERE created_at >= NOW() - INTERVAL '7 days'
+   ORDER BY created_at DESC;
    ```
+4. Press `Ctrl+Enter` to execute a cell
 
-3. **Build**
-   ```bash
-   npm run compile
-   ```
+### 4. Work with Results
 
-4. **Run/Debug**
-   - Press F5 in VS Code to start debugging
-   - A new VS Code window will open with the extension loaded
-   - Make changes and press Ctrl+R (Cmd+R on macOS) in the debug window to reload
+- Click column headers to sort results
+- Use the export buttons to save data:
+  - CSV: For spreadsheet applications
+  - Excel: For Microsoft Excel
 
-## Project Structure
+## 💡 Pro Tips
 
+1. **Quick Table Info**
+   - Click any table in the explorer to see its structure
+   - Hover over columns to see data types and constraints
+
+2. **Efficient Querying**
+   - Use table names from the explorer (drag & drop supported)
+   - Save commonly used queries in notebooks
+   - Use multiple cells for complex operations
+
+3. **Data Export**
+   - Large result sets are automatically paginated
+   - Exports preserve data types and formatting
+   - Files are saved in your workspace root
+
+## ⚙️ Extension Settings
+
+Customize through VS Code settings (`Ctrl+,`):
+
+```json
+{
+  "postgresExplorer.connections": [],     // Saved connections
+  "postgresExplorer.autoConnect": true,  // Auto-connect on startup
+  "postgresExplorer.maxResults": 1000    // Max rows per query
+}
 ```
-postgres-explorer/
-├── src/                    # Source code
-│   ├── extension.ts        # Extension entry point
-│   ├── notebookKernel.ts  # SQL notebook implementation
-│   ├── tableProperties.ts  # Table properties panel
-│   └── databaseTreeProvider.ts  # Database explorer tree view
-├── package.json           # Extension manifest
-└── tsconfig.json         # TypeScript configuration
-```
 
-## Contributing
+## 🔧 Troubleshooting
 
-1. Fork the repository
-2. Create a feature branch
-   ```bash
-   git checkout -b feature/my-feature
-   ```
-3. Make your changes
-4. Run tests and lint
-   ```bash
-   npm run test
-   ```
-5. Submit a pull request
+### Common Issues
 
-### Coding Guidelines
+1. **Connection Failed**
+   - Verify host and port are correct
+   - Check username and password
+   - Ensure database server is running
+   - Check firewall settings
 
-- Follow TypeScript best practices
-- Use meaningful variable and function names
-- Add comments for complex logic
-- Update documentation for new features
-- Write tests for new functionality
+2. **Query Timeout**
+   - Reduce the data set with WHERE clauses
+   - Use LIMIT to restrict results
+   - Consider indexing frequently queried columns
 
-## License
+3. **Export Issues**
+   - Ensure write permissions in workspace
+   - Close files in other applications
+   - Check available disk space
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+## 📝 License
 
-## Acknowledgments
+This extension is licensed under the [MIT License](LICENSE).
 
-- Built with [VS Code Extension API](https://code.visualstudio.com/api)
-- Uses [node-postgres](https://node-postgres.com/) for database connectivity
+## 🤝 Contributing
+
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+
+## 📫 Support
+
+- [Report Issues](https://github.com/ric-v/yape-yet-another-postgres-explorer/issues)
+- [Feature Requests](https://github.com/ric-v/yape-yet-another-postgres-explorer/issues/new)
+- [Documentation](https://github.com/ric-v/yape-yet-another-postgres-explorer/wiki)
+
+---
+
+**Enjoying the extension?** [Rate us on the marketplace](https://marketplace.visualstudio.com/items?itemName=ric-v.postgres-explorer) ⭐
