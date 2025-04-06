@@ -2,12 +2,38 @@
   "name": "postgres-explorer",
   "displayName": "PostgreSQL Explorer",
   "version": "0.0.1",
-  "description": "PostgreSQL database explorer for VS Code",
+  "description": "PostgreSQL database explorer for VS Code with notebook support",
+  "publisher": "ric-v",
+  "private": false,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ric-v/yape-yet-another-postgres-explorer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ric-v/yape-yet-another-postgres-explorer/issues"
+  },
+  "homepage": "https://github.com/ric-v/yape-yet-another-postgres-explorer#readme",
+  "icon": "resources/postgres-explorer.png",
+  "galleryBanner": {
+    "color": "#C80000",
+    "theme": "dark"
+  },
   "engines": {
     "vscode": "^1.60.0"
   },
   "categories": [
-    "Other"
+    "Programming Languages",
+    "Data Science",
+    "Notebooks",
+    "Visualization"
+  ],
+  "keywords": [
+    "postgresql",
+    "postgres",
+    "database",
+    "sql",
+    "notebook"
   ],
   "contributes": {
     "commands": [
