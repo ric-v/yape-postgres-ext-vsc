@@ -15,7 +15,7 @@ export class PostgresKernel {
     private readonly label = 'PostgreSQL Kernel';
     private readonly controller: vscode.NotebookController;
 
-    constructor() {
+    constructor(messageHandler?: (message: any) => void) {
         this.controller = vscode.notebooks.createNotebookController(
             this.id,
             'postgres-notebook',
@@ -26,6 +26,7 @@ export class PostgresKernel {
         this.controller.supportsExecutionOrder = true;
         this.controller.description = 'PostgreSQL Query Executor';
         this.controller.executeHandler = this._executeAll.bind(this);
+
     }
 
     private async _executeAll(cells: vscode.NotebookCell[], _notebook: vscode.NotebookDocument, _controller: vscode.NotebookController): Promise<void> {
@@ -153,6 +154,8 @@ export class PostgresKernel {
                 </div>
                 <div>${rows.length} rows</div>
                 <script>
+                    const vscode = acquireVsCodeApi();
+                    
                     function sortTable(colIndex) {
                         const table = document.querySelector('.result-table');
                         const headers = table.querySelectorAll('th');
@@ -184,28 +187,26 @@ export class PostgresKernel {
                         tbody.append(...rows);
                     }
 
-                    const vscodeApi = acquireVsCodeApi();
-
                     function exportToCSV() {
                         const table = document.querySelector('.result-table');
                         const headers = Array.from(table.querySelectorAll('th')).map(th => th.textContent);
                         const rows = Array.from(table.querySelectorAll('tbody tr')).map(row => 
                             Array.from(row.querySelectorAll('td')).map(cell => {
                                 let content = cell.textContent || '';
-                                // Escape quotes and wrap in quotes if content contains comma or newline
                                 if (content.includes(',') || content.includes('\n') || content.includes('"')) {
                                     content = '"' + content.replace(/"/g, '""') + '"';
                                 }
                                 return content;
                             })
                         );
-                        
                         const csv = [headers.join(','), ...rows.map(row => row.join(','))].join('\n');
-                        vscodeApi.postMessage({ 
-                            type: 'export', 
+                        
+                        vscode.postMessage({
+                            type: 'custom',
+                            command: 'export',
                             format: 'csv',
                             content: csv,
-                            filename: 'query_result.csv'
+                            filename: 'query_result_' + new Date().toISOString().replace(/[:.]/g, '-') + '.csv'
                         });
                     }
 
@@ -216,41 +217,39 @@ export class PostgresKernel {
                             Array.from(row.querySelectorAll('td')).map(cell => cell.textContent)
                         );
                         
-                        let xml = '<?xml version="1.0"?>\n';
-                        xml += '<?mso-application progid="Excel.Sheet"?>\n';
-                        xml += '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">\n';
-                        xml += '<Worksheet ss:Name="Query Result">\n';
-                        xml += '<Table>\n';
+                        let xml = '<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?>';
+                        xml += '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">';
+                        xml += '<Worksheet ss:Name="Query Result"><Table>';
                         
-                        // Add headers
-                        xml += '<Row>\n';
-                        headers.forEach(header => {
-                            xml += '<Cell><Data ss:Type="String">' + header + '</Data></Cell>\n';
-                        });
-                        xml += '</Row>\n';
+                        xml += '<Row>' + headers.map(h => 
+                            '<Cell><Data ss:Type="String">' + (h || '').replace(/[<>&]/g, c => 
+                                c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&amp;'
+                            ) + '</Data></Cell>'
+                        ).join('') + '</Row>';
                         
-                        // Add data rows
                         rows.forEach(row => {
-                            xml += '<Row>\n';
-                            row.forEach(cell => {
+                            xml += '<Row>' + row.map(cell => {
                                 const value = cell || '';
-                                const type = isNaN(value as any) ? 'String' : 'Number';
-                                xml += '<Cell><Data ss:Type="' + type + '">' + value + '</Data></Cell>\n';
-                            });
-                            xml += '</Row>\n';
+                                const type = !isNaN(value as any) && value !== '' ? 'Number' : 'String';
+                                return '<Cell><Data ss:Type="' + type + '">' + 
+                                    value.toString().replace(/[<>&]/g, c => 
+                                        c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&amp;'
+                                    ) + 
+                                    '</Data></Cell>';
+                            }).join('') + '</Row>';
                         });
                         
-                        xml += '</Table>\n</Worksheet>\n</Workbook>';
+                        xml += '</Table></Worksheet></Workbook>';
                         
-                        vscodeApi.postMessage({ 
-                            type: 'export', 
+                        vscode.postMessage({
+                            type: 'custom',
+                            command: 'export',
                             format: 'excel',
                             content: xml,
-                            filename: 'query_result.xls'
+                            filename: 'query_result_' + new Date().toISOString().replace(/[:.]/g, '-') + '.xls'
                         });
                     }
-                </script>
-                `;
+                </script>`;
             } else {
                 html = '<div>No results</div>';
             }
@@ -259,23 +258,13 @@ export class PostgresKernel {
                 vscode.NotebookCellOutputItem.text(html, 'text/html')
             ]);
 
-            // Handle export messages
+            // Add metadata for webview communication
             output.metadata = {
-                callbacks: {
-                    export: async (message: any) => {
-                        const content = message.content;
-                        const format = message.format;
-                        const filename = message.filename;
-                        const uri = vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, filename);
-                        
-                        await vscode.workspace.fs.writeFile(
-                            uri,
-                            Buffer.from(content)
-                        );
-
-                        vscode.window.showInformationMessage(
-                            `Exported to ${filename}. File saved in workspace root.`
-                        );
+                outputType: 'display_data',
+                custom: {
+                    vscode: {
+                        cellId: cell.document.uri.toString(),
+                        controllerId: this.id
                     }
                 }
             };

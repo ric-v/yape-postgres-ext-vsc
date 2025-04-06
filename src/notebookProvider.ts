@@ -83,6 +83,16 @@ export class PostgresNotebookProvider implements vscode.NotebookSerializer {
             cells: cells
         }));
     }
+
+    private handleWebviewMessage(message: any): void {
+        if (message.command === 'export') {
+            vscode.commands.executeCommand('postgres-explorer.exportData', {
+                format: message.format,
+                content: message.content,
+                filename: message.filename
+            });
+        }
+    }
 }
 
 export class PostgresNotebookController {
