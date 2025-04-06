@@ -20,7 +20,7 @@
     "theme": "dark"
   },
   "engines": {
-    "vscode": "^1.60.0"
+    "vscode": "^1.99.0"
   },
   "categories": [
     "Programming Languages",
@@ -175,14 +175,7 @@
       ]
     }
   },
-  "activationEvents": [
-    "onCommand:postgres-explorer.connect",
-    "onCommand:postgres-explorer.addConnection",
-    "onCommand:postgres-explorer.refreshConnections",
-    "onCommand:postgres-explorer.showTableProperties",
-    "onView:postgresExplorer",
-    "onNotebook:postgres-notebook"
-  ],
+  "activationEvents": [],
   "main": "./out/extension.js",
 
   "scripts": {
