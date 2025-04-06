@@ -7,8 +7,6 @@ import { PostgresNotebookProvider } from './notebookProvider';
 import { PostgresKernel } from './notebookKernel';
 import { PostgresNotebookSerializer } from './postgresNotebook';
 
-let client: Client | undefined;
-
 export function activate(context: vscode.ExtensionContext) {
     // Register notebook kernel
     const kernel = new PostgresKernel();
@@ -52,6 +50,11 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.commands.registerCommand('postgres-explorer.showTableProperties', async (item: DatabaseTreeItem) => {
+            if (!item || !item.schema || !item.connectionId) {
+                vscode.window.showErrorMessage('Invalid table selection');
+                return;
+            }
+
             const connections = vscode.workspace.getConfiguration().get<any[]>('postgresExplorer.connections') || [];
             const connection = connections.find(c => c.id === item.connectionId);
             if (!connection) {
@@ -60,24 +63,30 @@ export function activate(context: vscode.ExtensionContext) {
             }
 
             let client: Client | undefined;
-
             try {
                 client = new Client({
                     host: connection.host,
                     port: connection.port,
                     user: connection.username,
                     password: String(connection.password),
-                    database: item.databaseName
+                    database: item.databaseName || connection.database,
+                    connectionTimeoutMillis: 5000
                 });
 
                 await client.connect();
+                
+                // Pass the connected client to TablePropertiesPanel
                 await TablePropertiesPanel.show(client, item.schema!, item.label);
             } catch (err: any) {
                 const errorMessage = err?.message || 'Unknown error occurred';
                 vscode.window.showErrorMessage(`Failed to show table properties: ${errorMessage}`);
-            } finally {
+                
                 if (client) {
-                    await client.end();
+                    try {
+                        await client.end();
+                    } catch (closeErr) {
+                        console.error('Error closing connection:', closeErr);
+                    }
                 }
             }
         })
@@ -202,50 +211,72 @@ class PostgresExplorer implements vscode.TreeDataProvider<DatabaseItem> {
     }
 
     async getChildren(element?: DatabaseItem): Promise<DatabaseItem[]> {
-        if (!client) {
+        const connections = vscode.workspace.getConfiguration().get<any[]>('postgresExplorer.connections') || [];
+        if (connections.length === 0) {
             return [];
         }
 
-        if (!element) {
-            // Root level - show schemas
-            const result = await client.query(
-                "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('information_schema', 'pg_catalog')"
-            );
-            return result.rows.map(row => new DatabaseItem(
-                row.schema_name,
-                vscode.TreeItemCollapsibleState.Collapsed,
-                'schema'
-            ));
-        }
+        let client: Client | undefined;
+        try {
+            const connection = connections[0]; // Use the first connection for now
+            client = new Client({
+                host: connection.host,
+                port: connection.port,
+                user: connection.username,
+                password: String(connection.password),
+                database: connection.database
+            });
 
-        if (element.type === 'schema') {
-            // Show tables in schema
-            const result = await client.query(
-                "SELECT table_name FROM information_schema.tables WHERE table_schema = $1",
-                [element.label]
-            );
-            return result.rows.map(row => new DatabaseItem(
-                row.table_name,
-                vscode.TreeItemCollapsibleState.Collapsed,
-                'table',
-                element.label as string
-            ));
-        }
+            await client.connect();
 
-        if (element.type === 'table') {
-            // Show columns in table
-            const result = await client.query(
-                "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2",
-                [element.schema, element.label]
-            );
-            return result.rows.map(row => new DatabaseItem(
-                `${row.column_name} (${row.data_type})`,
-                vscode.TreeItemCollapsibleState.None,
-                'column'
-            ));
-        }
+            if (!element) {
+                // Root level - show schemas
+                const result = await client.query(
+                    "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('information_schema', 'pg_catalog')"
+                );
+                return result.rows.map(row => new DatabaseItem(
+                    row.schema_name,
+                    vscode.TreeItemCollapsibleState.Collapsed,
+                    'schema'
+                ));
+            }
 
-        return [];
+            if (element.type === 'schema') {
+                // Show tables in schema
+                const result = await client.query(
+                    "SELECT table_name FROM information_schema.tables WHERE table_schema = $1",
+                    [element.label]
+                );
+                return result.rows.map(row => new DatabaseItem(
+                    row.table_name,
+                    vscode.TreeItemCollapsibleState.Collapsed,
+                    'table',
+                    element.label as string
+                ));
+            }
+
+            if (element.type === 'table') {
+                // Show columns in table
+                const result = await client.query(
+                    "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2",
+                    [element.schema, element.label]
+                );
+                return result.rows.map(row => new DatabaseItem(
+                    `${row.column_name} (${row.data_type})`,
+                    vscode.TreeItemCollapsibleState.None,
+                    'column'
+                ));
+            }
+
+            return [];
+        } catch (err: any) {
+            vscode.window.showErrorMessage(`Database connection error: ${err.message}`);
+            return [];
+        } finally {
+            if (client) {
+                await client.end();
+            }
+        }
     }
 }
 
@@ -272,7 +303,5 @@ class DatabaseItem extends vscode.TreeItem {
 }
 
 export function deactivate() {
-    if (client) {
-        client.end();
-    }
+    // Remove client handling as it's now handled per request
 }
