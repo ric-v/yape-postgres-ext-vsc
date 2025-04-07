@@ -1,7 +1,7 @@
 {
   "name": "postgres-explorer",
   "displayName": "PostgreSQL Explorer",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "PostgreSQL database explorer for VS Code with notebook support",
   "publisher": "ric-v",
   "private": false,
@@ -205,7 +205,20 @@
       ]
     }
   },
-  "activationEvents": [],
+  "activationEvents": [
+    "onView:postgresExplorer",
+    "onCommand:postgres-explorer.addConnection",
+    "onCommand:postgres-explorer.refreshConnections",
+    "onCommand:postgres-explorer.showTableProperties",
+    "onCommand:postgres-explorer.newNotebook",
+    "onCommand:postgres-explorer.connect",
+    "onCommand:postgres-explorer.disconnect",
+    "onCommand:postgres-explorer.refresh",
+    "onCommand:postgres-explorer.deleteConnection",
+    "onCommand:postgresExplorer.openColumnNotebook",
+    "onNotebook:postgres-notebook",
+    "onNotebook:postgres-query"
+  ],
   "main": "./out/extension.js",
   "scripts": {
     "vscode:prepublish": "npm run compile",
