@@ -14,19 +14,23 @@ export class PostgresKernel {
     private readonly id = 'postgres-kernel';
     private readonly label = 'PostgreSQL Kernel';
     private readonly controller: vscode.NotebookController;
+    private messageHandler?: (message: any) => void;
 
     constructor(messageHandler?: (message: any) => void) {
+        console.log('PostgresKernel: Initializing');
         this.controller = vscode.notebooks.createNotebookController(
             this.id,
             'postgres-notebook',
             this.label
         );
 
+        this.messageHandler = messageHandler;
+        console.log('PostgresKernel: Message handler registered:', !!messageHandler);
+
         this.controller.supportedLanguages = ['sql'];
         this.controller.supportsExecutionOrder = true;
         this.controller.description = 'PostgreSQL Query Executor';
         this.controller.executeHandler = this._executeAll.bind(this);
-
     }
 
     private async _executeAll(cells: vscode.NotebookCell[], _notebook: vscode.NotebookDocument, _controller: vscode.NotebookController): Promise<void> {
@@ -36,12 +40,13 @@ export class PostgresKernel {
     }
 
     private async _doExecution(cell: vscode.NotebookCell): Promise<void> {
+        console.log('PostgresKernel: Starting cell execution');
         const execution = this.controller.createNotebookCellExecution(cell);
         execution.start(Date.now());
 
         try {
             const metadata = cell.notebook.metadata as NotebookMetadata;
-            if (!metadata || !metadata.connectionId || !metadata.host || !metadata.port || !metadata.username || !metadata.password || !metadata.databaseName) {
+            if (!metadata) {
                 throw new Error('No connection metadata found');
             }
 
@@ -54,231 +59,292 @@ export class PostgresKernel {
             });
 
             await client.connect();
+            console.log('PostgresKernel: Connected to database');
 
             const query = cell.document.getText();
             const result = await client.query(query);
             await client.end();
 
-            // Format the results as a markdown table
-            const headers = result.fields.map(field => field.name);
-            const rows = result.rows;
-            
-            let html = '';
             if (result.fields.length > 0) {
-                html = `
-                <style>
-                    .result-table {
-                        border-collapse: collapse;
-                        width: 100%;
-                        font-family: var(--vscode-font-family);
-                        margin-bottom: 10px;
-                    }
-                    .result-table th, .result-table td {
-                        border: 1px solid var(--vscode-panel-border);
-                        padding: 8px;
-                        text-align: left;
-                    }
-                    .result-table th {
-                        background: var(--vscode-editor-background);
-                        position: sticky;
-                        top: 0;
-                        cursor: pointer;
-                        user-select: none;
-                    }
-                    .result-table th:hover {
-                        background: var(--vscode-list-hoverBackground);
-                    }
-                    .result-table tr:nth-child(even) {
-                        background: var(--vscode-list-hoverBackground);
-                    }
-                    .table-container {
-                        max-height: 400px;
-                        overflow: auto;
-                        border: 1px solid var(--vscode-panel-border);
-                        margin-bottom: 10px;
-                    }
-                    .sort-icon::after {
-                        content: '⇅';
-                        margin-left: 5px;
-                        font-size: 0.8em;
-                    }
-                    .sort-asc::after {
-                        content: '↑';
-                    }
-                    .sort-desc::after {
-                        content: '↓';
-                    }
-                    .export-buttons {
-                        margin-bottom: 10px;
-                        display: flex;
-                        gap: 8px;
-                    }
-                    .export-button {
-                        background: var(--vscode-button-background);
-                        color: var(--vscode-button-foreground);
-                        border: none;
-                        padding: 4px 12px;
-                        cursor: pointer;
-                        border-radius: 2px;
-                        display: flex;
-                        align-items: center;
-                        gap: 4px;
-                    }
-                    .export-button:hover {
-                        background: var(--vscode-button-hoverBackground);
-                    }
-                </style>
-                <div class="export-buttons">
-                    <button class="export-button" onclick="exportToCSV()">
-                        <span>Export CSV</span>
-                    </button>
-                    <button class="export-button" onclick="exportToExcel()">
-                        <span>Export Excel</span>
-                    </button>
-                </div>
-                <div class="table-container">
-                    <table class="result-table">
-                        <thead>
-                            <tr>
-                                ${result.fields.map((f, i) => `<th onclick="sortTable(${i})" class="sort-icon">${f.name}</th>`).join('')}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${result.rows.map(row => 
-                                '<tr>' + 
-                                result.fields.map(f => `<td>${String(row[f.name] ?? '')}</td>`).join('') +
-                                '</tr>'
-                            ).join('')}
-                        </tbody>
-                    </table>
-                </div>
-                <div>${rows.length} rows</div>
-                <script>
-                    const vscode = acquireVsCodeApi();
-                    
-                    function sortTable(colIndex) {
-                        const table = document.querySelector('.result-table');
-                        const headers = table.querySelectorAll('th');
-                        const tbody = table.querySelector('tbody');
-                        const rows = Array.from(tbody.querySelectorAll('tr'));
-                        const header = headers[colIndex];
-                        const isAsc = !header.classList.contains('sort-asc');
-
-                        // Reset all headers
-                        headers.forEach(h => {
-                            h.classList.remove('sort-asc', 'sort-desc');
-                            h.classList.add('sort-icon');
+                console.log('PostgresKernel: Query returned', result.rows.length, 'rows');
+                
+                const headers = result.fields.map(f => f.name);
+                const rows = result.rows;
+                
+                const html = `
+                    <style>
+                        .output-controls {
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: center;
+                            margin-bottom: 16px;
+                            gap: 8px;
+                        }
+                        .export-container {
+                            position: relative;
+                            display: inline-block;
+                        }
+                        .export-button {
+                            background: transparent;
+                            color: var(--vscode-foreground);
+                            border: 1px solid var(--vscode-button-border);
+                            padding: 4px 8px;
+                            cursor: pointer;
+                            border-radius: 2px;
+                            display: flex;
+                            align-items: center;
+                            gap: 4px;
+                            min-width: 32px;
+                            justify-content: center;
+                            opacity: 0.8;
+                        }
+                        .export-button:hover {
+                            opacity: 1;
+                            background: var(--vscode-button-secondaryHoverBackground);
+                        }
+                        .export-menu {
+                            display: none;
+                            position: absolute;
+                            top: 100%;
+                            left: 0;
+                            background: var(--vscode-menu-background);
+                            border: 1px solid var(--vscode-menu-border);
+                            border-radius: 2px;
+                            box-shadow: 0 2px 8px var(--vscode-widget-shadow);
+                            z-index: 1000;
+                            min-width: 160px;
+                        }
+                        .export-menu.show {
+                            display: block;
+                        }
+                        .export-option {
+                            padding: 8px 16px;
+                            cursor: pointer;
+                            display: flex;
+                            align-items: center;
+                            gap: 8px;
+                            color: var(--vscode-menu-foreground);
+                            text-decoration: none;
+                            white-space: nowrap;
+                            opacity: 0.8;
+                        }
+                        .export-option:hover {
+                            background: var(--vscode-list-hoverBackground);
+                            opacity: 1;
+                        }
+                        .clear-button {
+                            opacity: 0.6;
+                        }
+                        .clear-button:hover {
+                            opacity: 0.8;
+                        }
+                        .icon {
+                            width: 16px;
+                            height: 16px;
+                            display: inline-flex;
+                            align-items: center;
+                            justify-content: center;
+                        }
+                        .table-container {
+                            max-height: 400px;
+                            overflow: auto;
+                            border: 1px solid var(--vscode-panel-border);
+                        }
+                        table {
+                            width: 100%;
+                            border-collapse: collapse;
+                        }
+                        th, td {
+                            padding: 8px;
+                            text-align: left;
+                            border: 1px solid var(--vscode-panel-border);
+                        }
+                        th {
+                            background: var(--vscode-editor-background);
+                            position: sticky;
+                            top: 0;
+                        }
+                        tr:nth-child(even) {
+                            background: var(--vscode-list-hoverBackground);
+                        }
+                        .hidden {
+                            display: none !important;
+                        }
+                    </style>
+                    <div class="output-wrapper">
+                        <div class="output-controls">
+                            <div class="export-container">
+                                <button class="export-button" onclick="toggleExportMenu()" title="Export options">
+                                    <span class="icon">🗃️</span>
+                                </button>
+                                <div class="export-menu" id="exportMenu">
+                                    <a href="#" class="export-option" onclick="downloadCSV(); return false;">
+                                        <span class="icon">📄</span> CSV
+                                    </a>
+                                    <a href="#" class="export-option" onclick="downloadExcel(); return false;">
+                                        <span class="icon">📊</span> Excel
+                                    </a>
+                                    <a href="#" class="export-option" onclick="downloadJSON(); return false;">
+                                        <span class="icon">{ }</span> JSON
+                                    </a>
+                                </div>
+                            </div>
+                            <button class="export-button clear-button" onclick="clearOutput()" title="Clear output">
+                                <span class="icon">❌</span>
+                            </button>
+                        </div>
+                        <div class="output-content">
+                            <div class="table-container">
+                                <table id="resultTable">
+                                    <thead>
+                                        <tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr>
+                                    </thead>
+                                    <tbody>
+                                        ${rows.map(row => 
+                                            `<tr>${headers.map(h => {
+                                                const val = row[h];
+                                                return `<td>${val === null ? '' : val}</td>`;
+                                            }).join('')}</tr>`
+                                        ).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div>${rows.length} rows</div>
+                        </div>
+                    </div>
+                    <script>
+                        // Close export menu when clicking outside
+                        document.addEventListener('click', function(event) {
+                            const menu = document.getElementById('exportMenu');
+                            const button = event.target.closest('.export-button');
+                            if (!button && menu.classList.contains('show')) {
+                                menu.classList.remove('show');
+                            }
                         });
 
-                        // Set current header sort state
-                        header.classList.remove('sort-icon');
-                        header.classList.add(isAsc ? 'sort-asc' : 'sort-desc');
+                        function toggleExportMenu() {
+                            const menu = document.getElementById('exportMenu');
+                            menu.classList.toggle('show');
+                        }
 
-                        // Sort rows
-                        rows.sort((a, b) => {
-                            const aVal = a.cells[colIndex].textContent;
-                            const bVal = b.cells[colIndex].textContent;
-                            return isAsc ? 
-                                aVal.localeCompare(bVal, undefined, {numeric: true}) :
-                                bVal.localeCompare(aVal, undefined, {numeric: true});
-                        });
+                        function clearOutput() {
+                            const wrapper = document.querySelector('.output-wrapper');
+                            wrapper.classList.add('hidden');
+                        }
 
-                        // Reorder rows
-                        tbody.append(...rows);
+                        function downloadCSV() {
+                            const table = document.getElementById('resultTable');
+                            const headers = Array.from(table.querySelectorAll('th')).map(th => th.textContent);
+                            const rows = Array.from(table.querySelectorAll('tbody tr')).map(row => 
+                                Array.from(row.querySelectorAll('td')).map(cell => {
+                                    const val = cell.textContent || '';
+                                    return val.includes(',') || val.includes('"') || val.includes('\\n') ?
+                                        '"' + val.replace(/"/g, '""') + '"' :
+                                        val;
+                                })
+                            );
+
+                            const csv = [
+                                headers.join(','),
+                                ...rows.map(row => row.join(','))
+                            ].join('\\n');
+
+                            downloadFile(csv, 'query_result.csv', 'text/csv');
+                        }
+
+                        function downloadJSON() {
+                            const table = document.getElementById('resultTable');
+                            const headers = Array.from(table.querySelectorAll('th')).map(th => th.textContent);
+                            const rows = Array.from(table.querySelectorAll('tbody tr')).map(row => {
+                                const rowData = {};
+                                Array.from(row.querySelectorAll('td')).forEach((cell, index) => {
+                                    rowData[headers[index]] = cell.textContent || '';
+                                });
+                                return rowData;
+                            });
+
+                            const json = JSON.stringify(rows, null, 2);
+                            downloadFile(json, 'query_result.json', 'application/json');
+                        }
+
+                        function downloadExcel() {
+                            const table = document.getElementById('resultTable');
+                            const headers = Array.from(table.querySelectorAll('th')).map(th => th.textContent);
+                            const rows = Array.from(table.querySelectorAll('tbody tr')).map(row => 
+                                Array.from(row.querySelectorAll('td')).map(cell => cell.textContent || '')
+                            );
+
+                            let xml = '<?xml version="1.0"?>\\n<?mso-application progid="Excel.Sheet"?>\\n';
+                            xml += '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">\\n';
+                            xml += '<Worksheet ss:Name="Query Result"><Table>\\n';
+                            
+                            xml += '<Row>' + headers.map(h => 
+                                '<Cell><Data ss:Type="String">' + 
+                                (h || '').replace(/[<>&]/g, c => c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&amp;') + 
+                                '</Data></Cell>'
+                            ).join('') + '</Row>\\n';
+                            
+                            rows.forEach(row => {
+                                xml += '<Row>' + row.map(cell => {
+                                    const value = cell || '';
+                                    return '<Cell><Data ss:Type="String">' + 
+                                        value.toString().replace(/[<>&]/g, c => 
+                                            c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&amp;'
+                                        ) + 
+                                        '</Data></Cell>';
+                                }).join('') + '</Row>\\n';
+                            });
+                            
+                            xml += '</Table></Worksheet></Workbook>';
+                            downloadFile(xml, 'query_result.xls', 'application/vnd.ms-excel');
+                        }
+
+                        function downloadFile(content, filename, type) {
+                            const blob = new Blob([content], { type });
+                            const a = document.createElement('a');
+                            a.href = URL.createObjectURL(blob);
+                            a.download = filename;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            URL.revokeObjectURL(a.href);
+                            // Close the export menu after downloading
+                            document.getElementById('exportMenu').classList.remove('show');
+                        }
+                    </script>`;
+
+                const output = new vscode.NotebookCellOutput([
+                    vscode.NotebookCellOutputItem.text(html, 'text/html')
+                ]);
+
+                output.metadata = {
+                    outputType: 'display_data',
+                    custom: {
+                        vscode: {
+                            cellId: cell.document.uri.toString(),
+                            controllerId: this.id,
+                            enableScripts: true
+                        }
                     }
+                };
 
-                    function exportToCSV() {
-                        const table = document.querySelector('.result-table');
-                        const headers = Array.from(table.querySelectorAll('th')).map(th => th.textContent);
-                        const rows = Array.from(table.querySelectorAll('tbody tr')).map(row => 
-                            Array.from(row.querySelectorAll('td')).map(cell => {
-                                let content = cell.textContent || '';
-                                if (content.includes(',') || content.includes('\n') || content.includes('"')) {
-                                    content = '"' + content.replace(/"/g, '""') + '"';
-                                }
-                                return content;
-                            })
-                        );
-                        const csv = [headers.join(','), ...rows.map(row => row.join(','))].join('\n');
-                        
-                        vscode.postMessage({
-                            type: 'custom',
-                            command: 'export',
-                            format: 'csv',
-                            content: csv,
-                            filename: 'query_result_' + new Date().toISOString().replace(/[:.]/g, '-') + '.csv'
-                        });
-                    }
-
-                    function exportToExcel() {
-                        const table = document.querySelector('.result-table');
-                        const headers = Array.from(table.querySelectorAll('th')).map(th => th.textContent);
-                        const rows = Array.from(table.querySelectorAll('tbody tr')).map(row => 
-                            Array.from(row.querySelectorAll('td')).map(cell => cell.textContent)
-                        );
-                        
-                        let xml = '<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?>';
-                        xml += '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">';
-                        xml += '<Worksheet ss:Name="Query Result"><Table>';
-                        
-                        xml += '<Row>' + headers.map(h => 
-                            '<Cell><Data ss:Type="String">' + (h || '').replace(/[<>&]/g, c => 
-                                c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&amp;'
-                            ) + '</Data></Cell>'
-                        ).join('') + '</Row>';
-                        
-                        rows.forEach(row => {
-                            xml += '<Row>' + row.map(cell => {
-                                const value = cell || '';
-                                const type = !isNaN(value as any) && value !== '' ? 'Number' : 'String';
-                                return '<Cell><Data ss:Type="' + type + '">' + 
-                                    value.toString().replace(/[<>&]/g, c => 
-                                        c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&amp;'
-                                    ) + 
-                                    '</Data></Cell>';
-                            }).join('') + '</Row>';
-                        });
-                        
-                        xml += '</Table></Worksheet></Workbook>';
-                        
-                        vscode.postMessage({
-                            type: 'custom',
-                            command: 'export',
-                            format: 'excel',
-                            content: xml,
-                            filename: 'query_result_' + new Date().toISOString().replace(/[:.]/g, '-') + '.xls'
-                        });
-                    }
-                </script>`;
+                execution.replaceOutput([output]);
+                execution.end(true);
+                console.log('PostgresKernel: Cell execution completed successfully');
             } else {
-                html = '<div>No results</div>';
+                const output = new vscode.NotebookCellOutput([
+                    vscode.NotebookCellOutputItem.text('<div>No results</div>', 'text/html')
+                ]);
+                execution.replaceOutput([output]);
+                execution.end(true);
             }
-
-            const output = new vscode.NotebookCellOutput([
-                vscode.NotebookCellOutputItem.text(html, 'text/html')
-            ]);
-
-            // Add metadata for webview communication
-            output.metadata = {
-                outputType: 'display_data',
-                custom: {
-                    vscode: {
-                        cellId: cell.document.uri.toString(),
-                        controllerId: this.id
-                    }
-                }
-            };
-
-            execution.replaceOutput([output]);
-            execution.end(true);
-
         } catch (err: any) {
-            const errorMessage = err?.message || 'Unknown error occurred';
+            console.error('PostgresKernel: Cell execution failed:', err);
             execution.replaceOutput([
                 new vscode.NotebookCellOutput([
                     vscode.NotebookCellOutputItem.error({
                         name: 'Error',
-                        message: errorMessage
+                        message: err.message || 'Unknown error occurred'
                     })
                 ])
             ]);
