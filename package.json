@@ -80,6 +80,11 @@
         "command": "postgresExplorer.openColumnNotebook",
         "title": "Open Column Analysis",
         "category": "Postgres Explorer"
+      },
+      {
+        "command": "postgres-explorer.showViewProperties",
+        "title": "Show View Properties",
+        "icon": "$(info)"
       }
     ],
     "viewsContainers": {
@@ -205,6 +210,11 @@
           "command": "postgres-explorer.deleteConnection",
           "when": "view == postgresExplorer && viewItem == connection",
           "group": "inline@0"
+        },
+        {
+          "command": "postgres-explorer.showViewProperties",
+          "when": "view == postgresExplorer && viewItem == view",
+          "group": "inline@2"
         }
       ]
     }

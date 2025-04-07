@@ -171,6 +171,50 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
+        vscode.commands.registerCommand('postgres-explorer.showViewProperties', async (item: DatabaseTreeItem) => {
+            if (!item || !item.schema || !item.connectionId) {
+                vscode.window.showErrorMessage('Invalid view selection');
+                return;
+            }
+
+            const connections = vscode.workspace.getConfiguration().get<any[]>('postgresExplorer.connections') || [];
+            const connection = connections.find(c => c.id === item.connectionId);
+            if (!connection) {
+                vscode.window.showErrorMessage('Connection not found');
+                return;
+            }
+
+            let client: Client | undefined;
+            try {
+                client = new Client({
+                    host: connection.host,
+                    port: connection.port,
+                    user: connection.username,
+                    password: String(connection.password),
+                    database: item.databaseName || connection.database,
+                    connectionTimeoutMillis: 5000
+                });
+
+                await client.connect();
+                
+                // Pass the connected client to TablePropertiesPanel with isView flag
+                await TablePropertiesPanel.show(client, item.schema!, item.label, true);
+            } catch (err: any) {
+                const errorMessage = err?.message || 'Unknown error occurred';
+                vscode.window.showErrorMessage(`Failed to show view properties: ${errorMessage}`);
+                
+                if (client) {
+                    try {
+                        await client.end();
+                    } catch (closeErr) {
+                        console.error('Error closing connection:', closeErr);
+                    }
+                }
+            }
+        })
+    );
+
+    context.subscriptions.push(
         vscode.commands.registerCommand('postgres-explorer.connect', async () => {
             try {
                 const connectionString = await vscode.window.showInputBox({

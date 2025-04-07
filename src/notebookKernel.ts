@@ -68,26 +68,82 @@ export class PostgresKernel {
             if (result.fields.length > 0) {
                 console.log('PostgresKernel: Query returned', result.rows.length, 'rows');
                 
-                // Prepare the data
                 const headers = result.fields.map(f => f.name);
                 const rows = result.rows;
                 
                 const html = `
                     <style>
-                        .export-container {
+                        .output-controls {
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: center;
                             margin-bottom: 16px;
+                            gap: 8px;
+                        }
+                        .export-container {
+                            position: relative;
+                            display: inline-block;
                         }
                         .export-button {
-                            background: var(--vscode-button-background);
-                            color: var(--vscode-button-foreground);
-                            border: none;
-                            padding: 8px 16px;
+                            background: transparent;
+                            color: var(--vscode-foreground);
+                            border: 1px solid var(--vscode-button-border);
+                            padding: 4px 8px;
                             cursor: pointer;
-                            margin-right: 8px;
                             border-radius: 2px;
+                            display: flex;
+                            align-items: center;
+                            gap: 4px;
+                            min-width: 32px;
+                            justify-content: center;
+                            opacity: 0.8;
                         }
                         .export-button:hover {
-                            background: var(--vscode-button-hoverBackground);
+                            opacity: 1;
+                            background: var(--vscode-button-secondaryHoverBackground);
+                        }
+                        .export-menu {
+                            display: none;
+                            position: absolute;
+                            top: 100%;
+                            left: 0;
+                            background: var(--vscode-menu-background);
+                            border: 1px solid var(--vscode-menu-border);
+                            border-radius: 2px;
+                            box-shadow: 0 2px 8px var(--vscode-widget-shadow);
+                            z-index: 1000;
+                            min-width: 160px;
+                        }
+                        .export-menu.show {
+                            display: block;
+                        }
+                        .export-option {
+                            padding: 8px 16px;
+                            cursor: pointer;
+                            display: flex;
+                            align-items: center;
+                            gap: 8px;
+                            color: var(--vscode-menu-foreground);
+                            text-decoration: none;
+                            white-space: nowrap;
+                            opacity: 0.8;
+                        }
+                        .export-option:hover {
+                            background: var(--vscode-list-hoverBackground);
+                            opacity: 1;
+                        }
+                        .clear-button {
+                            opacity: 0.6;
+                        }
+                        .clear-button:hover {
+                            opacity: 0.8;
+                        }
+                        .icon {
+                            width: 16px;
+                            height: 16px;
+                            display: inline-flex;
+                            align-items: center;
+                            justify-content: center;
                         }
                         .table-container {
                             max-height: 400px;
@@ -111,27 +167,71 @@ export class PostgresKernel {
                         tr:nth-child(even) {
                             background: var(--vscode-list-hoverBackground);
                         }
+                        .hidden {
+                            display: none !important;
+                        }
                     </style>
-                    <div class="export-container">
-                        <button class="export-button" onclick="downloadCSV()">Export CSV</button>
-                        <button class="export-button" onclick="downloadExcel()">Export Excel</button>
+                    <div class="output-wrapper">
+                        <div class="output-controls">
+                            <div class="export-container">
+                                <button class="export-button" onclick="toggleExportMenu()" title="Export options">
+                                    <span class="icon">🗃️</span>
+                                </button>
+                                <div class="export-menu" id="exportMenu">
+                                    <a href="#" class="export-option" onclick="downloadCSV(); return false;">
+                                        <span class="icon">📄</span> CSV
+                                    </a>
+                                    <a href="#" class="export-option" onclick="downloadExcel(); return false;">
+                                        <span class="icon">📊</span> Excel
+                                    </a>
+                                    <a href="#" class="export-option" onclick="downloadJSON(); return false;">
+                                        <span class="icon">{ }</span> JSON
+                                    </a>
+                                </div>
+                            </div>
+                            <button class="export-button clear-button" onclick="clearOutput()" title="Clear output">
+                                <span class="icon">❌</span>
+                            </button>
+                        </div>
+                        <div class="output-content">
+                            <div class="table-container">
+                                <table id="resultTable">
+                                    <thead>
+                                        <tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr>
+                                    </thead>
+                                    <tbody>
+                                        ${rows.map(row => 
+                                            `<tr>${headers.map(h => {
+                                                const val = row[h];
+                                                return `<td>${val === null ? '' : val}</td>`;
+                                            }).join('')}</tr>`
+                                        ).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div>${rows.length} rows</div>
+                        </div>
                     </div>
-                    <div class="table-container">
-                        <table id="resultTable">
-                            <thead>
-                                <tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr>
-                            </thead>
-                            <tbody>
-                                ${rows.map(row => 
-                                    `<tr>${headers.map(h => 
-                                        `<td>${row[h] === null ? '' : String(row[h])}</td>`
-                                    ).join('')}</tr>`
-                                ).join('')}
-                            </tbody>
-                        </table>
-                    </div>
-                    <div>${rows.length} rows</div>
                     <script>
+                        // Close export menu when clicking outside
+                        document.addEventListener('click', function(event) {
+                            const menu = document.getElementById('exportMenu');
+                            const button = event.target.closest('.export-button');
+                            if (!button && menu.classList.contains('show')) {
+                                menu.classList.remove('show');
+                            }
+                        });
+
+                        function toggleExportMenu() {
+                            const menu = document.getElementById('exportMenu');
+                            menu.classList.toggle('show');
+                        }
+
+                        function clearOutput() {
+                            const wrapper = document.querySelector('.output-wrapper');
+                            wrapper.classList.add('hidden');
+                        }
+
                         function downloadCSV() {
                             const table = document.getElementById('resultTable');
                             const headers = Array.from(table.querySelectorAll('th')).map(th => th.textContent);
@@ -152,30 +252,42 @@ export class PostgresKernel {
                             downloadFile(csv, 'query_result.csv', 'text/csv');
                         }
 
+                        function downloadJSON() {
+                            const table = document.getElementById('resultTable');
+                            const headers = Array.from(table.querySelectorAll('th')).map(th => th.textContent);
+                            const rows = Array.from(table.querySelectorAll('tbody tr')).map(row => {
+                                const rowData = {};
+                                Array.from(row.querySelectorAll('td')).forEach((cell, index) => {
+                                    rowData[headers[index]] = cell.textContent || '';
+                                });
+                                return rowData;
+                            });
+
+                            const json = JSON.stringify(rows, null, 2);
+                            downloadFile(json, 'query_result.json', 'application/json');
+                        }
+
                         function downloadExcel() {
                             const table = document.getElementById('resultTable');
                             const headers = Array.from(table.querySelectorAll('th')).map(th => th.textContent);
                             const rows = Array.from(table.querySelectorAll('tbody tr')).map(row => 
-                                Array.from(row.querySelectorAll('td')).map(cell => cell.textContent)
+                                Array.from(row.querySelectorAll('td')).map(cell => cell.textContent || '')
                             );
 
                             let xml = '<?xml version="1.0"?>\\n<?mso-application progid="Excel.Sheet"?>\\n';
                             xml += '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">\\n';
                             xml += '<Worksheet ss:Name="Query Result"><Table>\\n';
                             
-                            // Add headers
                             xml += '<Row>' + headers.map(h => 
                                 '<Cell><Data ss:Type="String">' + 
                                 (h || '').replace(/[<>&]/g, c => c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&amp;') + 
                                 '</Data></Cell>'
                             ).join('') + '</Row>\\n';
                             
-                            // Add data rows
                             rows.forEach(row => {
                                 xml += '<Row>' + row.map(cell => {
                                     const value = cell || '';
-                                    const type = !isNaN(value) && value !== '' ? 'Number' : 'String';
-                                    return '<Cell><Data ss:Type="' + type + '">' + 
+                                    return '<Cell><Data ss:Type="String">' + 
                                         value.toString().replace(/[<>&]/g, c => 
                                             c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&amp;'
                                         ) + 
@@ -184,7 +296,6 @@ export class PostgresKernel {
                             });
                             
                             xml += '</Table></Worksheet></Workbook>';
-
                             downloadFile(xml, 'query_result.xls', 'application/vnd.ms-excel');
                         }
 
@@ -197,6 +308,8 @@ export class PostgresKernel {
                             a.click();
                             document.body.removeChild(a);
                             URL.revokeObjectURL(a.href);
+                            // Close the export menu after downloading
+                            document.getElementById('exportMenu').classList.remove('show');
                         }
                     </script>`;
 

@@ -2,9 +2,9 @@ import * as vscode from 'vscode';
 import { Client } from 'pg';
 
 export class TablePropertiesPanel {
-    public static async show(client: Client, schema: string, tableName: string): Promise<void> {
+    public static async show(client: Client, schema: string, name: string, isView: boolean = false): Promise<void> {
         try {
-            // Get column information for table view
+            // Get column information
             const columnQuery = `
                 SELECT 
                     a.attname as column_name,
@@ -26,72 +26,36 @@ export class TablePropertiesPanel {
                     ON pc.conrelid = a.attrelid 
                     AND a.attnum = ANY(pc.conkey)
                     AND pc.contype = 'p'
-                WHERE a.attrelid = '${schema}.${tableName}'::regclass
+                WHERE a.attrelid = '${schema}.${name}'::regclass
                 AND a.attnum > 0
                 AND NOT a.attisdropped
                 ORDER BY a.attnum`;
 
-            // Get CREATE TABLE script
-            const scriptQuery = `
-                WITH table_info AS (
-                    SELECT
-                        a.attname as column_name,
-                        pg_catalog.format_type(a.atttypid, a.atttypmod) as data_type,
-                        CASE WHEN a.attnotnull THEN 'NOT NULL' ELSE 'NULL' END as nullable,
-                        CASE WHEN a.atthasdef THEN pg_get_expr(d.adbin, d.adrelid) ELSE '' END as default_value,
-                        CASE WHEN pc.contype = 'p' THEN ', PRIMARY KEY' ELSE '' END as key_constraint
-                    FROM pg_catalog.pg_attribute a
-                    LEFT JOIN pg_catalog.pg_attrdef d ON (a.attrelid, a.attnum) = (d.adrelid, d.adnum)
-                    LEFT JOIN pg_catalog.pg_constraint pc ON pc.conrelid = a.attrelid 
-                        AND a.attnum = ANY(pc.conkey) AND pc.contype = 'p'
-                    WHERE a.attrelid = '${schema}.${tableName}'::regclass
-                    AND a.attnum > 0 AND NOT a.attisdropped
-                    ORDER BY a.attnum
-                )
-                SELECT format(
-                    'CREATE TABLE %I.%I (%s);',
-                    '${schema}',
-                    '${tableName}',
-                    string_agg(
-                        format('%I %s %s%s',
-                            column_name,
-                            data_type,
-                            nullable,
-                            key_constraint
-                        ),
-                        ', '
-                    )
-                ) as table_script
-                FROM table_info;
-            `;
+            // Get definition based on type
+            const definitionQuery = isView ? 
+                `SELECT pg_get_viewdef('${schema}.${name}'::regclass, true) as definition` :
+                `SELECT pg_get_tabledef('${schema}.${name}'::regclass) as definition`;
 
-            const [colResult, scriptResult] = await Promise.all([
+            const [colResult, defResult] = await Promise.all([
                 client.query(columnQuery),
-                client.query(scriptQuery)
+                client.query(definitionQuery)
             ]);
 
-            // Format CREATE TABLE script with proper indentation
-            interface ScriptResult {
-                table_script: string;
-            }
-
-            interface FormatMatchResult {
-                match: string;
-                group: string;
-            }
-
-            const formattedScript: string = scriptResult.rows[0].table_script
-                .replace(/[<>]/g, (m: string): string => m === '<' ? '&lt;' : '&gt;')
-                .replace(/\((.*)\)/s, (match: string, group: string): string => {
-                    return '(\n  ' + group
-                        .split(',')
-                        .map((line: string): string => line.trim())
-                        .join(',\n  ') + '\n)';
-                });
+            // Format the definition with proper indentation
+            const definition = isView ? 
+                defResult.rows[0].definition :
+                defResult.rows[0].definition
+                    .replace(/[<>]/g, (m: string): string => m === '<' ? '&lt;' : '&gt;')
+                    .replace(/\((.*)\)/s, (match: string, group: string): string => {
+                        return '(\n  ' + group
+                            .split(',')
+                            .map((line: string): string => line.trim())
+                            .join(',\n  ') + '\n)';
+                    });
 
             const panel = vscode.window.createWebviewPanel(
-                'tableProperties',
-                `${tableName} Properties`,
+                isView ? 'viewProperties' : 'tableProperties',
+                `${name} Properties`,
                 vscode.ViewColumn.One,
                 { enableScripts: true }
             );
@@ -308,7 +272,7 @@ export class TablePropertiesPanel {
                 <body>
                     <div class="container">
                         <div class="header">
-                            <h2>${schema}.${tableName}</h2>
+                            <h2>${schema}.${name}</h2>
                             <div class="switch-container">
                                 <span class="view-label">Table</span>
                                 <label class="switch">
@@ -337,7 +301,7 @@ export class TablePropertiesPanel {
                         </div>
 
                         <div id="scriptView" class="script-container">
-                            <pre>${formatSqlWithHighlighting(formattedScript)}</pre>
+                            <pre>${formatSqlWithHighlighting(definition)}</pre>
                         </div>
                     </div>
 
@@ -382,7 +346,7 @@ export class TablePropertiesPanel {
                 </body>
                 </html>`;
         } catch (err: any) {
-            vscode.window.showErrorMessage(`Error loading table properties: ${err.message}`);
+            vscode.window.showErrorMessage(`Error loading properties: ${err.message}`);
         }
     }
 }
