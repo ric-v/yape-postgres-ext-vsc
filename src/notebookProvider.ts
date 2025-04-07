@@ -43,7 +43,6 @@ export class PostgresNotebookProvider implements vscode.NotebookSerializer {
                     );
                 }
             } catch {
-                // If parsing fails, create a default cell
                 cells = [
                     new vscode.NotebookCellData(
                         vscode.NotebookCellKind.Code,
@@ -53,7 +52,6 @@ export class PostgresNotebookProvider implements vscode.NotebookSerializer {
                 ];
             }
         } else {
-            // For new notebooks
             cells = [
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Code,
@@ -64,9 +62,16 @@ export class PostgresNotebookProvider implements vscode.NotebookSerializer {
         }
 
         const notebookData = new vscode.NotebookData(cells);
-        if (metadata) {
-            notebookData.metadata = metadata;
-        }
+        notebookData.metadata = {
+            ...metadata,
+            custom: {
+                cells: [],
+                metadata: {
+                    ...metadata,
+                    enableScripts: true
+                }
+            }
+        };
         return notebookData;
     }
 
@@ -82,16 +87,6 @@ export class PostgresNotebookProvider implements vscode.NotebookSerializer {
             metadata: data.metadata,
             cells: cells
         }));
-    }
-
-    private handleWebviewMessage(message: any): void {
-        if (message.command === 'export') {
-            vscode.commands.executeCommand('postgres-explorer.exportData', {
-                format: message.format,
-                content: message.content,
-                filename: message.filename
-            });
-        }
     }
 }
 

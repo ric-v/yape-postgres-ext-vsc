@@ -8,15 +8,26 @@ import { PostgresKernel } from './notebookKernel';
 import { PostgresNotebookSerializer } from './postgresNotebook';
 
 export function activate(context: vscode.ExtensionContext) {
-    // Create kernel with message handler
+    console.log('postgres-explorer: Activating extension');
+    
+    // Create kernel with message handler to handle notebook cell output messages
     const kernel = new PostgresKernel((message) => {
-        vscode.window.showInformationMessage(message);
+        console.log('Extension: Received message from kernel:', message);
+        if (message.type === 'custom' && message.command === 'export') {
+            console.log('Extension: Handling export command');
+            vscode.commands.executeCommand('postgres-explorer.exportData', {
+                format: message.format,
+                content: message.content,
+                filename: message.filename
+            });
+        }
     });
     context.subscriptions.push(kernel);
 
     // Register global command to handle exports
     context.subscriptions.push(
         vscode.commands.registerCommand('postgres-explorer.exportData', async (args) => {
+            console.log('Extension: Export command triggered with args:', args);
             try {
                 const { format, content, filename } = args;
                 const saveUri = await vscode.window.showSaveDialog({
@@ -24,7 +35,43 @@ export function activate(context: vscode.ExtensionContext) {
                     filters: {
                         'CSV files': ['csv'],
                         'Excel files': ['xls', 'xlsx']
-                    }
+                    },
+                    saveLabel: `Export as ${format.toUpperCase()}`
+                });
+
+                console.log('Extension: Save dialog result:', saveUri?.fsPath);
+                if (saveUri) {
+                    console.log('Extension: Writing file content, size:', content.length);
+                    await vscode.workspace.fs.writeFile(
+                        saveUri,
+                        Buffer.from(content, 'utf-8')
+                    );
+                    console.log('Extension: File written successfully');
+                    vscode.window.showInformationMessage(
+                        `Successfully exported to ${saveUri.fsPath}`
+                    );
+                }
+            } catch (err: any) {
+                console.error('Extension: Export failed:', err);
+                vscode.window.showErrorMessage(`Export failed: ${err.message}`);
+            }
+        })
+    );
+
+    // Register save file command
+    context.subscriptions.push(
+        vscode.commands.registerCommand('postgres-explorer.saveFile', async (args) => {
+            try {
+                console.log('Saving file with args:', args);
+                const { content, filename, type } = args;
+                
+                const saveUri = await vscode.window.showSaveDialog({
+                    defaultUri: vscode.Uri.file(filename),
+                    filters: {
+                        'CSV files': ['csv'],
+                        'Excel files': ['xls', 'xlsx']
+                    },
+                    saveLabel: `Export as ${type.toUpperCase()}`
                 });
 
                 if (saveUri) {
@@ -32,11 +79,10 @@ export function activate(context: vscode.ExtensionContext) {
                         saveUri,
                         Buffer.from(content)
                     );
-                    vscode.window.showInformationMessage(
-                        `Successfully exported to ${saveUri.fsPath}`
-                    );
+                    vscode.window.showInformationMessage(`Successfully exported to ${saveUri.fsPath}`);
                 }
             } catch (err: any) {
+                console.error('Save file failed:', err);
                 vscode.window.showErrorMessage(`Export failed: ${err.message}`);
             }
         })
