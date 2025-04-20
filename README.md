@@ -6,30 +6,56 @@
 
 A powerful PostgreSQL database explorer with interactive SQL notebooks, table visualization, and data export capabilities.
 
-## ✨ Key Features
+## ✨ Implemented Features
 
-### 🔌 Easy Database Connection
-- Quick connection setup with secure credential storage
-- Support for multiple database connections
-- Auto-reconnect and connection health monitoring
+### 🔌 Database Connection
+- Secure credential storage using VS Code SecretStorage
+- Multiple database connection support
+- Connection management through UI
 
-### 📊 Interactive SQL Notebooks
-- Write and execute SQL queries in notebook cells
-- Rich table output with sorting capabilities
+### 📊 SQL Notebooks
+- Interactive SQL query execution in notebook cells
+- Rich tabular output with formatted data
 - Export results to CSV and Excel formats
-- View execution status and row counts
+- Query execution status and result counts
 
-### 🌳 Smart Database Explorer
-- Tree view of databases, schemas, and tables
-- Quick access to table properties and structure
-- Real-time database structure updates
-- Context-aware actions for each item
+### 🌳 Database Explorer
+- Tree view navigation of databases, schemas, and tables
+- Table and view operations through context menus
+- Function management and execution
+- Schema-level operations
 
-### 📋 Table Properties Panel
-- Detailed view of table structure
-- Column definitions and data types
-- Primary keys and foreign key relationships
-- Index information and constraints
+### 📋 Object Properties
+- Detailed table structure view with column information
+- View definition display
+- Function properties and definition view
+- Toggle between table view and SQL script view
+
+### 💾 Data Management
+- Table data viewing and export
+- View data querying
+- Function execution with parameters
+- Data export to CSV and Excel
+
+## 🎯 Future Milestones
+
+### Connection Enhancements
+- Auto-reconnect capability
+- Connection health monitoring
+- Connection pooling
+- SSL/TLS support
+
+### Query Features
+- Query history
+- Query plan visualization
+- Saved queries library
+- Query parameter support
+
+### Performance Improvements
+- Large dataset pagination
+- Lazy loading of tree items
+- Query timeout handling
+- Background task execution
 
 ## 🚀 Quick Start
 
