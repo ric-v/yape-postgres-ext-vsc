@@ -2,8 +2,139 @@ import * as vscode from 'vscode';
 import { Client } from 'pg';
 
 export class TablePropertiesPanel {
-    public static async show(client: Client, schema: string, name: string, isView: boolean = false): Promise<void> {
+    public static async show(client: Client, schema: string, name: string, isView: boolean = false, isFunction: boolean = false): Promise<void> {
         try {
+            if (isFunction) {
+                // Get function information
+                const functionQuery = `
+                    SELECT p.proname,
+                           pg_get_function_arguments(p.oid) as arguments,
+                           pg_get_function_result(p.oid) as result_type,
+                           pg_get_functiondef(p.oid) as definition,
+                           d.description as description,
+                           l.lanname as language
+                    FROM pg_proc p
+                    LEFT JOIN pg_description d ON p.oid = d.objoid
+                    LEFT JOIN pg_language l ON p.prolang = l.oid
+                    WHERE p.proname = $1
+                    AND p.pronamespace = (SELECT oid FROM pg_namespace WHERE nspname = $2)`;
+
+                const functionResult = await client.query(functionQuery, [name, schema]);
+                if (functionResult.rows.length === 0) {
+                    throw new Error('Function not found');
+                }
+
+                const functionInfo = functionResult.rows[0];
+                
+                // Create HTML for function properties
+                const panel = vscode.window.createWebviewPanel(
+                    'functionProperties',
+                    `${name} Properties`,
+                    vscode.ViewColumn.One,
+                    { enableScripts: true }
+                );
+
+                panel.webview.html = `
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <style>
+                            body { 
+                                padding: 16px; 
+                                font-family: var(--vscode-editor-font-family);
+                                color: var(--vscode-editor-foreground);
+                            }
+                            .container { display: grid; gap: 16px; }
+                            
+                            .header {
+                                display: flex;
+                                align-items: center;
+                                justify-content: space-between;
+                                margin-bottom: 20px;
+                                padding-bottom: 8px;
+                                border-bottom: 1px solid var(--vscode-panel-border);
+                            }
+                            
+                            .info-section {
+                                background: var(--vscode-editor-background);
+                                border-radius: 6px;
+                                box-shadow: 0 2px 8px var(--vscode-widget-shadow);
+                                padding: 16px;
+                                margin-bottom: 16px;
+                            }
+
+                            .info-row {
+                                display: grid;
+                                grid-template-columns: 120px 1fr;
+                                gap: 16px;
+                                padding: 8px 0;
+                                border-bottom: 1px solid var(--vscode-panel-border);
+                            }
+
+                            .info-row:last-child {
+                                border-bottom: none;
+                            }
+
+                            .label {
+                                color: var(--vscode-foreground);
+                                opacity: 0.8;
+                            }
+
+                            .value {
+                                color: var(--vscode-editor-foreground);
+                            }
+
+                            .definition {
+                                font-family: var(--vscode-editor-font-family);
+                                white-space: pre;
+                                overflow-x: auto;
+                                padding: 16px;
+                                background: var(--vscode-editor-background);
+                                border-radius: 6px;
+                            }
+
+                            .keyword { color: var(--vscode-symbolIcon-keywordForeground); }
+                            .type { color: var(--vscode-symbolIcon-typeParameterForeground); }
+                            .identifier { color: var(--vscode-symbolIcon-variableForeground); }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="container">
+                            <div class="header">
+                                <h2>${schema}.${name}</h2>
+                            </div>
+
+                            <div class="info-section">
+                                <div class="info-row">
+                                    <span class="label">Arguments</span>
+                                    <span class="value">${functionInfo.arguments || 'None'}</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="label">Returns</span>
+                                    <span class="value">${functionInfo.result_type}</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="label">Language</span>
+                                    <span class="value">${functionInfo.language}</span>
+                                </div>
+                                ${functionInfo.description ? `
+                                <div class="info-row">
+                                    <span class="label">Description</span>
+                                    <span class="value">${functionInfo.description}</span>
+                                </div>` : ''}
+                            </div>
+
+                            <div class="info-section">
+                                <h3>Definition</h3>
+                                <pre class="definition">${formatSqlWithHighlighting(functionInfo.definition)}</pre>
+                            </div>
+                        </div>
+                    </body>
+                    </html>`;
+
+                return;
+            }
+
             // Get column information
             const columnQuery = `
                 SELECT 
@@ -34,7 +165,93 @@ export class TablePropertiesPanel {
             // Get definition based on type
             const definitionQuery = isView ? 
                 `SELECT pg_get_viewdef('${schema}.${name}'::regclass, true) as definition` :
-                `SELECT pg_get_tabledef('${schema}.${name}'::regclass) as definition`;
+                `WITH 
+                columns AS (
+                    SELECT string_agg(
+                        format(
+                            '%I %s%s%s',
+                            column_name,
+                            data_type,
+                            CASE WHEN is_nullable = 'NO' THEN ' NOT NULL' ELSE '' END,
+                            CASE WHEN column_default IS NOT NULL THEN ' DEFAULT ' || column_default ELSE '' END
+                        ),
+                        ', '
+                        ORDER BY ordinal_position
+                    ) as column_list
+                    FROM information_schema.columns
+                    WHERE table_schema = '${schema}'
+                    AND table_name = '${name}'
+                ),
+                constraint_columns AS (
+                    SELECT 
+                        tc.constraint_name,
+                        tc.constraint_type,
+                        string_agg(kcu.column_name, ', ' ORDER BY kcu.ordinal_position) as column_list,
+                        string_agg(ccu.column_name, ', ' ORDER BY kcu.ordinal_position) as ref_column_list,
+                        ccu.table_schema as ref_schema,
+                        ccu.table_name as ref_table
+                    FROM information_schema.table_constraints tc
+                    JOIN information_schema.key_column_usage kcu ON 
+                        tc.constraint_name = kcu.constraint_name AND 
+                        tc.table_schema = kcu.table_schema
+                    LEFT JOIN information_schema.referential_constraints rc ON 
+                        tc.constraint_name = rc.constraint_name AND 
+                        tc.table_schema = rc.constraint_schema
+                    LEFT JOIN information_schema.constraint_column_usage ccu ON 
+                        rc.unique_constraint_name = ccu.constraint_name AND 
+                        rc.unique_constraint_schema = ccu.table_schema
+                    WHERE tc.table_schema = '${schema}' 
+                    AND tc.table_name = '${name}'
+                    GROUP BY tc.constraint_name, tc.constraint_type, ccu.table_schema, ccu.table_name
+                ),
+                constraints AS (
+                    SELECT string_agg(
+                        CASE 
+                            WHEN constraint_type = 'PRIMARY KEY' THEN 
+                                format(', CONSTRAINT %I PRIMARY KEY (%s)', 
+                                    constraint_name, 
+                                    column_list
+                                )
+                            WHEN constraint_type = 'UNIQUE' THEN 
+                                format(', CONSTRAINT %I UNIQUE (%s)',
+                                    constraint_name,
+                                    column_list
+                                )
+                            WHEN constraint_type = 'FOREIGN KEY' THEN 
+                                format(', CONSTRAINT %I FOREIGN KEY (%s) REFERENCES %I.%I (%s)',
+                                    constraint_name,
+                                    column_list,
+                                    ref_schema,
+                                    ref_table,
+                                    ref_column_list
+                                )
+                        END,
+                        ' '
+                        ORDER BY constraint_name
+                    ) as constraint_list
+                    FROM constraint_columns
+                ),
+                table_type AS (
+                    SELECT CASE 
+                        WHEN c.relpersistence = 'u' THEN ' UNLOGGED'
+                        ELSE ''
+                    END as persistence
+                    FROM pg_class c
+                    JOIN pg_namespace n ON n.oid = c.relnamespace
+                    WHERE n.nspname = '${schema}'
+                    AND c.relname = '${name}'
+                )
+                SELECT format(
+                    'CREATE TABLE %I.%I (%s%s)%s',
+                    '${schema}',
+                    '${name}',
+                    c.column_list,
+                    COALESCE(co.constraint_list, ''),
+                    t.persistence
+                ) as definition
+                FROM columns c
+                CROSS JOIN table_type t
+                LEFT JOIN constraints co ON true`;
 
             const [colResult, defResult] = await Promise.all([
                 client.query(columnQuery),
@@ -351,21 +568,21 @@ export class TablePropertiesPanel {
     }
 }
 function formatSqlWithHighlighting(formattedScript: string): string {
-    // First escape HTML special characters
     const escapedScript = formattedScript
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;");
 
-    // Add syntax highlighting using spans with specific classes
     return escapedScript
         // Highlight SQL keywords
-        .replace(/\b(CREATE TABLE|PRIMARY KEY|NOT NULL|NULL)\b/g, '<span class="keyword">$1</span>')
+        .replace(/\b(CREATE|TABLE|VIEW|FUNCTION|RETURNS|LANGUAGE|AS|BEGIN|END|DECLARE|IF|THEN|ELSE|RETURN|PRIMARY KEY|NOT NULL|NULL)\b/g, '<span class="keyword">$1</span>')
         // Highlight data types
-        .replace(/\b(integer|text|boolean|timestamp|numeric|character varying|without time zone)\b/g, '<span class="type">$1</span>')
-        // Highlight schema and table identifiers
+        .replace(/\b(integer|text|boolean|timestamp|numeric|character varying|without time zone|bigint|smallint|real|double precision|json|jsonb|uuid|date|time|bytea)\b/g, '<span class="type">$1</span>')
+        // Highlight schema and identifiers
         .replace(/(\w+)\.(\w+)/g, '<span class="identifier">$1</span>.<span class="identifier">$2</span>')
         // Highlight constraints
-        .replace(/\b(PRIMARY KEY)\b/g, '<span class="constraint">$1</span>');
+        .replace(/\b(PRIMARY KEY|UNIQUE|FOREIGN KEY|CHECK|REFERENCES)\b/g, '<span class="constraint">$1</span>')
+        // Highlight function keywords
+        .replace(/\b(plpgsql|sql|STABLE|VOLATILE|IMMUTABLE|SECURITY DEFINER|PARALLEL SAFE)\b/g, '<span class="keyword">$1</span>');
 }
 

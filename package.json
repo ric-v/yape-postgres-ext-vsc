@@ -85,6 +85,61 @@
         "command": "postgres-explorer.showViewProperties",
         "title": "Show View Properties",
         "icon": "$(info)"
+      },
+      {
+        "command": "postgres-explorer.showFunctionProperties",
+        "title": "Show Function Properties",
+        "icon": "$(info)"
+      },
+      {
+        "command": "postgres-explorer.functionOperations",
+        "title": "Function Operations",
+        "icon": "$(notebook)"
+      },
+      {
+        "command": "postgres-explorer.createReplaceFunction",
+        "title": "Edit Function Definition",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "postgres-explorer.callFunction",
+        "title": "Call Function",
+        "icon": "$(play)"
+      },
+      {
+        "command": "postgres-explorer.dropFunction",
+        "title": "Drop Function",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "postgres-explorer.editTableDefinition",
+        "title": "Edit Table Definition",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "postgres-explorer.viewTableData",
+        "title": "View Table Data",
+        "icon": "$(table)"
+      },
+      {
+        "command": "postgres-explorer.dropTable",
+        "title": "Drop Table",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "postgres-explorer.editViewDefinition",
+        "title": "Edit View Definition",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "postgres-explorer.viewViewData",
+        "title": "View View Data",
+        "icon": "$(table)"
+      },
+      {
+        "command": "postgres-explorer.dropView",
+        "title": "Drop View",
+        "icon": "$(trash)"
       }
     ],
     "viewsContainers": {
@@ -215,6 +270,61 @@
           "command": "postgres-explorer.showViewProperties",
           "when": "view == postgresExplorer && viewItem == view",
           "group": "inline@2"
+        },
+        {
+          "command": "postgres-explorer.showFunctionProperties",
+          "when": "view == postgresExplorer && viewItem == function",
+          "group": "inline@2"
+        },
+        {
+          "command": "postgres-explorer.functionOperations",
+          "when": "view == postgresExplorer && viewItem == function",
+          "group": "1_actions"
+        },
+        {
+          "command": "postgres-explorer.createReplaceFunction",
+          "when": "view == postgresExplorer && viewItem == function",
+          "group": "1_actions@1"
+        },
+        {
+          "command": "postgres-explorer.callFunction",
+          "when": "view == postgresExplorer && viewItem == function",
+          "group": "1_actions@2"
+        },
+        {
+          "command": "postgres-explorer.dropFunction",
+          "when": "view == postgresExplorer && viewItem == function",
+          "group": "1_actions@3"
+        },
+        {
+          "command": "postgres-explorer.editTableDefinition",
+          "when": "view == postgresExplorer && viewItem == table",
+          "group": "1_actions@1"
+        },
+        {
+          "command": "postgres-explorer.viewTableData",
+          "when": "view == postgresExplorer && viewItem == table",
+          "group": "1_actions@2"
+        },
+        {
+          "command": "postgres-explorer.dropTable",
+          "when": "view == postgresExplorer && viewItem == table",
+          "group": "1_actions@3"
+        },
+        {
+          "command": "postgres-explorer.editViewDefinition",
+          "when": "view == postgresExplorer && viewItem == view",
+          "group": "1_actions@1"
+        },
+        {
+          "command": "postgres-explorer.viewViewData",
+          "when": "view == postgresExplorer && viewItem == view",
+          "group": "1_actions@2"
+        },
+        {
+          "command": "postgres-explorer.dropView",
+          "when": "view == postgresExplorer && viewItem == view",
+          "group": "1_actions@3"
         }
       ]
     }
@@ -231,7 +341,18 @@
     "onCommand:postgres-explorer.deleteConnection",
     "onCommand:postgresExplorer.openColumnNotebook",
     "onNotebook:postgres-notebook",
-    "onNotebook:postgres-query"
+    "onNotebook:postgres-query",
+    "onCommand:postgres-explorer.showFunctionProperties",
+    "onCommand:postgres-explorer.functionOperations",
+    "onCommand:postgres-explorer.createReplaceFunction",
+    "onCommand:postgres-explorer.callFunction",
+    "onCommand:postgres-explorer.dropFunction",
+    "onCommand:postgres-explorer.editTableDefinition",
+    "onCommand:postgres-explorer.viewTableData",
+    "onCommand:postgres-explorer.dropTable",
+    "onCommand:postgres-explorer.editViewDefinition",
+    "onCommand:postgres-explorer.viewViewData",
+    "onCommand:postgres-explorer.dropView"
   ],
   "main": "./dist/extension.js",
   "scripts": {
