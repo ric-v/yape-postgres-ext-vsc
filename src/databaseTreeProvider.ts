@@ -6,7 +6,7 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseTre
     private _onDidChangeTreeData: vscode.EventEmitter<DatabaseTreeItem | undefined | null | void> = new vscode.EventEmitter<DatabaseTreeItem | undefined | null | void>();
     readonly onDidChangeTreeData: vscode.Event<DatabaseTreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
 
-    constructor() {
+    constructor(private readonly extensionContext: vscode.ExtensionContext) {
         // Initialize tree provider
     }
 
@@ -36,17 +36,21 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseTre
 
         let client: Client | undefined;
         try {
+            // Get password from SecretStorage
+            const password = await this.extensionContext.secrets.get(`postgres-password-${element.connectionId}`);
+            if (!password) {
+                throw new Error('Password not found in secure storage');
+            }
+
             const dbName = element.type === 'connection' ? 'postgres' : element.databaseName;
             client = new Client({
                 host: connection.host,
                 port: connection.port,
                 user: connection.username,
-                password: String(connection.password),
+                password: password,
                 database: dbName,
                 connectionTimeoutMillis: 5000
             });
-
-            await client.connect();
 
             switch (element.type) {
                 case 'connection':

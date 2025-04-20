@@ -16,7 +16,7 @@ export class PostgresKernel {
     private readonly controller: vscode.NotebookController;
     private messageHandler?: (message: any) => void;
 
-    constructor(messageHandler?: (message: any) => void) {
+    constructor(private readonly context: vscode.ExtensionContext, messageHandler?: (message: any) => void) {
         console.log('PostgresKernel: Initializing');
         this.controller = vscode.notebooks.createNotebookController(
             this.id,
@@ -54,16 +54,28 @@ export class PostgresKernel {
 
         try {
             const metadata = cell.notebook.metadata as NotebookMetadata;
-            if (!metadata) {
+            if (!metadata || !metadata.connectionId) {
                 throw new Error('No connection metadata found');
             }
 
+            // Get connection info and password from SecretStorage
+            const connections = vscode.workspace.getConfiguration().get<any[]>('postgresExplorer.connections') || [];
+            const connection = connections.find(c => c.id === metadata.connectionId);
+            if (!connection) {
+                throw new Error('Connection not found');
+            }
+
+            const password = await this.context.secrets.get(`postgres-password-${metadata.connectionId}`);
+            if (!password) {
+                throw new Error('Password not found in secure storage');
+            }
+
             const client = new Client({
-                host: metadata.host,
-                port: metadata.port,
-                user: metadata.username,
-                password: String(metadata.password),
-                database: metadata.databaseName
+                host: connection.host,
+                port: connection.port,
+                user: connection.username,
+                password: password,
+                database: metadata.databaseName || connection.database
             });
 
             await client.connect();
