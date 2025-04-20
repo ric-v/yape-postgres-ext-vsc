@@ -1,4 +1,4 @@
-# PostgreSQL Explorer for VS Code
+# PostgreSQL Explorer for VS Code - ![Status](https://badgen.net/badge/status/alpha/orange?icon=git)
 
 [![Version](https://img.shields.io/visual-studio-marketplace/v/ric-v.postgres-explorer)](https://marketplace.visualstudio.com/items?itemName=ric-v.postgres-explorer)
 [![Downloads](https://img.shields.io/visual-studio-marketplace/d/ric-v.postgres-explorer)](https://marketplace.visualstudio.com/items?itemName=ric-v.postgres-explorer)
@@ -56,6 +56,27 @@ A powerful PostgreSQL database explorer with interactive SQL notebooks, table vi
 - Lazy loading of tree items
 - Query timeout handling
 - Background task execution
+
+### Data Management
+- Bulk data import wizard
+- Support for more export formats (JSON, XML)
+- Schema export/import functionality
+- Custom data transformations
+- Data streaming for large exports
+
+### Data Visualization
+- Basic charting capabilities
+- Result set visualizations
+- Data statistics and summaries
+- Custom visualization plugins
+
+### UI Enhancements
+- Dark/light theme support
+- Custom SQL syntax highlighting
+- Custom icons for database objects
+- Theme extension API
+- Multi-root workspace support
+- Workspace-specific settings
 
 ## 🚀 Quick Start
 
