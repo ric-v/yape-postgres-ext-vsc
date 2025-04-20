@@ -1,5 +1,3 @@
-# Makefile for postgres-explorer VS Code extension
-
 .PHONY: all clean install build package publish
 
 # Default target
@@ -7,9 +5,7 @@ all: clean install build package
 
 # Clean build artifacts
 clean:
-	rm -rf out/
-	rm -rf dist/
-	rm -f *.vsix
+	rm -rf out dist *.vsix
 
 # Install dependencies
 install:
@@ -17,30 +13,33 @@ install:
 
 # Build the extension
 build:
-	yarn run esbuild-base --sourcemap
+	yarn run vscode:prepublish
 
-# Package the extension into a .vsix file
+# Package the extension
 package: build
 	vsce package
 
-# Publish to VS Code Marketplace (requires VSCE_PAT environment variable)
+# Publish the extension to VS Code Marketplace
 publish: package
-	@if [ -z "$(VSCE_PAT)" ]; then \
-		echo "Error: VSCE_PAT environment variable not set"; \
-		echo "Please set it with your Visual Studio Marketplace access token"; \
-		exit 1; \
-	fi
-	vsce publish -p $(VSCE_PAT)
+	@echo "Publishing to VS Code Marketplace..."
+	test -f ./pat || (echo "Error: pat file not found" && exit 1)
+	vsce publish -p $(shell cat ./pat)
 
-# Watch for changes during development
+# Watch mode for development
 watch:
-	yarn run esbuild-watch
+	yarn run watch
 
-# Run tests (add when tests are implemented)
-test:
-	@echo "No tests implemented yet"
-
-# Install development tools
-dev-setup:
-	npm install -g vsce
-	npm install -g @vscode/vsce
+# Help target
+help:
+	@echo "Available targets:"
+	@echo "  all      : Clean, install dependencies, build and package (default)"
+	@echo "  clean    : Remove build artifacts"
+	@echo "  install  : Install dependencies"
+	@echo "  build    : Build the extension"
+	@echo "  package  : Create VSIX package"
+	@echo "  publish  : Publish to VS Code Marketplace (requires PAT env var)"
+	@echo "  watch    : Watch mode for development"
+	@echo ""
+	@echo "Usage:"
+	@echo "  make             # Build everything"
+	@echo "  make publish PAT=<your-pat>  # Publish to marketplace"

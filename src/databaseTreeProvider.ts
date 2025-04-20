@@ -32,17 +32,25 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseTre
         }
 
         const connection = connections.find(c => c.id === element.connectionId);
-        if (!connection) return [];
+        if (!connection) {
+            console.error(`Connection not found for ID: ${element.connectionId}`);
+            vscode.window.showErrorMessage('Connection configuration not found');
+            return [];
+        }
 
         let client: Client | undefined;
         try {
             // Get password from SecretStorage
             const password = await this.extensionContext.secrets.get(`postgres-password-${element.connectionId}`);
             if (!password) {
-                throw new Error('Password not found in secure storage');
+                console.error(`Password not found in SecretStorage for connection ID: ${element.connectionId}`);
+                vscode.window.showErrorMessage('Connection password not found. Try removing and adding the connection again.');
+                return [];
             }
 
+            console.log('Attempting to connect to the database...');
             const dbName = element.type === 'connection' ? 'postgres' : element.databaseName;
+            
             client = new Client({
                 host: connection.host,
                 port: connection.port,
@@ -51,6 +59,10 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseTre
                 database: dbName,
                 connectionTimeoutMillis: 5000
             });
+
+            console.log('Connecting to database...');
+            await client.connect();
+            console.log(`Successfully connected to database ${dbName}`);
 
             switch (element.type) {
                 case 'connection':
@@ -149,6 +161,7 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseTre
 
             return [];
         } catch (err: any) {
+            console.error(`Error getting tree items: ${err.message}`);
             vscode.window.showErrorMessage(`Failed to get tree items: ${err.message}`);
             return [];
         } finally {
