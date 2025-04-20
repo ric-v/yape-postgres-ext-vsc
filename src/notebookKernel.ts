@@ -27,6 +27,13 @@ export class PostgresKernel {
         this.messageHandler = messageHandler;
         console.log('PostgresKernel: Message handler registered:', !!messageHandler);
 
+        // Disable automatic timestamp parsing
+        const types = require('pg').types;
+        const TIMESTAMPTZ_OID = 1184;
+        const TIMESTAMP_OID = 1114;
+        types.setTypeParser(TIMESTAMPTZ_OID, (val: string) => val);
+        types.setTypeParser(TIMESTAMP_OID, (val: string) => val);
+
         this.controller.supportedLanguages = ['sql'];
         this.controller.supportsExecutionOrder = true;
         this.controller.description = 'PostgreSQL Query Executor';
@@ -42,7 +49,8 @@ export class PostgresKernel {
     private async _doExecution(cell: vscode.NotebookCell): Promise<void> {
         console.log('PostgresKernel: Starting cell execution');
         const execution = this.controller.createNotebookCellExecution(cell);
-        execution.start(Date.now());
+        const startTime = Date.now();
+        execution.start(startTime);
 
         try {
             const metadata = cell.notebook.metadata as NotebookMetadata;
@@ -65,7 +73,40 @@ export class PostgresKernel {
             const result = await client.query(query);
             await client.end();
 
-            if (result.fields.length > 0) {
+            const endTime = Date.now();
+            const executionTime = (endTime - startTime) / 1000;
+
+            if (result.command.toUpperCase().match(/^(CREATE|ALTER|DROP|TRUNCATE)/)) {
+                // Schema modification operations
+                const html = `
+                    <div style="
+                        padding: 10px;
+                        margin: 5px 0;
+                        background: var(--vscode-editor-background);
+                        border: 1px solid var(--vscode-panel-border);
+                        border-radius: 4px;
+                    ">
+                        <div style="color: var(--vscode-gitDecoration-addedResourceForeground);">
+                            ✓ Query executed successfully
+                        </div>
+                        <div style="
+                            color: var(--vscode-foreground);
+                            opacity: 0.7;
+                            font-size: 0.9em;
+                            margin-top: 5px;
+                        ">
+                            Execution time: ${executionTime.toFixed(3)} seconds
+                        </div>
+                    </div>
+                `;
+
+                const output = new vscode.NotebookCellOutput([
+                    vscode.NotebookCellOutputItem.text(html, 'text/html')
+                ]);
+                execution.replaceOutput([output]);
+                execution.end(true);
+            } else if (result.fields.length > 0) {
+                // Queries that return data
                 console.log('PostgresKernel: Query returned', result.rows.length, 'rows');
                 
                 const headers = result.fields.map(f => f.name);
@@ -158,6 +199,8 @@ export class PostgresKernel {
                             padding: 8px;
                             text-align: left;
                             border: 1px solid var(--vscode-panel-border);
+                            white-space: pre;
+                            font-family: var(--vscode-editor-font-family);
                         }
                         th {
                             background: var(--vscode-editor-background);
@@ -166,6 +209,12 @@ export class PostgresKernel {
                         }
                         tr:nth-child(even) {
                             background: var(--vscode-list-hoverBackground);
+                        }
+                        .execution-time {
+                            margin-top: 8px;
+                            color: var(--vscode-foreground);
+                            opacity: 0.7;
+                            font-size: 0.9em;
                         }
                         .hidden {
                             display: none !important;
@@ -201,15 +250,13 @@ export class PostgresKernel {
                                     </thead>
                                     <tbody>
                                         ${rows.map(row => 
-                                            `<tr>${headers.map(h => {
-                                                const val = row[h];
-                                                return `<td>${val === null ? '' : val}</td>`;
-                                            }).join('')}</tr>`
+                                            `<tr>${headers.map(h => `<td>${row[h] === null ? '' : String(row[h])}</td>`).join('')}</tr>`
                                         ).join('')}
                                     </tbody>
                                 </table>
                             </div>
                             <div>${rows.length} rows</div>
+                            <div class="execution-time">Execution time: ${executionTime.toFixed(3)} seconds</div>
                         </div>
                     </div>
                     <script>
@@ -333,7 +380,27 @@ export class PostgresKernel {
                 console.log('PostgresKernel: Cell execution completed successfully');
             } else {
                 const output = new vscode.NotebookCellOutput([
-                    vscode.NotebookCellOutputItem.text('<div>No results</div>', 'text/html')
+                    vscode.NotebookCellOutputItem.text(`
+                        <div style="
+                            padding: 10px;
+                            margin: 5px 0;
+                            background: var(--vscode-editor-background);
+                            border: 1px solid var(--vscode-panel-border);
+                            border-radius: 4px;
+                        ">
+                            <div style="color: var(--vscode-gitDecoration-addedResourceForeground);">
+                                ✓ Query executed successfully
+                            </div>
+                            <div style="
+                                color: var(--vscode-foreground);
+                                opacity: 0.7;
+                                font-size: 0.9em;
+                                margin-top: 5px;
+                            ">
+                                Execution time: ${executionTime.toFixed(3)} seconds
+                            </div>
+                        </div>
+                    `, 'text/html')
                 ]);
                 execution.replaceOutput([output]);
                 execution.end(true);
