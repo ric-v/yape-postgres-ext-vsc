@@ -1,4 +1,4 @@
-# PostgreSQL Explorer for VS Code
+# PostgreSQL Explorer for VS Code - ![Status](https://badgen.net/badge/status/alpha/orange?icon=git)
 
 [![Version](https://img.shields.io/visual-studio-marketplace/v/ric-v.postgres-explorer)](https://marketplace.visualstudio.com/items?itemName=ric-v.postgres-explorer)
 [![Downloads](https://img.shields.io/visual-studio-marketplace/d/ric-v.postgres-explorer)](https://marketplace.visualstudio.com/items?itemName=ric-v.postgres-explorer)
