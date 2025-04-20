@@ -57,6 +57,27 @@ A powerful PostgreSQL database explorer with interactive SQL notebooks, table vi
 - Query timeout handling
 - Background task execution
 
+### Data Management
+- Bulk data import wizard
+- Support for more export formats (JSON, XML)
+- Schema export/import functionality
+- Custom data transformations
+- Data streaming for large exports
+
+### Data Visualization
+- Basic charting capabilities
+- Result set visualizations
+- Data statistics and summaries
+- Custom visualization plugins
+
+### UI Enhancements
+- Dark/light theme support
+- Custom SQL syntax highlighting
+- Custom icons for database objects
+- Theme extension API
+- Multi-root workspace support
+- Workspace-specific settings
+
 ## 🚀 Quick Start
 
 ### 1. Connect to Your Database
