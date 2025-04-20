@@ -112,69 +112,7 @@ export class ConnectionFormPanel {
     }
 
     private async _initialize() {
-        this._panel.webview.onDidReceiveMessage(async (message) => {
-            switch (message.command) {
-                case 'testConnection':
-                    try {
-                        const client = new Client({
-                            host: message.connection.host,
-                            port: message.connection.port,
-                            user: message.connection.username,
-                            password: message.connection.password,
-                            database: message.connection.database
-                        });
-                        await client.connect();
-                        const result = await client.query('SELECT version()');
-                        await client.end();
-                        this._panel.webview.postMessage({ 
-                            type: 'testSuccess',
-                            version: result.rows[0].version
-                        });
-                    } catch (err: any) {
-                        this._panel.webview.postMessage({ 
-                            type: 'testError',
-                            error: err.message
-                        });
-                    }
-                    break;
-
-                case 'saveConnection':
-                    try {
-                        const client = new Client({
-                            host: message.connection.host,
-                            port: message.connection.port,
-                            user: message.connection.username,
-                            password: message.connection.password,
-                            database: 'postgres'
-                        });
-
-                        await client.connect();
-                        
-                        const result = await client.query('SELECT datname FROM pg_database WHERE datistemplate = false');
-                        await client.end();
-
-                        const connections = this.getStoredConnections();
-                        const newConnection: ConnectionInfo = {
-                            id: Date.now().toString(),
-                            name: message.connection.name,
-                            host: message.connection.host,
-                            port: message.connection.port,
-                            username: message.connection.username,
-                            password: message.connection.password
-                        };
-                        connections.push(newConnection);
-                        await this.storeConnections(connections);
-
-                        vscode.window.showInformationMessage('Connection saved successfully!');
-                        vscode.commands.executeCommand('postgres-explorer.refreshConnections');
-                        this._panel.dispose();
-                    } catch (err: any) {
-                        const errorMessage = err?.message || 'Unknown error occurred';
-                        vscode.window.showErrorMessage(`Failed to connect: ${errorMessage}`);
-                    }
-                    break;
-            }
-        });
+        // The message handler is already set up in the constructor
         await this._update();
     }
 
@@ -385,22 +323,24 @@ export class ConnectionFormPanel {
 
     private async storeConnections(connections: ConnectionInfo[]): Promise<void> {
         try {
-            // Store passwords in SecretStorage first
+            // First store the connections without passwords in settings
+            const connectionsForSettings = connections.map(({ password, ...connWithoutPassword }) => connWithoutPassword);
+            await vscode.workspace.getConfiguration().update('postgresExplorer.connections', connectionsForSettings, vscode.ConfigurationTarget.Global);
+
+            // Then store passwords in SecretStorage
             const secretsStorage = this._extensionContext.secrets;
             for (const conn of connections) {
                 if (conn.password) {
+                    // Removed logging of sensitive connection information for security.
                     await secretsStorage.store(`postgres-password-${conn.id}`, conn.password);
                 }
             }
-
-            // Only after passwords are safely stored, update the settings
-            const connectionsForSettings = connections.map(({ password, ...connWithoutPassword }) => connWithoutPassword);
-            await vscode.workspace.getConfiguration().update('postgresExplorer.connections', connectionsForSettings, true);
         } catch (error) {
+            console.error('Failed to store connections:', error);
             // If anything fails, make sure we don't leave passwords in settings
             const existingConnections = vscode.workspace.getConfiguration().get<any[]>('postgresExplorer.connections') || [];
             const sanitizedConnections = existingConnections.map(({ password, ...connWithoutPassword }) => connWithoutPassword);
-            await vscode.workspace.getConfiguration().update('postgresExplorer.connections', sanitizedConnections, true);
+            await vscode.workspace.getConfiguration().update('postgresExplorer.connections', sanitizedConnections, vscode.ConfigurationTarget.Global);
             throw error;
         }
     }
