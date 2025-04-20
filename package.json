@@ -201,7 +201,7 @@
           "description": "List of saved PostgreSQL connections",
           "items": {
             "type": "object",
-            "required": ["id", "name", "host", "port", "username", "password"],
+            "required": ["id", "name", "host", "port", "username"],
             "properties": {
               "id": {
                 "type": "string",
@@ -223,10 +223,6 @@
               "username": {
                 "type": "string",
                 "description": "Username for authentication"
-              },
-              "password": {
-                "type": "string",
-                "description": "Password for authentication"
               },
               "database": {
                 "type": "string",

@@ -17,13 +17,12 @@ export class ConnectionFormPanel {
     private readonly _extensionUri: vscode.Uri;
     private _disposables: vscode.Disposable[] = [];
 
-    private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri) {
+    private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri, private readonly _extensionContext: vscode.ExtensionContext) {
         this._panel = panel;
         this._extensionUri = extensionUri;
 
         this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
         this._initialize();
-        vscode.workspace.getConfiguration().update('postgresExplorer.connections', [], true);
 
         this._panel.webview.onDidReceiveMessage(
             async (message) => {
@@ -94,7 +93,7 @@ export class ConnectionFormPanel {
         );
     }
 
-    public static show(extensionUri: vscode.Uri) {
+    public static show(extensionUri: vscode.Uri, extensionContext: vscode.ExtensionContext) {
         if (ConnectionFormPanel.currentPanel) {
             ConnectionFormPanel.currentPanel._panel.reveal();
             return;
@@ -109,7 +108,7 @@ export class ConnectionFormPanel {
             }
         );
 
-        ConnectionFormPanel.currentPanel = new ConnectionFormPanel(panel, extensionUri);
+        ConnectionFormPanel.currentPanel = new ConnectionFormPanel(panel, extensionUri, extensionContext);
     }
 
     private async _initialize() {
@@ -385,7 +384,25 @@ export class ConnectionFormPanel {
     }
 
     private async storeConnections(connections: ConnectionInfo[]): Promise<void> {
-        await vscode.workspace.getConfiguration().update('postgresExplorer.connections', connections, true);
+        try {
+            // Store passwords in SecretStorage first
+            const secretsStorage = this._extensionContext.secrets;
+            for (const conn of connections) {
+                if (conn.password) {
+                    await secretsStorage.store(`postgres-password-${conn.id}`, conn.password);
+                }
+            }
+
+            // Only after passwords are safely stored, update the settings
+            const connectionsForSettings = connections.map(({ password, ...connWithoutPassword }) => connWithoutPassword);
+            await vscode.workspace.getConfiguration().update('postgresExplorer.connections', connectionsForSettings, true);
+        } catch (error) {
+            // If anything fails, make sure we don't leave passwords in settings
+            const existingConnections = vscode.workspace.getConfiguration().get<any[]>('postgresExplorer.connections') || [];
+            const sanitizedConnections = existingConnections.map(({ password, ...connWithoutPassword }) => connWithoutPassword);
+            await vscode.workspace.getConfiguration().update('postgresExplorer.connections', sanitizedConnections, true);
+            throw error;
+        }
     }
 
     private dispose() {
