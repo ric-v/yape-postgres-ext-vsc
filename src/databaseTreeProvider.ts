@@ -79,7 +79,10 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseTre
 
                 case 'database':
                     const schemaResult = await client.query(
-                        "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('information_schema', 'pg_catalog')"
+                        `SELECT nspname as schema_name 
+                         FROM pg_namespace 
+                         WHERE nspname NOT LIKE 'pg_%' 
+                         AND nspname != 'information_schema'`
                     );
                     return schemaResult.rows.map(row => new DatabaseTreeItem(
                         row.schema_name,

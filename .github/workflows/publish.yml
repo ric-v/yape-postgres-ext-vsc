@@ -18,6 +18,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '18'
+          cache: 'yarn'
           
       - name: Configure Git
         run: |
@@ -39,15 +40,12 @@ jobs:
           git push
           
       - name: Install dependencies
-        run: npm install
-        
-      - name: Install publishing tools
         run: |
-          npm install -g @vscode/vsce@2.22.0
-          npm install -g ovsx
+          yarn install --frozen-lockfile
+          yarn global add @vscode/vsce@2.22.0 ovsx
         
       - name: Build
-        run: npm run compile
+        run: yarn run vscode:prepublish
         
       - name: Package Extension
         run: vsce package
@@ -63,9 +61,9 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         run: vsce publish -p ${{ secrets.VSCE_PAT }}
 
-      # - name: Publish to Open VSX Registry
-      #   if: startsWith(github.ref, 'refs/tags/v')
-      #   run: ovsx publish *.vsix -p ${{ secrets.OVSX_PAT }}
+      - name: Publish to Open VSX Registry
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: ovsx publish *.vsix -p ${{ secrets.OVSX_PAT }}
 
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/v')
