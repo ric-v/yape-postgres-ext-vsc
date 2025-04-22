@@ -20,7 +20,7 @@ package: build
 	vsce package
 
 # publish the extension to VS Code Marketplace and Open VSX Registry
-publis: package
+publish: package
 	@echo "Publishing to VS Code Marketplace..."
 	test -f ./pat || (echo "Error: pat file not found" && exit 1)
 	vsce publish -p $(shell cat ./pat)

@@ -1,7 +1,7 @@
 {
   "name": "postgres-explorer",
   "displayName": "PostgreSQL Explorer",
-  "version": "0.0.10",
+  "version": "0.0.11",
   "description": "PostgreSQL database explorer for VS Code with notebook support",
   "publisher": "ric-v",
   "private": false,
@@ -167,8 +167,199 @@
         "icon": "$(edit)"
       },
       {
-        "command": "postgres-explorer.createSchema",
-        "title": "Create New Schema",
+        "command": "postgres-explorer.createInSchema",
+        "title": "Create Object",
+        "icon": "$(add)"
+      },
+      {
+        "command": "postgres-explorer.schemaOperations",
+        "title": "Schema Operations",
+        "icon": "$(notebook)"
+      },
+      {
+        "command": "postgres-explorer.refreshMaterializedView",
+        "title": "Refresh Materialized View",
+        "category": "Postgres Explorer",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "postgres-explorer.materializedViewOperations",
+        "title": "Materialized View Operations",
+        "category": "Postgres Explorer",
+        "icon": "$(notebook)"
+      },
+      {
+        "command": "postgres-explorer.foreignTableOperations",
+        "title": "Foreign Table Operations",
+        "category": "Postgres Explorer",
+        "icon": "$(notebook)"
+      },
+      {
+        "command": "postgres-explorer.dropForeignTable",
+        "title": "Drop Foreign Table",
+        "category": "Postgres Explorer",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "postgres-explorer.typeOperations",
+        "title": "Type Operations",
+        "category": "Postgres Explorer",
+        "icon": "$(notebook)"
+      },
+      {
+        "command": "postgres-explorer.dropType",
+        "title": "Drop Type",
+        "category": "Postgres Explorer",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "postgres-explorer.createTable",
+        "title": "Create Table",
+        "icon": "$(add)"
+      },
+      {
+        "command": "postgres-explorer.createView",
+        "title": "Create View",
+        "icon": "$(add)"
+      },
+      {
+        "command": "postgres-explorer.createFunction",
+        "title": "Create Function",
+        "icon": "$(add)"
+      },
+      {
+        "command": "postgres-explorer.createType",
+        "title": "Create Type",
+        "icon": "$(add)"
+      },
+      {
+        "command": "postgres-explorer.createMaterializedView",
+        "title": "Create Materialized View",
+        "icon": "$(add)"
+      },
+      {
+        "command": "postgres-explorer.createForeignTable",
+        "title": "Create Foreign Table",
+        "icon": "$(add)"
+      },
+      {
+        "command": "postgres-explorer.viewMaterializedViewData",
+        "title": "View Data",
+        "category": "Postgres Explorer",
+        "icon": "$(table)"
+      },
+      {
+        "command": "postgres-explorer.disconnectConnection",
+        "title": "Disconnect",
+        "category": "Postgres Explorer",
+        "icon": "$(debug-disconnect)"
+      },
+      {
+        "command": "postgres-explorer.refreshMatView",
+        "title": "Refresh Materialized View",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "postgres-explorer.editMatView",
+        "title": "Edit Materialized View",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "postgres-explorer.viewMatViewData",
+        "title": "View Data",
+        "icon": "$(table)"
+      },
+      {
+        "command": "postgres-explorer.showMatViewProperties",
+        "title": "Show Materialized View Properties",
+        "icon": "$(info)"
+      },
+      {
+        "command": "postgres-explorer.editType",
+        "title": "Edit Type",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "postgres-explorer.showTypeProperties",
+        "title": "Show Type Properties",
+        "icon": "$(info)"
+      },
+      {
+        "command": "postgres-explorer.dropType",
+        "title": "Drop Type",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "postgres-explorer.editForeignTable",
+        "title": "Edit Foreign Table",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "postgres-explorer.showForeignTableProperties",
+        "title": "Show Foreign Table Properties",
+        "icon": "$(info)"
+      },
+      {
+        "command": "postgres-explorer.dropForeignTable",
+        "title": "Drop Foreign Table",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "postgres-explorer.dropMatView",
+        "title": "Drop Materialized View",
+        "category": "Postgres Explorer",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "postgres-explorer.editMaterializedView",
+        "title": "Edit Materialized View",
+        "category": "Postgres Explorer",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "postgres-explorer.showMaterializedViewProperties",
+        "title": "Show Materialized View Properties",
+        "category": "Postgres Explorer",
+        "icon": "$(info)"
+      },
+      {
+        "command": "postgres-explorer.extensionOperations",
+        "title": "Extension Operations",
+        "icon": "$(notebook)"
+      },
+      {
+        "command": "postgres-explorer.dropExtension",
+        "title": "Drop Extension",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "postgres-explorer.editRole",
+        "title": "Edit Role",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "postgres-explorer.grantRevoke",
+        "title": "Grant/Revoke Privileges",
+        "icon": "$(shield)"
+      },
+      {
+        "command": "postgres-explorer.dropRole",
+        "title": "Drop Role",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "postgres-explorer.roleOperations",
+        "title": "Role Operations",
+        "icon": "$(notebook)"
+      },
+      {
+        "command": "postgres-explorer.showRoleProperties",
+        "title": "Show Role Properties",
+        "icon": "$(info)"
+      },
+      {
+        "command": "postgres-explorer.createInDatabase",
+        "title": "Create Object",
         "icon": "$(add)"
       },
       {
@@ -177,14 +368,9 @@
         "icon": "$(notebook)"
       },
       {
-        "command": "postgres-explorer.createInSchema",
-        "title": "Create in Schema",
-        "icon": "$(add)"
-      },
-      {
-        "command": "postgres-explorer.schemaOperations",
-        "title": "Schema Operations",
-        "icon": "$(notebook)"
+        "command": "postgres-explorer.showDashboard",
+        "title": "Show Database Dashboard",
+        "icon": "$(graph)"
       }
     ],
     "viewsContainers": {
@@ -192,7 +378,7 @@
         {
           "id": "postgres-explorer",
           "title": "PostgreSQL Explorer",
-          "icon": "$(database)"
+          "icon": "resources/postgres-vsc-icon.png"
         }
       ]
     },
@@ -283,6 +469,36 @@
               }
             }
           }
+        },
+        "[sql]": {
+          "type": "object",
+          "title": "SQL",
+          "properties": {
+            "editor.quickSuggestions": {
+              "type": "object",
+              "default": {
+                "other": true,
+                "comments": false,
+                "strings": true
+              },
+              "description": "Enable quick suggestions inside strings and other parts of SQL code"
+            },
+            "editor.suggestOnTriggerCharacters": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable suggestions on trigger characters"
+            },
+            "editor.wordBasedSuggestions": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable word based suggestions"
+            },
+            "editor.acceptSuggestionOnEnter": {
+              "type": "string",
+              "default": "on",
+              "description": "Accept suggestions on enter"
+            }
+          }
         }
       }
     },
@@ -314,6 +530,11 @@
           "command": "postgres-explorer.deleteConnection",
           "when": "view == postgresExplorer && viewItem == connection",
           "group": "inline@0"
+        },
+        {
+          "command": "postgres-explorer.disconnectConnection",
+          "when": "view == postgresExplorer && viewItem == connection",
+          "group": "inline@1"
         },
         {
           "command": "postgres-explorer.showViewProperties",
@@ -401,57 +622,207 @@
           "group": "2_operations@3"
         },
         {
-          "command": "postgres-explorer.createSchema",
+          "command": "postgres-explorer.createInSchema",
+          "when": "view == postgresExplorer && viewItem == schema",
+          "group": "inline@1",
+          "icon": "$(add)"
+        },
+        {
+          "command": "postgres-explorer.schemaOperations",
+          "when": "view == postgresExplorer && viewItem == schema",
+          "group": "inline@2",
+          "icon": "$(notebook)"
+        },
+        {
+          "command": "postgres-explorer.refreshMaterializedView",
+          "when": "view == postgresExplorer && viewItem == materialized-view",
+          "group": "inline"
+        },
+        {
+          "command": "postgres-explorer.materializedViewOperations",
+          "when": "view == postgresExplorer && viewItem == materialized-view",
+          "group": "1_operations@0"
+        },
+        {
+          "command": "postgres-explorer.dropMatView",
+          "when": "view == postgresExplorer && viewItem == materialized-view",
+          "group": "inline@3",
+          "icon": "$(trash)"
+        },
+        {
+          "command": "postgres-explorer.foreignTableOperations",
+          "when": "view == postgresExplorer && viewItem == foreign-table",
+          "group": "1_operations@0"
+        },
+        {
+          "command": "postgres-explorer.dropForeignTable",
+          "when": "view == postgresExplorer && viewItem == foreign-table",
+          "group": "inline@3"
+        },
+        {
+          "command": "postgres-explorer.typeOperations",
+          "when": "view == postgresExplorer && viewItem == type",
+          "group": "1_operations@0"
+        },
+        {
+          "command": "postgres-explorer.dropType",
+          "when": "view == postgresExplorer && viewItem == type",
+          "group": "inline@3"
+        },
+        {
+          "command": "postgres-explorer.createTable",
+          "when": "view == postgresExplorer && viewItem == category && viewValue == Tables",
+          "group": "inline"
+        },
+        {
+          "command": "postgres-explorer.createView",
+          "when": "view == postgresExplorer && viewItem == category && viewValue == Views",
+          "group": "inline"
+        },
+        {
+          "command": "postgres-explorer.createFunction",
+          "when": "view == postgresExplorer && viewItem == category && viewValue == Functions",
+          "group": "inline"
+        },
+        {
+          "command": "postgres-explorer.createType",
+          "when": "view == postgresExplorer && viewItem == category && viewValue == Types",
+          "group": "inline"
+        },
+        {
+          "command": "postgres-explorer.createMaterializedView",
+          "when": "view == postgresExplorer && viewItem == category && viewValue == MaterializedViews",
+          "group": "inline"
+        },
+        {
+          "command": "postgres-explorer.createForeignTable",
+          "when": "view == postgresExplorer && viewItem == category && viewValue == ForeignTables",
+          "group": "inline"
+        },
+        {
+          "command": "postgres-explorer.viewMaterializedViewData",
+          "when": "view == postgresExplorer && viewItem == materialized-view",
+          "group": "inline@2"
+        },
+        {
+          "command": "postgres-explorer.refreshMatView",
+          "when": "view == postgresExplorer && viewItem == materialized-view",
+          "group": "1_modification"
+        },
+        {
+          "command": "postgres-explorer.editMatView",
+          "when": "view == postgresExplorer && viewItem == materialized-view",
+          "group": "1_modification"
+        },
+        {
+          "command": "postgres-explorer.viewMatViewData",
+          "when": "view == postgresExplorer && viewItem == materialized-view",
+          "group": "2_query"
+        },
+        {
+          "command": "postgres-explorer.dropMatView",
+          "when": "view == postgresExplorer && viewItem == materialized-view",
+          "group": "9_delete"
+        },
+        {
+          "command": "postgres-explorer.showMatViewProperties",
+          "when": "view == postgresExplorer && viewItem == materialized-view",
+          "group": "inline@1"
+        },
+        {
+          "command": "postgres-explorer.editMatView",
+          "when": "view == postgresExplorer && viewItem == materialized-view",
+          "group": "inline@2"
+        },
+        {
+          "command": "postgres-explorer.showTypeProperties",
+          "when": "view == postgresExplorer && viewItem == type",
+          "group": "inline@1"
+        },
+        {
+          "command": "postgres-explorer.editType",
+          "when": "view == postgresExplorer && viewItem == type",
+          "group": "inline@2"
+        },
+        {
+          "command": "postgres-explorer.dropType",
+          "when": "view == postgresExplorer && viewItem == type",
+          "group": "inline@3"
+        },
+        {
+          "command": "postgres-explorer.showForeignTableProperties",
+          "when": "view == postgresExplorer && viewItem == foreign-table",
+          "group": "inline@1"
+        },
+        {
+          "command": "postgres-explorer.editForeignTable",
+          "when": "view == postgresExplorer && viewItem == foreign-table",
+          "group": "inline@2"
+        },
+        {
+          "command": "postgres-explorer.dropForeignTable",
+          "when": "view == postgresExplorer && viewItem == foreign-table",
+          "group": "inline@3"
+        },
+        {
+          "command": "postgres-explorer.extensionOperations",
+          "when": "view == postgresExplorer && viewItem == extension",
+          "group": "1_operations@0"
+        },
+        {
+          "command": "postgres-explorer.dropExtension",
+          "when": "view == postgresExplorer && viewItem == extension-installed",
+          "group": "inline@3"
+        },
+        {
+          "command": "postgres-explorer.editRole",
+          "when": "view == postgresExplorer && viewItem == role",
+          "group": "inline@1"
+        },
+        {
+          "command": "postgres-explorer.grantRevoke",
+          "when": "view == postgresExplorer && viewItem == role",
+          "group": "inline@2"
+        },
+        {
+          "command": "postgres-explorer.dropRole",
+          "when": "view == postgresExplorer && viewItem == role",
+          "group": "inline@3"
+        },
+        {
+          "command": "postgres-explorer.roleOperations",
+          "when": "view == postgresExplorer && viewItem == role",
+          "group": "1_operations@0"
+        },
+        {
+          "command": "postgres-explorer.showRoleProperties",
+          "when": "view == postgresExplorer && viewItem == role",
+          "group": "inline@0"
+        },
+        {
+          "command": "postgres-explorer.createInDatabase",
           "when": "view == postgresExplorer && viewItem == database",
           "group": "inline@1"
         },
         {
           "command": "postgres-explorer.databaseOperations",
           "when": "view == postgresExplorer && viewItem == database",
-          "group": "1_operations@1"
+          "group": "inline@2"
         },
         {
-          "command": "postgres-explorer.createInSchema",
-          "when": "view == postgresExplorer && viewItem == schema",
-          "group": "inline@1"
-        },
-        {
-          "command": "postgres-explorer.schemaOperations",
-          "when": "view == postgresExplorer && viewItem == schema",
-          "group": "1_operations@1"
+          "command": "postgres-explorer.showDashboard",
+          "when": "view == postgresExplorer && viewItem == database",
+          "group": "inline@0",
+          "icon": "$(graph)"
         }
       ]
     }
   },
   "activationEvents": [
-    "onView:postgresExplorer",
-    "onCommand:postgres-explorer.addConnection",
-    "onCommand:postgres-explorer.refreshConnections",
-    "onCommand:postgres-explorer.showTableProperties",
-    "onCommand:postgres-explorer.newNotebook",
-    "onCommand:postgres-explorer.connect",
-    "onCommand:postgres-explorer.disconnect",
-    "onCommand:postgres-explorer.refresh",
-    "onCommand:postgres-explorer.deleteConnection",
-    "onCommand:postgresExplorer.openColumnNotebook",
     "onNotebook:postgres-notebook",
     "onNotebook:postgres-query",
-    "onCommand:postgres-explorer.showFunctionProperties",
-    "onCommand:postgres-explorer.functionOperations",
-    "onCommand:postgres-explorer.createReplaceFunction",
-    "onCommand:postgres-explorer.callFunction",
-    "onCommand:postgres-explorer.dropFunction",
-    "onCommand:postgres-explorer.editTableDefinition",
-    "onCommand:postgres-explorer.viewTableData",
-    "onCommand:postgres-explorer.dropTable",
-    "onCommand:postgres-explorer.editViewDefinition",
-    "onCommand:postgres-explorer.viewViewData",
-    "onCommand:postgres-explorer.dropView",
-    "onCommand:postgres-explorer.tableOperations",
-    "onCommand:postgres-explorer.viewOperations",
-    "onCommand:postgres-explorer.truncateTable",
-    "onCommand:postgres-explorer.insertData",
-    "onCommand:postgres-explorer.updateData"
+    "onCommand:postgres-explorer.showDashboard",
+    "onView:postgresExplorer"
   ],
   "main": "./dist/extension.js",
   "scripts": {
