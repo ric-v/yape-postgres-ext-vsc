@@ -8,6 +8,18 @@ interface NotebookMetadata {
     port: number;
     username: string;
     password: string;
+    custom?: {
+        cells: any[];
+        metadata: {
+            connectionId: string;
+            databaseName: string;
+            host: string;
+            port: number;
+            username: string;
+            password: string;
+            enableScripts: boolean;
+        };
+    };
 }
 
 export class PostgresKernel {

@@ -62,16 +62,18 @@ export class PostgresNotebookProvider implements vscode.NotebookSerializer {
         }
 
         const notebookData = new vscode.NotebookData(cells);
-        notebookData.metadata = {
-            ...metadata,
-            custom: {
-                cells: [],
-                metadata: {
-                    ...metadata,
-                    enableScripts: true
+        if (metadata) {
+            notebookData.metadata = {
+                ...metadata,
+                custom: {
+                    cells: [],
+                    metadata: {
+                        ...metadata,
+                        enableScripts: true
+                    }
                 }
-            }
-        };
+            };
+        }
         return notebookData;
     }
 
@@ -80,12 +82,25 @@ export class PostgresNotebookProvider implements vscode.NotebookSerializer {
         _token: vscode.CancellationToken
     ): Promise<Uint8Array> {
         const cells: Cell[] = data.cells.map(cell => ({
-            value: cell.value
+            value: cell.value,
+            kind: cell.kind === vscode.NotebookCellKind.Markup ? 'markdown' : 'sql',
+            language: cell.kind === vscode.NotebookCellKind.Markup ? 'markdown' : 'sql'
         }));
 
+        const metadata = {
+            ...data.metadata,
+            custom: {
+                cells: cells,
+                metadata: {
+                    ...data.metadata,
+                    enableScripts: true
+                }
+            }
+        };
+
         return Buffer.from(JSON.stringify({
-            metadata: data.metadata,
-            cells: cells
+            cells,
+            metadata
         }));
     }
 }
