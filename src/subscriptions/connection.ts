@@ -1,6 +1,6 @@
-import * as vscode from 'vscode';
 import { Client } from 'pg';
-import { DatabaseTreeItem } from '../databaseTreeProvider';
+import * as vscode from 'vscode';
+import { DatabaseTreeItem, DatabaseTreeProvider } from '../databaseTreeProvider';
 
 /**
  * PostgresMetadata - Interface representing metadata for a PostgreSQL connection.
@@ -165,18 +165,24 @@ export async function createAndShowNotebook(cells: vscode.NotebookCellData[], me
 }
 
 /**
+ * validateRoleItem - Validates the selected role item in the database tree.
+ * @param {DatabaseTreeItem} item - The selected role item to validate.
+ * @throws {Error} - Throws an error if the item is invalid.
+ */
+export function validateRoleItem(item: DatabaseTreeItem): asserts item is DatabaseTreeItem & { connectionId: string } {
+    if (!item?.connectionId) {
+        throw new Error('Invalid role selection');
+    }
+}
+
+/**
  * validateItem - Validates the selected item in the database tree.
  * @param {DatabaseTreeItem} item - The selected item in the database tree.
  * @throws {Error} - Throws an error if the item is invalid.
- * 
- * @example
- * const item = getSelectedItem();
- * validateItem(item);
- * // If the item is valid, proceed with further actions
  */
 export function validateItem(item: DatabaseTreeItem): asserts item is DatabaseTreeItem & { schema: string; connectionId: string } {
     if (!item?.schema || !item?.connectionId) {
-        throw new Error('Invalid function selection');
+        throw new Error('Invalid selection');
     }
 }
 
@@ -196,7 +202,7 @@ export function validateItem(item: DatabaseTreeItem): asserts item is DatabaseTr
 export async function getConnectionWithPassword(connectionId: string, context: vscode.ExtensionContext): Promise<any> {
     const connections = vscode.workspace.getConfiguration().get<any[]>('postgresExplorer.connections') || [];
     const connection = connections.find(c => c.id === connectionId);
-    
+
     if (!connection) {
         throw new Error('Connection not found');
     }
@@ -210,4 +216,29 @@ export async function getConnectionWithPassword(connectionId: string, context: v
         ...connection,
         password
     };
+}
+
+export async function cmdDisconnectDatabase(item: DatabaseTreeItem, context: vscode.ExtensionContext, databaseTreeProvider?: DatabaseTreeProvider) {
+    const answer = await vscode.window.showWarningMessage(
+        `Are you sure you want to delete connection '${item.label}'?`,
+        'Yes', 'No'
+    );
+
+    if (answer === 'Yes') {
+        try {
+            const config = vscode.workspace.getConfiguration();
+            const connections = config.get<any[]>('postgresExplorer.connections') || [];
+
+            // Remove the connection info from settings
+            const updatedConnections = connections.filter(c => c.id !== item.connectionId);
+            await config.update('postgresExplorer.connections', updatedConnections, vscode.ConfigurationTarget.Global);
+
+            // Remove the password from SecretStorage
+            await context.secrets.delete(`postgres-password-${item.connectionId}`);
+
+            databaseTreeProvider?.refresh();
+        } catch (err: any) {
+            vscode.window.showErrorMessage(`Failed to delete connection: ${err.message}`);
+        }
+    }
 }

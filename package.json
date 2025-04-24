@@ -366,6 +366,11 @@
         "command": "postgres-explorer.showDashboard",
         "title": "Show Database Dashboard",
         "icon": "$(graph)"
+      },
+      {
+        "command": "postgres-explorer.editTable",
+        "title": "Edit Table Definition",
+        "icon": "$(edit)"
       }
     ],
     "viewsContainers": {
@@ -810,6 +815,11 @@
           "when": "view == postgresExplorer && viewItem == database",
           "group": "inline@0",
           "icon": "$(graph)"
+        },
+        {
+          "command": "postgres-explorer.editTable",
+          "when": "view == postgresExplorer && viewItem == table",
+          "group": "inline@1"
         }
       ]
     }
@@ -817,8 +827,7 @@
   "activationEvents": [
     "onNotebook:postgres-notebook",
     "onNotebook:postgres-query",
-    "onCommand:postgres-explorer.showDashboard",
-    "onView:postgresExplorer"
+    "onCommand:postgres-explorer.createSchema"
   ],
   "main": "./dist/extension.js",
   "scripts": {

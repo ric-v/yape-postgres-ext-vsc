@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
-import { createPgClient, createMetadata, closeClient, createAndShowNotebook, validateItem, getConnectionWithPassword } from './connection';
 import { DatabaseTreeItem } from '../databaseTreeProvider';
+import { TablePropertiesPanel } from '../tableProperties';
+import { closeClient, createAndShowNotebook, createMetadata, createPgClient, getConnectionWithPassword, validateItem } from './connection';
 
 /**
  * SQL query to get the view definition from PostgreSQL.
@@ -127,7 +128,7 @@ DROP VIEW IF EXISTS ${item.schema}.${item.label};`,
  * @param {vscode.ExtensionContext} context - The extension context.
  * @returns {Promise<void>} - A promise that resolves when the notebook is created and displayed.
  */
-export async function cmdAllViewOperations(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
+export async function cmdViewOperations(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateItem(item);
         const connection = await getConnectionWithPassword(item.connectionId, context);
@@ -187,5 +188,27 @@ DROP VIEW ${item.schema}.${item.label};`,
         }
     } catch (err: any) {
         vscode.window.showErrorMessage(`Failed to create view operations notebook: ${err.message}`);
+    }
+}
+
+/**
+ * Show properties of a PostgreSQL view.
+ * @param {DatabaseTreeItem} item - The selected view item in the database tree.
+ * @param {vscode.ExtensionContext} context - The extension context.
+ * @returns {Promise<void>} - A promise that resolves when the properties are shown.
+ */
+export async function cmdShowViewProperties(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
+    try {
+        validateItem(item);
+        const connection = await getConnectionWithPassword(item.connectionId, context);
+        const client = await createPgClient(connection, item.databaseName);
+
+        try {
+            await TablePropertiesPanel.show(client, item.schema, item.label, true);
+        } finally {
+            await closeClient(client);
+        }
+    } catch (err: any) {
+        vscode.window.showErrorMessage(`Failed to show view properties: ${err.message}`);
     }
 }

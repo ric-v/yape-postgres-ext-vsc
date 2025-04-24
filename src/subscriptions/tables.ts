@@ -1,6 +1,8 @@
+import { Client } from 'pg';
 import * as vscode from 'vscode';
-import { closeClient, createAndShowNotebook, createMetadata, createPgClient, getConnectionWithPassword, validateItem } from './connection';
 import { DatabaseTreeItem } from '../databaseTreeProvider';
+import { TablePropertiesPanel } from '../tableProperties';
+import { closeClient, createAndShowNotebook, createMetadata, createPgClient, getConnectionWithPassword, validateItem } from './connection';
 
 /**
  * SQL Queries for table operations
@@ -8,26 +10,32 @@ import { DatabaseTreeItem } from '../databaseTreeProvider';
 
 /**
  * TABLE_INFO_QUERY - SQL query to retrieve table information including columns and constraints.
- * fetches - table schema, table name, column name, data type, character max length,
- * numeric precision, numeric scale, is nullable, column default, and ordinal position.
- * It also retrieves constraint information such as constraint name, type, columns,
- * and foreign key reference.
+ * Fetches:
+ * - Column definitions (name, type, constraints)
+ * - Table constraints (primary keys, foreign keys, etc.)
+ * - Table metadata
  */
 const TABLE_INFO_QUERY = `
-    WITH columns AS (
-    SELECT 
-        column_name,
-        data_type,
-        character_maximum_length,
-        numeric_precision,
-        numeric_scale,
-        is_nullable,
-        column_default,
-        ordinal_position
+WITH columns AS (
+    SELECT string_agg(
+        format('%I %s%s%s', 
+            column_name, 
+            data_type || 
+                CASE 
+                    WHEN character_maximum_length IS NOT NULL THEN '(' || character_maximum_length || ')'
+                    WHEN numeric_precision IS NOT NULL THEN 
+                        '(' || numeric_precision || COALESCE(',' || numeric_scale, '') || ')'
+                    ELSE ''
+                END,
+            CASE WHEN is_nullable = 'NO' THEN ' NOT NULL' ELSE '' END,
+            CASE WHEN column_default IS NOT NULL THEN ' DEFAULT ' || column_default ELSE '' END
+        ),
+        E',\n    '
+        ORDER BY ordinal_position
+    ) as columns
     FROM information_schema.columns
-    WHERE table_schema = $1
+    WHERE table_schema = $1 
     AND table_name = $2
-    ORDER BY ordinal_position
 ),
 constraints AS (
     SELECT 
@@ -48,53 +56,41 @@ constraints AS (
         ON tc.constraint_name = kcu.constraint_name
         AND tc.table_schema = kcu.table_schema
         AND tc.table_name = kcu.table_name
-    LEFT JOIN information_schema.constraint_column_usage ccu
-        ON tc.constraint_name = ccu.constraint_name
-        AND tc.constraint_schema = ccu.constraint_schema
-    WHERE tc.table_schema = $1
+    LEFT JOIN information_schema.referential_constraints rc 
+        ON tc.constraint_name = rc.constraint_name
+        AND tc.constraint_schema = rc.constraint_schema
+    LEFT JOIN information_schema.constraint_column_usage ccu 
+        ON rc.unique_constraint_name = ccu.constraint_name
+        AND rc.unique_constraint_schema = ccu.constraint_schema
+    WHERE tc.table_schema = $1 
     AND tc.table_name = $2
     GROUP BY tc.constraint_name, tc.constraint_type, ccu.table_schema, ccu.table_name
-)
+) 
 SELECT 
-    (
-        SELECT string_agg(
-            format('%I %s%s%s', 
-                column_name, 
-                data_type || 
-                    CASE 
-                        WHEN character_maximum_length IS NOT NULL THEN '(' || character_maximum_length || ')'
-                        WHEN numeric_precision IS NOT NULL THEN 
-                            '(' || numeric_precision || COALESCE(',' || numeric_scale, '') || ')'
-                        ELSE ''
-                    END,
-                CASE WHEN is_nullable = 'NO' THEN ' NOT NULL' ELSE '' END,
-                CASE WHEN column_default IS NOT NULL THEN ' DEFAULT ' || column_default ELSE '' END
-            ),
-            E',\\n    '
-            ORDER BY ordinal_position
-        )
-        FROM columns
-    ) as columns,
+    c.columns,
     COALESCE(
-        (
-            SELECT json_agg(
-                json_build_object(
-                    'name', constraint_name,
-                    'type', constraint_type,
-                    'columns', columns,
-                    'reference', foreign_key_reference
-                )
-                ORDER BY constraint_name
+        json_agg(
+            json_build_object(
+                'name', cs.constraint_name,
+                'type', cs.constraint_type,
+                'columns', cs.columns,
+                'reference', cs.foreign_key_reference
             )
-            FROM constraints
-        ),
+            ORDER BY cs.constraint_name
+        ) FILTER (WHERE cs.constraint_name IS NOT NULL),
         '[]'::json
-    ) as constraints`;
+    ) as constraints
+FROM columns c
+LEFT JOIN constraints cs ON true
+GROUP BY c.columns`;
 
 /**
  * COLUMN_INFO_QUERY - SQL query to retrieve column information for a specific table.
- * fetches - column name, data type, is nullable, and column default.
- * It retrieves information from the information_schema.columns view.
+ * Fetches:
+ * - Column name
+ * - Data type
+ * - Nullability
+ * - Default value
  */
 const COLUMN_INFO_QUERY = `
 SELECT column_name, data_type, is_nullable, column_default
@@ -104,11 +100,11 @@ AND table_name = $2
 ORDER BY ordinal_position`;
 
 /**
- * COLUMN_WITH_PK_QUERY - SQL query to retrieve column information for a specific table
- * including primary key information.
- * fetches - column name, data type, and whether the column is a primary key.
- * It retrieves information from the information_schema.columns,
- * information_schema.key_column_usage, and information_schema.table_constraints views.
+ * COLUMN_WITH_PK_QUERY - SQL query to retrieve column information including primary key info.
+ * Fetches:
+ * - Column name
+ * - Data type
+ * - Primary key status
  */
 const COLUMN_WITH_PK_QUERY = `
 SELECT 
@@ -132,13 +128,20 @@ AND c.table_name = $2
 ORDER BY c.ordinal_position`;
 
 /**
- * cmdAllTableOperations - Command to create a notebook with common table operations.
+ * cmdAllTableOperations - Creates a notebook with common table operations.
+ * Shows operations for:
+ * - Viewing table definition
+ * - Querying data
+ * - Inserting data
+ * - Updating data
+ * - Deleting data
+ * - Truncating table
+ * - Dropping table
  * 
- * @param {DatabaseTreeItem} item - The DatabaseTreeItem representing the table.
- * @param {vscode.ExtensionContext} context - The extension context.
- * @returns {Promise<void>} - A promise that resolves when the notebook is created and shown.
+ * @param {DatabaseTreeItem} item - The selected table item from the tree view
+ * @param {vscode.ExtensionContext} context - The extension context
  */
-export async function cmdAllTableOperations(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
+export async function cmdTableOperations(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateItem(item);
         const connection = await getConnectionWithPassword(item.connectionId, context);
@@ -146,30 +149,13 @@ export async function cmdAllTableOperations(item: DatabaseTreeItem, context: vsc
 
         try {
             const result = await client.query(TABLE_INFO_QUERY, [item.schema, item.label]);
-            const createTable = `CREATE TABLE ${item.schema}.${item.label} (\\n    ${result.rows[0].columns}`;
-
-            const constraints = result.rows[0].constraints[0] && result.rows[0].constraints[0].name ?
-                result.rows[0].constraints.map((c: { type: string; name: string; columns: string[]; reference?: { schema: string; table: string; columns: string[] } }) => {
-                    switch (c.type) {
-                        case 'PRIMARY KEY':
-                            return `    CONSTRAINT ${c.name} PRIMARY KEY (${c.columns.join(', ')})`;
-                        case 'FOREIGN KEY':
-                            return `    CONSTRAINT ${c.name} FOREIGN KEY (${c.columns.join(', ')}) ` +
-                                `REFERENCES ${c.reference?.schema}.${c.reference?.table} (${c.reference?.columns.join(', ')})`;
-                        case 'UNIQUE':
-                            return `    CONSTRAINT ${c.name} UNIQUE (${c.columns.join(', ')})`;
-                        default:
-                            return null;
-                    }
-                }).filter((c: string | null): c is string => c !== null).join(',\\n') : '';
-
-            const tableDefinition = `${createTable}${constraints ? ',\\n' + constraints : ''}\\n);`;
-
+            const tableDefinition = buildTableDefinition(item.schema, item.label, result.rows[0]);
             const metadata = createMetadata(connection, item.databaseName);
+
             const cells = [
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Markup,
-                    `# Table Operations: ${item.schema}.${item.label}\\n\\nThis notebook contains common operations for the PostgreSQL table:
+                    `# Table Operations: ${item.schema}.${item.label}\n\nThis notebook contains common operations for the PostgreSQL table:
 - View table definition
 - Query table data
 - Insert data
@@ -181,7 +167,7 @@ export async function cmdAllTableOperations(item: DatabaseTreeItem, context: vsc
                 ),
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Code,
-                    `-- Table definition\\n${tableDefinition}`,
+                    `-- Table definition\n${tableDefinition}`,
                     'sql'
                 ),
                 new vscode.NotebookCellData(
@@ -242,11 +228,14 @@ DROP TABLE ${item.schema}.${item.label};`,
 }
 
 /**
- * cmdEditTable - Command to create a notebook for editing a table's structure.
+ * cmdEditTable - Creates a notebook for editing a table's structure.
+ * Shows the current table definition and allows modifying:
+ * - Column definitions
+ * - Constraints
+ * - Table properties
  * 
- * @param {DatabaseTreeItem} item - The DatabaseTreeItem representing the table.
- * @param {vscode.ExtensionContext} context - The extension context.
- * @returns {Promise<void>} - A promise that resolves when the notebook is created and shown.
+ * @param {DatabaseTreeItem} item - The selected table item from the tree view
+ * @param {vscode.ExtensionContext} context - The extension context
  */
 export async function cmdEditTable(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
@@ -256,33 +245,13 @@ export async function cmdEditTable(item: DatabaseTreeItem, context: vscode.Exten
 
         try {
             const result = await client.query(TABLE_INFO_QUERY, [item.schema, item.label]);
-            if (result.rows.length === 0) {
-                throw new Error('Table not found');
-            }
-
-            const createTable = `CREATE TABLE ${item.schema}.${item.label} (\\n    ${result.rows[0].columns}`;
-            const constraints = result.rows[0].constraints[0] && result.rows[0].constraints[0].name ?
-                result.rows[0].constraints.map((c: { type: string; name: string; columns: string[]; reference?: { schema: string; table: string; columns: string[] } }) => {
-                    switch (c.type) {
-                        case 'PRIMARY KEY':
-                            return `    CONSTRAINT ${c.name} PRIMARY KEY (${c.columns.join(', ')})`;
-                        case 'FOREIGN KEY':
-                            return `    CONSTRAINT ${c.name} FOREIGN KEY (${c.columns.join(', ')}) ` +
-                                `REFERENCES ${c.reference?.schema}.${c.reference?.table} (${c.reference?.columns.join(', ')})`;
-                        case 'UNIQUE':
-                            return `    CONSTRAINT ${c.name} UNIQUE (${c.columns.join(', ')})`;
-                        default:
-                            return null;
-                    }
-                }).filter((c: string | null): c is string => c !== null).join(',\\n') : '';
-
-            const tableDefinition = `${createTable}${constraints ? ',\\n' + constraints : ''}\\n);`;
-
+            const tableDefinition = buildTableDefinition(item.schema, item.label, result.rows[0]);
             const metadata = createMetadata(connection, item.databaseName);
+
             const cells = [
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Markup,
-                    `# Edit Table: ${item.schema}.${item.label}\\n\\nModify the table definition below and execute the cell to update the table structure. Note that this will create a new table - you'll need to migrate the data separately if needed.`,
+                    `# Edit Table: ${item.schema}.${item.label}\n\nModify the table definition below and execute the cell to update the table structure. Note that this will create a new table - you'll need to migrate the data separately if needed.`,
                     'markdown'
                 ),
                 new vscode.NotebookCellData(
@@ -302,11 +271,14 @@ export async function cmdEditTable(item: DatabaseTreeItem, context: vscode.Exten
 }
 
 /**
- * cmdInsertTable - Command to create a notebook for inserting data into a table.
+ * cmdInsertTable - Creates a notebook for inserting data into a table.
+ * Generates insert statements with:
+ * - Column names
+ * - Appropriate placeholder values based on column types
+ * - Examples for single and multiple row inserts
  * 
- * @param {DatabaseTreeItem} item - The DatabaseTreeItem representing the table.
- * @param {vscode.ExtensionContext} context - The extension context.
- * @returns {Promise<void>} - A promise that resolves when the notebook is created and shown.
+ * @param {DatabaseTreeItem} item - The selected table item from the tree view
+ * @param {vscode.ExtensionContext} context - The extension context
  */
 export async function cmdInsertTable(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
@@ -353,23 +325,23 @@ export async function cmdInsertTable(item: DatabaseTreeItem, context: vscode.Ext
             const cells = [
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Markup,
-                    `# Insert Data: ${item.schema}.${item.label}\\n\\nReplace the placeholder values in the INSERT statement below with your actual data.`,
+                    `# Insert Data: ${item.schema}.${item.label}\n\nReplace the placeholder values in the INSERT statement below with your actual data.`,
                     'markdown'
                 ),
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Code,
                     `-- Insert single row
 INSERT INTO ${item.schema}.${item.label} (
-    ${columns.map(col => `${col}`).join(',\\n    ')}
+    ${columns.join(',\n    ')}
 )
 VALUES (
-    ${placeholders.join(',\\n    ')}
+    ${placeholders.join(',\n    ')}
 )
 RETURNING *;
 
 -- Insert multiple rows (example)
 INSERT INTO ${item.schema}.${item.label} (
-    ${columns.map(col => `${col}`).join(',\\n    ')}
+    ${columns.join(',\n    ')}
 )
 VALUES
     (${placeholders.join(', ')}),
@@ -389,11 +361,14 @@ RETURNING *;`,
 }
 
 /**
- * cmdUpdateTable - Command to create a notebook for updating data in a table.
+ * cmdUpdateTable - Creates a notebook for updating data in a table.
+ * Generates update statements with:
+ * - Column names
+ * - WHERE clause using primary key if available
+ * - Example of updating multiple columns
  * 
- * @param {DatabaseTreeItem} item - The DatabaseTreeItem representing the table.
- * @param {vscode.ExtensionContext} context - The extension context.
- * @returns {Promise<void>} - A promise that resolves when the notebook is created and shown.
+ * @param {DatabaseTreeItem} item - The selected table item from the tree view
+ * @param {vscode.ExtensionContext} context - The extension context
  */
 export async function cmdUpdateTable(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
@@ -412,7 +387,7 @@ export async function cmdUpdateTable(item: DatabaseTreeItem, context: vscode.Ext
             const cells = [
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Markup,
-                    `# Update Data: ${item.schema}.${item.label}\\n\\nModify the UPDATE statement below to set new values and specify which rows to update using the WHERE clause.`,
+                    `# Update Data: ${item.schema}.${item.label}\n\nModify the UPDATE statement below to set new values and specify which rows to update using the WHERE clause.`,
                     'markdown'
                 ),
                 new vscode.NotebookCellData(
@@ -430,10 +405,10 @@ UPDATE ${item.schema}.${item.label}
 SET
     ${result.rows.map(col => `${col.column_name} = CASE 
         WHEN ${col.data_type.toLowerCase().includes('char') || col.data_type.toLowerCase() === 'text' ?
-                            `condition THEN 'new_value'` :
-                            `condition THEN 0`}
+            `condition THEN 'new_value'` :
+            `condition THEN 0`}
         ELSE ${col.column_name}
-    END`).join(',\\n    ')}
+    END`).join(',\n    ')}
 ${whereClause}
 RETURNING *;`,
                     'sql'
@@ -450,11 +425,11 @@ RETURNING *;`,
 }
 
 /**
- * cmdDeleteTable - Command to create a notebook for deleting data from a table.
+ * cmdViewTableData - Creates a notebook for viewing table data.
+ * Shows a basic SELECT statement that users can modify.
  * 
- * @param {DatabaseTreeItem} item - The DatabaseTreeItem representing the table.
- * @param {vscode.ExtensionContext} context - The extension context.
- * @returns {Promise<void>} - A promise that resolves when the notebook is created and shown.
+ * @param {DatabaseTreeItem} item - The selected table item from the tree view
+ * @param {vscode.ExtensionContext} context - The extension context
  */
 export async function cmdViewTableData(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
@@ -465,7 +440,7 @@ export async function cmdViewTableData(item: DatabaseTreeItem, context: vscode.E
         const cells = [
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `# View Table Data: ${item.schema}.${item.label}\\n\\nModify the query below to filter or transform the data as needed.`,
+                `# View Table Data: ${item.schema}.${item.label}\n\nModify the query below to filter or transform the data as needed.`,
                 'markdown'
             ),
             new vscode.NotebookCellData(
@@ -485,11 +460,11 @@ LIMIT 100;`,
 }
 
 /**
- * cmdDeleteTable - Command to create a notebook for deleting data from a table.
+ * cmdDropTable - Creates a notebook for dropping a table.
+ * Includes a warning about data loss.
  * 
- * @param {DatabaseTreeItem} item - The DatabaseTreeItem representing the table.
- * @param {vscode.ExtensionContext} context - The extension context.
- * @returns {Promise<void>} - A promise that resolves when the notebook is created and shown.
+ * @param {DatabaseTreeItem} item - The selected table item from the tree view
+ * @param {vscode.ExtensionContext} context - The extension context
  */
 export async function cmdDropTable(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
@@ -500,7 +475,7 @@ export async function cmdDropTable(item: DatabaseTreeItem, context: vscode.Exten
         const cells = [
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `# Drop Table: ${item.schema}.${item.label}\\n\\n⚠️ **Warning:** This action will permanently delete the table and all its data. This operation cannot be undone.`,
+                `# Drop Table: ${item.schema}.${item.label}\n\n⚠️ **Warning:** This action will permanently delete the table and all its data. This operation cannot be undone.`,
                 'markdown'
             ),
             new vscode.NotebookCellData(
@@ -518,11 +493,11 @@ DROP TABLE IF EXISTS ${item.schema}.${item.label};`,
 }
 
 /**
- * cmdTruncateTable - Command to create a notebook for truncating a table.
+ * cmdTruncateTable - Creates a notebook for truncating a table.
+ * Includes a warning about data loss.
  * 
- * @param {DatabaseTreeItem} item - The DatabaseTreeItem representing the table.
- * @param {vscode.ExtensionContext} context - The extension context.
- * @returns {Promise<void>} - A promise that resolves when the notebook is created and shown.
+ * @param {DatabaseTreeItem} item - The selected table item from the tree view
+ * @param {vscode.ExtensionContext} context - The extension context
  */
 export async function cmdTruncateTable(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
@@ -533,7 +508,7 @@ export async function cmdTruncateTable(item: DatabaseTreeItem, context: vscode.E
         const cells = [
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `# Truncate Table: ${item.schema}.${item.label}\\n\\n⚠️ **Warning:** This action will remove all data from the table. This operation cannot be undone.`,
+                `# Truncate Table: ${item.schema}.${item.label}\n\n⚠️ **Warning:** This action will remove all data from the table. This operation cannot be undone.`,
                 'markdown'
             ),
             new vscode.NotebookCellData(
@@ -548,4 +523,54 @@ TRUNCATE TABLE ${item.schema}.${item.label};`,
     } catch (err: any) {
         vscode.window.showErrorMessage(`Failed to create truncate notebook: ${err.message}`);
     }
+}
+
+/**
+ * cmdShowTableProperties - Shows the properties of a table in a panel.
+ * Uses TablePropertiesPanel to display:
+ * - Column definitions
+ * - Constraints
+ * - Table metadata
+ * 
+ * @param {DatabaseTreeItem} item - The selected table item from the tree view
+ * @param {vscode.ExtensionContext} context - The extension context
+ */
+export async function cmdShowTableProperties(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
+    try {
+        validateItem(item);
+        const connection = await getConnectionWithPassword(item.connectionId, context);
+        let client: Client | undefined;
+        
+        try {
+            client = await createPgClient(connection, item.databaseName);
+            await TablePropertiesPanel.show(client, item.schema, item.label);
+        } finally {
+            await closeClient(client);
+        }
+    } catch (err: any) {
+        vscode.window.showErrorMessage(`Failed to show table properties: ${err.message}`);
+    }
+}
+
+/**
+ * Helper function to build a CREATE TABLE statement from query results
+ */
+function buildTableDefinition(schema: string, tableName: string, result: any): string {
+    const createTable = `CREATE TABLE ${schema}.${tableName} (\n    ${result.columns}`;
+    const constraints = result.constraints[0] && result.constraints[0].name ?
+        result.constraints.map((c: { type: string; name: string; columns: string[]; reference?: { schema: string; table: string; columns: string[] } }) => {
+            switch (c.type) {
+                case 'PRIMARY KEY':
+                    return `    CONSTRAINT ${c.name} PRIMARY KEY (${c.columns.join(', ')})`;
+                case 'FOREIGN KEY':
+                    return `    CONSTRAINT ${c.name} FOREIGN KEY (${c.columns.join(', ')}) ` +
+                        `REFERENCES ${c.reference?.schema}.${c.reference?.table} (${c.reference?.columns.join(', ')})`;
+                case 'UNIQUE':
+                    return `    CONSTRAINT ${c.name} UNIQUE (${c.columns.join(', ')})`;
+                default:
+                    return null;
+            }
+        }).filter((c: string | null): c is string => c !== null).join(',\n') : '';
+
+    return `${createTable}${constraints ? ',\n' + constraints : ''}\n);`;
 }

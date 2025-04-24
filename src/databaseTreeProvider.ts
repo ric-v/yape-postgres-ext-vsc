@@ -1,6 +1,5 @@
-import * as vscode from 'vscode';
 import { Client } from 'pg';
-import { ConnectionInfo } from './connectionForm';
+import * as vscode from 'vscode';
 
 export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseTreeItem> {
     private _onDidChangeTreeData: vscode.EventEmitter<DatabaseTreeItem | undefined | null | void> = new vscode.EventEmitter<DatabaseTreeItem | undefined | null | void>();

@@ -1,5 +1,5 @@
-import * as vscode from 'vscode';
 import { Client } from 'pg';
+import * as vscode from 'vscode';
 
 export class TablePropertiesPanel {
     public static async show(client: Client, schema: string, name: string, isView: boolean = false, isFunction: boolean = false): Promise<void> {

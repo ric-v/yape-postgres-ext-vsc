@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
-import { closeClient, createAndShowNotebook, createMetadata, createPgClient, getConnectionWithPassword, validateItem } from './connection';
 import { DatabaseTreeItem } from '../databaseTreeProvider';
-import { Client } from 'pg';
+import { closeClient, createAndShowNotebook, createMetadata, createPgClient, getConnectionWithPassword, validateItem } from './connection';
 
 /**
  * SQL Queries for type operations
