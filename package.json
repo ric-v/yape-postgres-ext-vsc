@@ -1,7 +1,7 @@
 {
   "name": "postgres-explorer",
   "displayName": "PostgreSQL Explorer",
-  "version": "0.1.1",
+  "version": "0.1.3",
   "description": "PostgreSQL database explorer for VS Code with notebook support",
   "publisher": "ric-v",
   "private": false,
@@ -518,7 +518,7 @@
         },
         {
           "command": "postgres-explorer.newNotebook",
-          "when": "view == postgresExplorer && viewItem =~ /(database|schema|table)/",
+          "when": "view == postgresExplorer && viewItem =~ /(schema|table)/",
           "group": "inline@1"
         },
         {
@@ -793,14 +793,8 @@
         {
           "command": "postgres-explorer.createInDatabase",
           "when": "view == postgresExplorer && viewItem == database",
-          "group": "inline@0",
-          "icon": "$(add)"
-        },
-        {
-          "command": "postgres-explorer.newNotebook",
-          "when": "view == postgresExplorer && viewItem == database",
           "group": "inline@1",
-          "icon": "$(notebook)"
+          "icon": "$(add)"
         },
         {
           "command": "postgres-explorer.showDashboard",

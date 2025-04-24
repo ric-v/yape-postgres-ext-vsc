@@ -47,6 +47,16 @@ publish-ovsx: package
 watch:
 	yarn run watch
 
+git-tag:
+	@echo "Creating a new git tag..."
+	@read -p "Enter the version number (e.g., 1.0.0): " version; \
+	git tag -a "$$version" -m "Release $$version"; \
+	git push origin "$$version"; \
+	echo "Git tag $$version created and pushed."
+	@echo "Updating package.json version to $$version..."
+	@jq --arg version "$$version" '.version = $$version' package.json > tmp.json && mv tmp.json package.json
+	@echo "package.json version updated to $$version."
+
 # Help target
 help:
 	@echo "Available targets:"
