@@ -20,7 +20,7 @@ package: build
 	vsce package
 
 # publish the extension to VS Code Marketplace and Open VSX Registry
-publish: package
+publish: package git-tag
 	@echo "Publishing to VS Code Marketplace..."
 	test -f ./pat || (echo "Error: pat file not found" && exit 1)
 	vsce publish -p $(shell cat ./pat)
@@ -32,13 +32,13 @@ publish: package
 	@echo "Publishing to Open VSX Registry..."
 
 # Publish the extension to VS Code Marketplace
-publish-vsx: package
+publish-vsx: package git-tag
 	@echo "Publishing to VS Code Marketplace..."
 	test -f ./pat || (echo "Error: pat file not found" && exit 1)
 	vsce publish -p $(shell cat ./pat)
 
 # Publish the extension to Open VSX Registry
-publish-ovsx: package
+publish-ovsx: package git-tag
 	@echo "Publishing to Open VSX Registry..."
 	test -f ./pat-open-vsx || (echo "Error: pat-open-vsx file not found" && exit 1)
 	ovsx publish -p $(shell cat ./pat-open-vsx)
@@ -46,6 +46,16 @@ publish-ovsx: package
 # Watch mode for development
 watch:
 	yarn run watch
+
+git-tag:
+	@echo "Creating a new git tag..."
+	@read -p "Enter the version number (e.g., 1.0.0): " version; \
+	git tag -a "$$version" -m "Release $$version"; \
+	git push origin "$$version"; \
+	echo "Git tag $$version created and pushed."
+	@echo "Updating package.json version to $$version..."
+	@jq --arg version "$$version" '.version = $$version' package.json > tmp.json && mv tmp.json package.json
+	@echo "package.json version updated to $$version."
 
 # Help target
 help:

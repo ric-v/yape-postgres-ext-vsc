@@ -13,6 +13,11 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseTre
         this._onDidChangeTreeData.fire();
     }
 
+    collapseAll(): void {
+        // This will trigger a refresh of the tree view with all items collapsed
+        this._onDidChangeTreeData.fire();
+    }
+
     getTreeItem(element: DatabaseTreeItem): vscode.TreeItem {
         return element;
     }
@@ -102,6 +107,14 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseTre
 
             switch (element.type) {
                 case 'connection':
+                    // At connection level, show Databases group and Users & Roles
+                    return [
+                        new DatabaseTreeItem('Databases', vscode.TreeItemCollapsibleState.Collapsed, 'databases-group', element.connectionId),
+                        new DatabaseTreeItem('Users & Roles', vscode.TreeItemCollapsibleState.Collapsed, 'category', element.connectionId)
+                    ];
+
+                case 'databases-group':
+                    // Show all databases under the Databases group
                     const dbResult = await client.query(
                         "SELECT datname FROM pg_database WHERE datistemplate = false AND datname != 'postgres' ORDER BY datname"
                     );
@@ -117,12 +130,41 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseTre
                     // Return just the categories at database level
                     return [
                         new DatabaseTreeItem('Schemas', vscode.TreeItemCollapsibleState.Collapsed, 'category', element.connectionId, element.databaseName),
-                        new DatabaseTreeItem('Extensions', vscode.TreeItemCollapsibleState.Collapsed, 'category', element.connectionId, element.databaseName),
-                        new DatabaseTreeItem('Users & Roles', vscode.TreeItemCollapsibleState.Collapsed, 'category', element.connectionId, element.databaseName)
+                        new DatabaseTreeItem('Extensions', vscode.TreeItemCollapsibleState.Collapsed, 'category', element.connectionId, element.databaseName)
                     ];
 
                 case 'category':
                     switch (element.label) {
+                        case 'Users & Roles':
+                            const roleResult = await client.query(
+                                `SELECT r.rolname,
+                                        r.rolsuper,
+                                        r.rolcreatedb,
+                                        r.rolcreaterole,
+                                        r.rolcanlogin
+                                 FROM pg_roles r
+                                 ORDER BY r.rolname`
+                            );
+                            return roleResult.rows.map(row => new DatabaseTreeItem(
+                                row.rolname,
+                                vscode.TreeItemCollapsibleState.None,
+                                'role',
+                                element.connectionId,
+                                element.databaseName,
+                                undefined,
+                                undefined,
+                                undefined,
+                                undefined,
+                                undefined,
+                                undefined,
+                                {
+                                    rolsuper: row.rolsuper,
+                                    rolcreatedb: row.rolcreatedb,
+                                    rolcreaterole: row.rolcreaterole,
+                                    rolcanlogin: row.rolcanlogin
+                                }
+                            ));
+
                         case 'Schemas':
                             const schemaResult = await client.query(
                                 `SELECT nspname as schema_name 
@@ -162,36 +204,6 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseTre
                                 row.comment,
                                 row.is_installed,
                                 row.installed_version
-                            ));
-
-                        case 'Users & Roles':
-                            const roleResult = await client.query(
-                                `SELECT r.rolname,
-                                        r.rolsuper,
-                                        r.rolcreatedb,
-                                        r.rolcreaterole,
-                                        r.rolcanlogin
-                                 FROM pg_roles r
-                                 ORDER BY r.rolname`
-                            );
-                            return roleResult.rows.map(row => new DatabaseTreeItem(
-                                row.rolname,
-                                vscode.TreeItemCollapsibleState.None,
-                                'role',
-                                element.connectionId,
-                                element.databaseName,
-                                undefined,
-                                undefined,
-                                undefined,
-                                undefined,
-                                undefined,
-                                undefined,
-                                {
-                                    rolsuper: row.rolsuper,
-                                    rolcreatedb: row.rolcreatedb,
-                                    rolcreaterole: row.rolcreaterole,
-                                    rolcanlogin: row.rolcanlogin
-                                }
                             ));
 
                         // Existing category cases for schema level items
@@ -334,7 +346,7 @@ export class DatabaseTreeItem extends vscode.TreeItem {
     constructor(
         public readonly label: string,
         public readonly collapsibleState: vscode.TreeItemCollapsibleState,
-        public readonly type: 'connection' | 'database' | 'schema' | 'table' | 'view' | 'function' | 'column' | 'category' | 'materialized-view' | 'type' | 'foreign-table' | 'extension' | 'role',
+        public readonly type: 'connection' | 'database' | 'schema' | 'table' | 'view' | 'function' | 'column' | 'category' | 'materialized-view' | 'type' | 'foreign-table' | 'extension' | 'role' | 'databases-group',
         public readonly connectionId?: string,
         public readonly databaseName?: string,
         public readonly schema?: string,
@@ -352,6 +364,7 @@ export class DatabaseTreeItem extends vscode.TreeItem {
         this.iconPath = {
             connection: new vscode.ThemeIcon('plug'),
             database: new vscode.ThemeIcon('database'),
+            'databases-group': new vscode.ThemeIcon('database'),
             schema: new vscode.ThemeIcon('symbol-namespace'),
             table: new vscode.ThemeIcon('table'),
             view: new vscode.ThemeIcon('type-hierarchy-sub'),

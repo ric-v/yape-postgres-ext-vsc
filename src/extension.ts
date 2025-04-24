@@ -16,6 +16,7 @@ import { cmdTableOperations, cmdDropTable, cmdEditTable, cmdInsertTable, cmdShow
 import { cmdAllOperationsTypes, cmdDropType, cmdEditTypes, cmdShowTypeProperties } from './subscriptions/types';
 import { cmdAddRole, cmdAddUser, cmdRoleOperations, cmdDropRole, cmdEditRole, cmdGrantRevokeRole, cmdShowRoleProperties } from './subscriptions/usersRoles';
 import { cmdViewOperations, cmdDropView, cmdEditView, cmdShowViewProperties, cmdViewData } from './subscriptions/views';
+import { cmdDisconnectDatabase, cmdDisconnectConnection, cmdConnectDatabase } from './subscriptions/connection';
 
 export async function activate(context: vscode.ExtensionContext) {
     console.log('postgres-explorer: Activating extension');
@@ -26,10 +27,12 @@ export async function activate(context: vscode.ExtensionContext) {
     // Create database tree provider instance
     const databaseTreeProvider = new DatabaseTreeProvider(context);
 
-    // Register tree data provider
-    context.subscriptions.push(
-        vscode.window.registerTreeDataProvider('postgresExplorer', databaseTreeProvider)
-    );
+    // Register tree data provider and create tree view
+    const treeView = vscode.window.createTreeView('postgresExplorer', {
+        treeDataProvider: databaseTreeProvider,
+        showCollapseAll: true
+    });
+    context.subscriptions.push(treeView);
 
     // Create kernel with message handler
     const kernel = new PostgresKernel(context, async (message: { type: string; command: string; format?: string; content?: string; filename?: string }) => {
@@ -68,27 +71,7 @@ export async function activate(context: vscode.ExtensionContext) {
         },
         {
             command: 'postgres-explorer.connect',
-            callback: async () => {
-                try {
-                    const connectionString = await vscode.window.showInputBox({
-                        prompt: 'Enter PostgreSQL connection string',
-                        placeHolder: 'postgresql://user:password@localhost:5432/dbname'
-                    });
-
-                    if (!connectionString) {
-                        return;
-                    }
-
-                    const client = new Client(connectionString);
-                    await client.connect();
-                    vscode.window.showInformationMessage('Connected to PostgreSQL database');
-                    databaseTreeProvider.refresh();
-                    await client.end();
-                } catch (err: any) {
-                    const errorMessage = err?.message || 'Unknown error occurred';
-                    vscode.window.showErrorMessage(`Failed to connect: ${errorMessage}`);
-                }
-            }
+            callback: async (item: any) => await cmdConnectDatabase(item, context, databaseTreeProvider)
         },
         {
             command: 'postgres-explorer.disconnect',
@@ -312,6 +295,19 @@ export async function activate(context: vscode.ExtensionContext) {
         {
             command: 'postgres-explorer.dropExtension',
             callback: async (item: DatabaseTreeItem) => await cmdDropExtension(item, context)
+        },
+        // Add connection commands
+        {
+            command: 'postgres-explorer.disconnectConnection',
+            callback: async (item: DatabaseTreeItem) => await cmdDisconnectConnection(item, context, databaseTreeProvider)
+        },
+        {
+            command: 'postgres-explorer.deleteConnection',
+            callback: async (item: DatabaseTreeItem) => await cmdDisconnectDatabase(item, context, databaseTreeProvider)
+        },
+        {
+            command: 'postgres-explorer.addConnection',
+            callback: () => ConnectionFormPanel.show(context.extensionUri, context)
         }
     ];
 
