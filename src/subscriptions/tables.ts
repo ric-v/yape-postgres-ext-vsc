@@ -557,7 +557,7 @@ export async function cmdShowTableProperties(item: DatabaseTreeItem, context: vs
  */
 function buildTableDefinition(schema: string, tableName: string, result: any): string {
     const createTable = `CREATE TABLE ${schema}.${tableName} (\n    ${result.columns}`;
-    const constraints = result.constraints[0] && result.constraints[0].name ?
+    const constraints = Array.isArray(result.constraints) && result.constraints[0]?.name ?
         result.constraints.map((c: { type: string; name: string; columns: string[]; reference?: { schema: string; table: string; columns: string[] } }) => {
             switch (c.type) {
                 case 'PRIMARY KEY':
