@@ -1,5 +1,5 @@
-import * as vscode from 'vscode';
 import { Client } from 'pg';
+import * as vscode from 'vscode';
 
 interface PostgresCell {
     kind: 'query';

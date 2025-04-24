@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
-import { closeClient, createAndShowNotebook, createMetadata, createPgClient, getConnectionWithPassword } from './connection';
 import { DatabaseTreeItem } from '../databaseTreeProvider';
-import { validateItem } from './connection';
+import { TablePropertiesPanel } from '../tableProperties';
+import { closeClient, createAndShowNotebook, createMetadata, createPgClient, getConnectionWithPassword, validateItem } from './connection';
 
 /**
  * Queries for PostgreSQL database
@@ -74,7 +74,7 @@ AND p.pronamespace = (SELECT oid FROM pg_namespace WHERE nspname = $2)`;
  * @param {DatabaseTreeItem} item - The selected function item from the tree view.
  * @param {vscode.ExtensionContext} context - The extension context.
  */
-export async function cmdAllFunctionOperations(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
+export async function cmdFunctionOperations(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateItem(item);
         const connection = await getConnectionWithPassword(item.connectionId, context);
@@ -264,5 +264,28 @@ export async function cmdDropFunction(item: DatabaseTreeItem, context: vscode.Ex
         }
     } catch (err: any) {
         vscode.window.showErrorMessage(`Failed to create drop function notebook: ${err.message}`);
+    }
+}
+
+/**
+ * This function shows the properties of a PostgreSQL function in a panel.
+ * It retrieves the function's details from the database and displays them in a table.
+ * 
+ * @param {DatabaseTreeItem} item - The selected function item from the tree view.
+ * @param {vscode.ExtensionContext} context - The extension context.
+ */
+export async function cmdShowFunctionProperties(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
+    try {
+        validateItem(item);
+        const connection = await getConnectionWithPassword(item.connectionId, context);
+        const client = await createPgClient(connection, item.databaseName);
+
+        try {
+            await TablePropertiesPanel.show(client, item.schema, item.label, false, true);
+        } finally {
+            await closeClient(client);
+        }
+    } catch (err: any) {
+        vscode.window.showErrorMessage(`Failed to show function properties: ${err.message}`);
     }
 }

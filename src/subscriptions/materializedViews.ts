@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
-import { closeClient, createAndShowNotebook, createMetadata, createPgClient, getConnectionWithPassword, validateItem } from './connection';
 import { DatabaseTreeItem } from '../databaseTreeProvider';
+import { closeClient, createAndShowNotebook, createMetadata, createPgClient, getConnectionWithPassword, validateItem } from './connection';
 
 /**
  * SQL Queries for materialized view operations
@@ -192,7 +192,7 @@ DROP MATERIALIZED VIEW IF EXISTS ${item.schema}.${item.label};`,
     }
 }
 
-export async function cmdAllOperationsMatView(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
+export async function cmdMatViewOperations(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateItem(item);
         const connection = await getConnectionWithPassword(item.connectionId, context);
