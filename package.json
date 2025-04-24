@@ -1,7 +1,7 @@
 {
   "name": "postgres-explorer",
   "displayName": "PostgreSQL Explorer",
-  "version": "0.0.11",
+  "version": "0.1.1",
   "description": "PostgreSQL database explorer for VS Code with notebook support",
   "publisher": "ric-v",
   "private": false,
@@ -110,11 +110,6 @@
         "command": "postgres-explorer.dropFunction",
         "title": "Drop Function",
         "icon": "$(trash)"
-      },
-      {
-        "command": "postgres-explorer.editTableDefinition",
-        "title": "Edit Table Definition",
-        "icon": "$(edit)"
       },
       {
         "command": "postgres-explorer.viewTableData",
@@ -567,11 +562,6 @@
           "group": "1_actions@3"
         },
         {
-          "command": "postgres-explorer.editTableDefinition",
-          "when": "view == postgresExplorer && viewItem == table",
-          "group": "inline@1"
-        },
-        {
           "command": "postgres-explorer.viewTableData",
           "when": "view == postgresExplorer && viewItem == table",
           "group": "inline@2"
@@ -803,23 +793,24 @@
         {
           "command": "postgres-explorer.createInDatabase",
           "when": "view == postgresExplorer && viewItem == database",
-          "group": "inline@1"
+          "group": "inline@0",
+          "icon": "$(add)"
         },
         {
-          "command": "postgres-explorer.databaseOperations",
+          "command": "postgres-explorer.newNotebook",
           "when": "view == postgresExplorer && viewItem == database",
-          "group": "inline@2"
+          "group": "inline@1",
+          "icon": "$(notebook)"
         },
         {
           "command": "postgres-explorer.showDashboard",
           "when": "view == postgresExplorer && viewItem == database",
-          "group": "inline@0",
-          "icon": "$(graph)"
+          "group": "1_operations@1"
         },
         {
-          "command": "postgres-explorer.editTable",
-          "when": "view == postgresExplorer && viewItem == table",
-          "group": "inline@1"
+          "command": "postgres-explorer.databaseOperations",
+          "when": "view == postgresExplorer && viewItem == database",
+          "group": "1_operations@3"
         }
       ]
     }

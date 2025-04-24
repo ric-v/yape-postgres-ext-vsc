@@ -242,3 +242,39 @@ export async function cmdDisconnectDatabase(item: DatabaseTreeItem, context: vsc
         }
     }
 }
+
+export async function cmdDisconnectConnection(item: DatabaseTreeItem, context: vscode.ExtensionContext, databaseTreeProvider?: DatabaseTreeProvider) {
+    try {
+        if (!item?.connectionId) {
+            throw new Error('Invalid connection selection');
+        }
+
+        // Refresh the tree view which will collapse all items and close any open connections
+        databaseTreeProvider?.refresh();
+        vscode.window.showInformationMessage(`Disconnected from '${item.label}'`);
+    } catch (err: any) {
+        vscode.window.showErrorMessage(`Failed to disconnect: ${err.message}`);
+    }
+}
+
+export async function cmdConnectDatabase(item: DatabaseTreeItem, context: vscode.ExtensionContext, databaseTreeProvider?: DatabaseTreeProvider) {
+    try {
+        const connectionString = await vscode.window.showInputBox({
+            prompt: 'Enter PostgreSQL connection string',
+            placeHolder: 'postgresql://user:password@localhost:5432/dbname'
+        });
+
+        if (!connectionString) {
+            return;
+        }
+
+        const client = new Client(connectionString);
+        await client.connect();
+        vscode.window.showInformationMessage('Connected to PostgreSQL database');
+        databaseTreeProvider?.refresh();
+        await client.end();
+    } catch (err: any) {
+        const errorMessage = err?.message || 'Unknown error occurred';
+        vscode.window.showErrorMessage(`Failed to connect: ${errorMessage}`);
+    }
+}

@@ -13,6 +13,11 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseTre
         this._onDidChangeTreeData.fire();
     }
 
+    collapseAll(): void {
+        // This will trigger a refresh of the tree view with all items collapsed
+        this._onDidChangeTreeData.fire();
+    }
+
     getTreeItem(element: DatabaseTreeItem): vscode.TreeItem {
         return element;
     }
