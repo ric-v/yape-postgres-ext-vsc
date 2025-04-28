@@ -381,416 +381,230 @@ export class PostgresKernel {
             await client.connect();
             console.log('PostgresKernel: Connected to database');
 
-            const query = cell.document.getText();
-            const result = await client.query(query);
-            await client.end();
+            // Get the selected text if any, otherwise use the entire cell content
+            const editor = vscode.window.activeTextEditor;
+            const text = editor && 
+                        editor.document.uri.toString() === cell.document.uri.toString() && 
+                        !editor.selection.isEmpty ? 
+                        editor.document.getText(editor.selection) : 
+                        cell.document.getText();
 
-            const endTime = Date.now();
-            const executionTime = (endTime - startTime) / 1000;
+            // Split the text into individual queries
+            const queries = text.split(';').map(q => q.trim()).filter(q => q.length > 0);
+            
+            if (queries.length === 0) {
+                throw new Error('No query to execute');
+            }
 
-            // Check if this is a DDL command by checking the command property or analyzing the query
-            const isDDLCommand = result.command && 
-                               result.command.toString().toUpperCase().match(/^(CREATE|ALTER|DROP|TRUNCATE)/) ||
-                               query.trim().toUpperCase().match(/^(CREATE|ALTER|DROP|TRUNCATE)/);
+            const outputs: vscode.NotebookCellOutput[] = [];
 
-            if (isDDLCommand) {
-                // Rest of the DDL handling code...
-                const html = `
-                    <div style="
-                        padding: 10px;
-                        margin: 5px 0;
-                        background: var(--vscode-editor-background);
-                        border: 1px solid var(--vscode-panel-border);
-                        border-radius: 4px;
-                    ">
-                        <div style="color: var(--vscode-gitDecoration-addedResourceForeground);">
-                            ✓ Query executed successfully
-                        </div>
-                        <div style="
-                            color: var(--vscode-foreground);
-                            opacity: 0.7;
-                            font-size: 0.9em;
-                            margin-top: 5px;
-                        ">
-                            Execution time: ${executionTime.toFixed(3)} seconds
-                        </div>
-                    </div>
-                `;
-
-                const output = new vscode.NotebookCellOutput([
-                    vscode.NotebookCellOutputItem.text(html, 'text/html')
-                ]);
-                execution.replaceOutput([output]);
-                execution.end(true);
-            } else if (result.fields && result.fields.length > 0) {
-                // Rest of the existing code for handling SELECT queries...
-                console.log('PostgresKernel: Query returned', result.rows.length, 'rows');
+            // Execute each query sequentially
+            for (let i = 0; i < queries.length; i++) {
+                const queryStartTime = Date.now();
+                const query = queries[i];
                 
-                const headers = result.fields.map(f => f.name);
-                const rows = result.rows;
-                
-                const formatCellValue = (val: any): { minimized: string, full: string } => {
-                    if (val === null) return { minimized: '', full: '' };
-                    if (typeof val === 'object') {
-                        try {
-                            const minimized = JSON.stringify(val);
-                            const full = JSON.stringify(val, null, 2);
-                            return { minimized, full };
-                        } catch (e) {
+                try {
+                    const result = await client.query(query);
+                    const queryEndTime = Date.now();
+                    const queryExecutionTime = (queryEndTime - queryStartTime) / 1000;
+
+                    // Check if this is a DDL command
+                    const isDDLCommand = result.command && 
+                                      result.command.toString().toUpperCase().match(/^(CREATE|ALTER|DROP|TRUNCATE)/) ||
+                                      query.trim().toUpperCase().match(/^(CREATE|ALTER|DROP|TRUNCATE)/);
+
+                    if (isDDLCommand) {
+                        outputs.push(new vscode.NotebookCellOutput([
+                            vscode.NotebookCellOutputItem.text(`
+                                <div style="
+                                    padding: 10px;
+                                    margin: 5px 0;
+                                    background: var(--vscode-editor-background);
+                                    border: 1px solid var(--vscode-panel-border);
+                                    border-radius: 4px;
+                                ">
+                                    <div style="color: var(--vscode-gitDecoration-addedResourceForeground);">
+                                        ✓ Query ${i + 1} executed successfully
+                                    </div>
+                                    <div style="
+                                        color: var(--vscode-foreground);
+                                        opacity: 0.7;
+                                        font-size: 0.9em;
+                                        margin-top: 5px;
+                                    ">
+                                        Execution time: ${queryExecutionTime.toFixed(3)} seconds
+                                    </div>
+                                    <div style="
+                                        margin-top: 8px;
+                                        padding: 8px;
+                                        background: var(--vscode-textCodeBlock-background);
+                                        border-radius: 2px;
+                                        font-family: var(--vscode-editor-font-family);
+                                        font-size: 0.9em;
+                                    ">
+                                        ${query}
+                                    </div>
+                                </div>
+                            `, 'text/html')
+                        ]));
+                    } else if (result.fields && result.fields.length > 0) {
+                        const headers = result.fields.map(f => f.name);
+                        const rows = result.rows;
+                        
+                        const formatCellValue = (val: any): { minimized: string, full: string } => {
+                            if (val === null) return { minimized: '', full: '' };
+                            if (typeof val === 'object') {
+                                try {
+                                    const minimized = JSON.stringify(val);
+                                    const full = JSON.stringify(val, null, 2);
+                                    return { minimized, full };
+                                } catch (e) {
+                                    const str = String(val);
+                                    return { minimized: str, full: str };
+                                }
+                            }
                             const str = String(val);
                             return { minimized: str, full: str };
-                        }
-                    }
-                    const str = String(val);
-                    return { minimized: str, full: str };
-                };
+                        };
 
-                const html = `
-                    <style>
-                        .output-controls {
-                            display: flex;
-                            justify-content: space-between;
-                            align-items: center;
-                            margin-bottom: 16px;
-                            gap: 8px;
-                        }
-                        .export-container {
-                            position: relative;
-                            display: inline-block;
-                        }
-                        .export-button {
-                            background: transparent;
-                            color: var(--vscode-foreground);
-                            border: 1px solid var(--vscode-button-border);
-                            padding: 4px 8px;
-                            cursor: pointer;
-                            border-radius: 2px;
-                            display: flex;
-                            align-items: center;
-                            gap: 4px;
-                            min-width: 32px;
-                            justify-content: center;
-                            opacity: 0.8;
-                        }
-                        .export-button:hover {
-                            opacity: 1;
-                            background: var(--vscode-button-secondaryHoverBackground);
-                        }
-                        .export-menu {
-                            display: none;
-                            position: absolute;
-                            top: 100%;
-                            left: 0;
-                            background: var(--vscode-menu-background);
-                            border: 1px solid var(--vscode-menu-border);
-                            border-radius: 2px;
-                            box-shadow: 0 2px 8px var(--vscode-widget-shadow);
-                            z-index: 1000;
-                            min-width: 160px;
-                        }
-                        .export-menu.show {
-                            display: block;
-                        }
-                        .export-option {
-                            padding: 8px 16px;
-                            cursor: pointer;
-                            display: flex;
-                            align-items: center;
-                            gap: 8px;
-                            color: var(--vscode-menu-foreground);
-                            text-decoration: none;
-                            white-space: nowrap;
-                            opacity: 0.8;
-                        }
-                        .export-option:hover {
-                            background: var(--vscode-list-hoverBackground);
-                            opacity: 1;
-                        }
-                        .clear-button {
-                            opacity: 0.6;
-                        }
-                        .clear-button:hover {
-                            opacity: 0.8;
-                        }
-                        .icon {
-                            width: 16px;
-                            height: 16px;
-                            display: inline-flex;
-                            align-items: center;
-                            justify-content: center;
-                        }
-                        .table-container {
-                            max-height: 400px;
-                            overflow: auto;
-                            border: 1px solid var(--vscode-panel-border);
-                        }
-                        table {
-                            width: 100%;
-                            border-collapse: collapse;
-                        }
-                        th, td {
-                            padding: 8px;
-                            text-align: left;
-                            border: 1px solid var(--vscode-panel-border);
-                            white-space: pre;
-                            font-family: var(--vscode-editor-font-family);
-                        }
-                        th {
-                            background: var(--vscode-editor-background);
-                            position: sticky;
-                            top: 0;
-                        }
-                        tr:nth-child(even) {
-                            background: var(--vscode-list-hoverBackground);
-                        }
-                        .execution-time {
-                            margin-top: 8px;
-                            color: var(--vscode-foreground);
-                            opacity: 0.7;
-                            font-size: 0.9em;
-                        }
-                        .hidden {
-                            display: none !important;
-                        }
-                        td pre {
-                            margin: 0;
-                            cursor: pointer;
-                            transition: all 0.2s;
-                            max-height: 1.2em;
-                            overflow: hidden;
-                        }
-                        
-                        td pre:hover, td pre.expanded {
-                            max-height: none;
-                            background: var(--vscode-editor-background);
-                            box-shadow: 0 2px 8px var(--vscode-widget-shadow);
-                            position: relative;
-                            z-index: 1;
-                        }
-                        
-                        td pre[data-full]:not(:hover):not(.expanded)::after {
-                            content: "...";
-                            color: var(--vscode-descriptionForeground);
-                        }
-                    </style>
-                    <div class="output-wrapper">
-                        <div class="output-controls">
-                            <div class="export-container">
-                                <button class="export-button" onclick="toggleExportMenu()" title="Export options">
-                                    <span class="icon">🗃️</span>
-                                </button>
-                                <div class="export-menu" id="exportMenu">
-                                    <a href="#" class="export-option" onclick="downloadCSV(); return false;">
-                                        <span class="icon">📄</span> CSV
-                                    </a>
-                                    <a href="#" class="export-option" onclick="downloadExcel(); return false;">
-                                        <span class="icon">📊</span> Excel
-                                    </a>
-                                    <a href="#" class="export-option" onclick="downloadJSON(); return false;">
-                                        <span class="icon">{ }</span> JSON
-                                    </a>
+                        const html = `
+                            <div style="margin-bottom: 20px;">
+                                <div style="
+                                    margin: 10px 0;
+                                    padding: 8px;
+                                    background: var(--vscode-textCodeBlock-background);
+                                    border-radius: 2px;
+                                    font-family: var(--vscode-editor-font-family);
+                                    font-size: 0.9em;
+                                ">
+                                    Query ${i + 1}: ${query}
+                                </div>
+                                <div class="output-wrapper">
+                                    <div class="output-controls">
+                                        <div class="export-container">
+                                            <button class="export-button" onclick="toggleExportMenu()" title="Export options">
+                                                <span class="icon">🗃️</span>
+                                            </button>
+                                            <div class="export-menu" id="exportMenu">
+                                                <a href="#" class="export-option" onclick="downloadCSV(); return false;">
+                                                    <span class="icon">📄</span> CSV
+                                                </a>
+                                                <a href="#" class="export-option" onclick="downloadExcel(); return false;">
+                                                    <span class="icon">📊</span> Excel
+                                                </a>
+                                                <a href="#" class="export-option" onclick="downloadJSON(); return false;">
+                                                    <span class="icon">{ }</span> JSON
+                                                </a>
+                                            </div>
+                                        </div>
+                                        <button class="export-button clear-button" onclick="clearOutput()" title="Clear output">
+                                            <span class="icon">❌</span>
+                                        </button>
+                                    </div>
+                                    <div class="output-content">
+                                        <div class="table-container">
+                                            <table id="resultTable">
+                                                <thead>
+                                                    <tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr>
+                                                </thead>
+                                                <tbody>
+                                                    ${rows.map(row => 
+                                                        `<tr>${headers.map(h => {
+                                                            const { minimized, full } = formatCellValue(row[h]);
+                                                            const hasFullVersion = minimized !== full;
+                                                            return `<td><pre ${hasFullVersion ? `data-full="${encodeURIComponent(full)}"` : ''}>${minimized}</pre></td>`;
+                                                        }).join('')}</tr>`
+                                                    ).join('')}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        <div>${rows.length} rows</div>
+                                    </div>
+                                    <div class="execution-time">Execution time: ${queryExecutionTime.toFixed(3)} seconds</div>
                                 </div>
                             </div>
-                            <button class="export-button clear-button" onclick="clearOutput()" title="Clear output">
-                                <span class="icon">❌</span>
-                            </button>
-                        </div>
-                        <div class="output-content">
-                            <div class="table-container">
-                                <table id="resultTable">
-                                    <thead>
-                                        <tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr>
-                                    </thead>
-                                    <tbody>
-                                        ${rows.map(row => 
-                                            `<tr>${headers.map(h => {
-                                                const { minimized, full } = formatCellValue(row[h]);
-                                                const hasFullVersion = minimized !== full;
-                                                return `<td><pre ${hasFullVersion ? `data-full="${encodeURIComponent(full)}"` : ''}>${minimized}</pre></td>`;
-                                            }).join('')}</tr>`
-                                        ).join('')}
-                                    </tbody>
-                                </table>
-                            </div>
-                            <div>${rows.length} rows</div>
-                            <div class="execution-time">Execution time: ${executionTime.toFixed(3)} seconds</div>
-                        </div>
-                    </div>
-                    <script>
-                        // Close export menu when clicking outside
-                        document.addEventListener('click', function(event) {
-                            const menu = document.getElementById('exportMenu');
-                            const button = event.target.closest('.export-button');
-                            if (!button && menu.classList.contains('show')) {
-                                menu.classList.remove('show');
-                            }
-                        });
+                        `;
 
-                        function toggleExportMenu() {
-                            const menu = document.getElementById('exportMenu');
-                            menu.classList.toggle('show');
-                        }
-
-                        function clearOutput() {
-                            const wrapper = document.querySelector('.output-wrapper');
-                            wrapper.classList.add('hidden');
-                        }
-
-                        function downloadCSV() {
-                            const table = document.getElementById('resultTable');
-                            const headers = Array.from(table.querySelectorAll('th')).map(th => th.textContent);
-                            const rows = Array.from(table.querySelectorAll('tbody tr')).map(row => 
-                                Array.from(row.querySelectorAll('td pre')).map(pre => {
-                                    // Use full version for export
-                                    const val = pre.hasAttribute('data-full') ? 
-                                        decodeURIComponent(pre.getAttribute('data-full')) : 
-                                        pre.textContent;
-                                    return val.includes(',') || val.includes('"') || val.includes('\\n') ?
-                                        '"' + val.replace(/"/g, '""') + '"' :
-                                        val;
-                                })
-                            );
-
-                            const csv = [
-                                headers.join(','),
-                                ...rows.map(row => row.join(','))
-                            ].join('\\n');
-
-                            downloadFile(csv, 'query_result.csv', 'text/csv');
-                        }
-
-                        function downloadJSON() {
-                            const table = document.getElementById('resultTable');
-                            const headers = Array.from(table.querySelectorAll('th')).map(th => th.textContent);
-                            const rows = Array.from(table.querySelectorAll('tbody tr')).map(row => {
-                                const rowData = {};
-                                Array.from(row.querySelectorAll('td pre')).forEach((pre, index) => {
-                                    // Use full version for export
-                                    rowData[headers[index]] = pre.hasAttribute('data-full') ? 
-                                        decodeURIComponent(pre.getAttribute('data-full')) : 
-                                        pre.textContent;
-                                });
-                                return rowData;
-                            });
-
-                            const json = JSON.stringify(rows, null, 2);
-                            downloadFile(json, 'query_result.json', 'application/json');
-                        }
-
-                        function downloadExcel() {
-                            const table = document.getElementById('resultTable');
-                            const headers = Array.from(table.querySelectorAll('th')).map(th => th.textContent);
-                            const rows = Array.from(table.querySelectorAll('tbody tr')).map(row => 
-                                Array.from(row.querySelectorAll('td pre')).map(pre => {
-                                    // Use full version for export
-                                    return pre.hasAttribute('data-full') ? 
-                                        decodeURIComponent(pre.getAttribute('data-full')) : 
-                                        pre.textContent;
-                                })
-                            );
-
-                            let xml = '<?xml version="1.0"?>\\n<?mso-application progid="Excel.Sheet"?>\\n';
-                            xml += '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">\\n';
-                            xml += '<Worksheet ss:Name="Query Result"><Table>\\n';
-                            
-                            xml += '<Row>' + headers.map(h => 
-                                '<Cell><Data ss:Type="String">' + 
-                                (h || '').replace(/[<>&]/g, c => c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&amp;') + 
-                                '</Data></Cell>'
-                            ).join('') + '</Row>\\n';
-                            
-                            rows.forEach(row => {
-                                xml += '<Row>' + row.map(cell => {
-                                    const value = cell || '';
-                                    return '<Cell><Data ss:Type="String">' + 
-                                        value.toString().replace(/[<>&]/g, c => 
-                                            c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&amp;'
-                                        ) + 
-                                        '</Data></Cell>';
-                                }).join('') + '</Row>\\n';
-                            });
-                            
-                            xml += '</Table></Worksheet></Workbook>';
-                            downloadFile(xml, 'query_result.xls', 'application/vnd.ms-excel');
-                        }
-
-                        function downloadFile(content, filename, type) {
-                            const blob = new Blob([content], { type });
-                            const a = document.createElement('a');
-                            a.href = URL.createObjectURL(blob);
-                            a.download = filename;
-                            document.body.appendChild(a);
-                            a.click();
-                            document.body.removeChild(a);
-                            URL.revokeObjectURL(a.href);
-                            // Close the export menu after downloading
-                            document.getElementById('exportMenu').classList.remove('show');
-                        }
-
-                        // Add click handler for expandable cells
-                        document.querySelectorAll('td pre[data-full]').forEach(pre => {
-                            pre.addEventListener('click', function(e) {
-                                const full = decodeURIComponent(this.getAttribute('data-full'));
-                                if (this.classList.contains('expanded')) {
-                                    this.textContent = this.getAttribute('data-minimized') || this.textContent;
-                                    this.classList.remove('expanded');
-                                } else {
-                                    if (!this.hasAttribute('data-minimized')) {
-                                        this.setAttribute('data-minimized', this.textContent);
-                                    }
-                                    this.textContent = full;
-                                    this.classList.add('expanded');
-                                }
-                                e.stopPropagation();
-                            });
-                        });
-                    </script>`;
-
-                const output = new vscode.NotebookCellOutput([
-                    vscode.NotebookCellOutputItem.text(html, 'text/html')
-                ]);
-
-                output.metadata = {
-                    outputType: 'display_data',
-                    custom: {
-                        vscode: {
-                            cellId: cell.document.uri.toString(),
-                            controllerId: this.id,
-                            enableScripts: true
-                        }
+                        outputs.push(new vscode.NotebookCellOutput([
+                            vscode.NotebookCellOutputItem.text(html, 'text/html')
+                        ]));
+                    } else {
+                        outputs.push(new vscode.NotebookCellOutput([
+                            vscode.NotebookCellOutputItem.text(`
+                                <div style="
+                                    padding: 10px;
+                                    margin: 5px 0;
+                                    background: var(--vscode-editor-background);
+                                    border: 1px solid var(--vscode-panel-border);
+                                    border-radius: 4px;
+                                ">
+                                    <div style="color: var(--vscode-gitDecoration-addedResourceForeground);">
+                                        ✓ Query ${i + 1} executed successfully
+                                    </div>
+                                    <div style="
+                                        color: var(--vscode-foreground);
+                                        opacity: 0.7;
+                                        font-size: 0.9em;
+                                        margin-top: 5px;
+                                    ">
+                                        Execution time: ${queryExecutionTime.toFixed(3)} seconds
+                                    </div>
+                                    <div style="
+                                        margin-top: 8px;
+                                        padding: 8px;
+                                        background: var(--vscode-textCodeBlock-background);
+                                        border-radius: 2px;
+                                        font-family: var(--vscode-editor-font-family);
+                                        font-size: 0.9em;
+                                    ">
+                                        ${query}
+                                    </div>
+                                </div>
+                            `, 'text/html')
+                        ]));
                     }
-                };
+                } catch (queryError: any) {
+                    outputs.push(new vscode.NotebookCellOutput([
+                        vscode.NotebookCellOutputItem.error({
+                            name: 'Query Error',
+                            message: `Error in Query ${i + 1}: ${queryError.message}`,
+                        })
+                    ]));
+                    // Don't break execution for other queries
+                    console.error(`Error executing query ${i + 1}:`, queryError);
+                }
 
-                execution.replaceOutput([output]);
-                execution.end(true);
-                console.log('PostgresKernel: Cell execution completed successfully');
-            } else {
-                const output = new vscode.NotebookCellOutput([
+                // Update outputs after each query
+                execution.replaceOutput(outputs);
+            }
+
+            await client.end();
+            const endTime = Date.now();
+            const totalExecutionTime = (endTime - startTime) / 1000;
+
+            // Add total execution time for multiple queries
+            if (queries.length > 1) {
+                outputs.push(new vscode.NotebookCellOutput([
                     vscode.NotebookCellOutputItem.text(`
                         <div style="
+                            margin-top: 16px;
                             padding: 10px;
-                            margin: 5px 0;
                             background: var(--vscode-editor-background);
                             border: 1px solid var(--vscode-panel-border);
                             border-radius: 4px;
+                            color: var(--vscode-foreground);
+                            opacity: 0.7;
+                            font-size: 0.9em;
                         ">
-                            <div style="color: var(--vscode-gitDecoration-addedResourceForeground);">
-                                ✓ Query executed successfully
-                            </div>
-                            <div style="
-                                color: var(--vscode-foreground);
-                                opacity: 0.7;
-                                font-size: 0.9em;
-                                margin-top: 5px;
-                            ">
-                                Execution time: ${executionTime.toFixed(3)} seconds
-                            </div>
+                            Total execution time for ${queries.length} queries: ${totalExecutionTime.toFixed(3)} seconds
                         </div>
                     `, 'text/html')
-                ]);
-                execution.replaceOutput([output]);
-                execution.end(true);
+                ]));
             }
+
+            execution.replaceOutput(outputs);
+            execution.end(true);
+
         } catch (err: any) {
             console.error('PostgresKernel: Cell execution failed:', err);
             execution.replaceOutput([

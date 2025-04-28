@@ -1,7 +1,7 @@
 {
   "name": "postgres-explorer",
   "displayName": "PostgreSQL Explorer",
-  "version": "0.1.3",
+  "version": "0.1.10",
   "description": "PostgreSQL database explorer for VS Code with notebook support",
   "publisher": "ric-v",
   "private": false,
@@ -60,11 +60,13 @@
       },
       {
         "command": "postgres-explorer.connect",
-        "title": "Connect to PostgreSQL Database"
+        "title": "Connect to PostgreSQL Database",
+        "icon": "$(circuit-board)"
       },
       {
         "command": "postgres-explorer.disconnect",
-        "title": "Disconnect PostgreSQL Database"
+        "title": "Disconnect PostgreSQL Database",
+        "icon": "$(debug-disconnect)"
       },
       {
         "command": "postgres-explorer.refresh",
@@ -366,6 +368,42 @@
         "command": "postgres-explorer.editTable",
         "title": "Edit Table Definition",
         "icon": "$(edit)"
+      },
+      {
+        "command": "postgres-explorer.renameDatabase",
+        "title": "Rename Database",
+        "category": "Postgres Explorer",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "postgres-explorer.changeOwner",
+        "title": "Change Owner",
+        "category": "Postgres Explorer",
+        "icon": "$(account)"
+      },
+      {
+        "command": "postgres-explorer.changeTablespace",
+        "title": "Change Tablespace",
+        "category": "Postgres Explorer",
+        "icon": "$(database)"
+      },
+      {
+        "command": "postgres-explorer.modifySettings",
+        "title": "Modify Database Settings",
+        "category": "Postgres Explorer",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "postgres-explorer.createDatabase",
+        "title": "Create Database",
+        "category": "Postgres Explorer",
+        "icon": "$(add)"
+      },
+      {
+        "command": "postgres-explorer.dropDatabase",
+        "title": "Drop Database",
+        "category": "Postgres Explorer",
+        "icon": "$(trash)"
       }
     ],
     "viewsContainers": {
@@ -805,6 +843,49 @@
           "command": "postgres-explorer.databaseOperations",
           "when": "view == postgresExplorer && viewItem == database",
           "group": "1_operations@3"
+        },
+        {
+          "command": "postgres-explorer.renameDatabase",
+          "when": "view == postgresExplorer && viewItem == database",
+          "group": "2_modification@1"
+        },
+        {
+          "command": "postgres-explorer.changeOwner",
+          "when": "view == postgresExplorer && viewItem == database",
+          "group": "2_modification@2"
+        },
+        {
+          "command": "postgres-explorer.changeTablespace",
+          "when": "view == postgresExplorer && viewItem == database",
+          "group": "2_modification@3"
+        },
+        {
+          "command": "postgres-explorer.modifySettings",
+          "when": "view == postgresExplorer && viewItem == database",
+          "group": "2_modification@4"
+        },
+        {
+          "command": "postgres-explorer.createDatabase",
+          "when": "view == postgresExplorer && viewItem == databases-group",
+          "group": "inline@1",
+          "icon": "$(add)"
+        },
+        {
+          "command": "postgres-explorer.dropDatabase",
+          "when": "view == postgresExplorer && viewItem == database",
+          "group": "9_deletion@1"
+        },
+        {
+          "command": "postgres-explorer.dropDatabase",
+          "when": "view == postgresExplorer && viewItem == database",
+          "group": "inline@3",
+          "icon": "$(trash)"
+        },
+        {
+          "command": "postgres-explorer.databaseOperations",
+          "when": "view == postgresExplorer && viewItem == database",
+          "group": "inline@2",
+          "icon": "$(notebook)"
         }
       ]
     }

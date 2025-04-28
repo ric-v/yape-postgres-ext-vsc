@@ -20,14 +20,27 @@ export async function cmdNewNotebook(item: DatabaseTreeItem) {
         host: connection.host,
         port: connection.port,
         username: connection.username,
-        password: connection.password
+        password: connection.password,
+        custom: {
+            cells: [],
+            metadata: {
+                connectionId: item.connectionId,
+                databaseName: item.databaseName || item.label,
+                host: connection.host,
+                port: connection.port,
+                username: connection.username,
+                password: connection.password,
+                enableScripts: true
+            }
+        }
     };
 
     const notebookData = new vscode.NotebookData([
-        new vscode.NotebookCellData(vscode.NotebookCellKind.Code, `-- Connected to database: ${metadata.databaseName}
-    -- Write your SQL query here
-    SELECT * FROM ${item.schema ? `${item.schema}.${item.label}` : 'your_table'}
-    LIMIT 100;`, 'sql')
+        new vscode.NotebookCellData(
+            vscode.NotebookCellKind.Code,
+            `-- Connected to database: ${metadata.databaseName}\n-- Write your SQL query here\nSELECT * FROM ${item.schema ? `${item.schema}.${item.label}` : 'your_table'}\nLIMIT 100;`,
+            'sql'
+        )
     ]);
     notebookData.metadata = metadata;
 

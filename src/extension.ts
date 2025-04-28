@@ -5,7 +5,7 @@ import { DatabaseTreeItem, DatabaseTreeProvider } from './databaseTreeProvider';
 import { PostgresKernel } from './notebookKernel';
 import { PostgresNotebookProvider } from './notebookProvider';
 import { PostgresNotebookSerializer } from './postgresNotebook';
-import { cmdAddObjectInDatabase, cmdDatabaseDashboard, cmdDatabaseOperations } from './subscriptions/database';
+import { cmdAddObjectInDatabase, cmdDatabaseDashboard, cmdDatabaseOperations, cmdRenameDatabase, cmdChangeOwner, cmdChangeTablespace, cmdModifySettings } from './subscriptions/database';
 import { cmdExtensionOperations, cmdDropExtension, cmdEnableExtension } from './subscriptions/extensions';
 import { cmdForeignTableOperations, cmdEditForeignTable } from './subscriptions/foreignTables';
 import { cmdFunctionOperations, cmdCallFunction, cmdDropFunction, cmdEditFunction, cmdShowFunctionProperties } from './subscriptions/functions';
@@ -17,6 +17,7 @@ import { cmdAllOperationsTypes, cmdDropType, cmdEditTypes, cmdShowTypeProperties
 import { cmdAddRole, cmdAddUser, cmdRoleOperations, cmdDropRole, cmdEditRole, cmdGrantRevokeRole, cmdShowRoleProperties } from './subscriptions/usersRoles';
 import { cmdViewOperations, cmdDropView, cmdEditView, cmdShowViewProperties, cmdViewData } from './subscriptions/views';
 import { cmdDisconnectDatabase, cmdDisconnectConnection, cmdConnectDatabase } from './subscriptions/connection';
+import { cmdCreateDatabase, cmdDropDatabase } from './subscriptions/database';
 
 export async function activate(context: vscode.ExtensionContext) {
     console.log('postgres-explorer: Activating extension');
@@ -114,6 +115,30 @@ export async function activate(context: vscode.ExtensionContext) {
         {
             command: 'postgres-explorer.showDashboard',
             callback: async (item: DatabaseTreeItem) => await cmdDatabaseDashboard(item, context)
+        },
+        {
+            command: 'postgres-explorer.createDatabase',
+            callback: async (item: DatabaseTreeItem) => await cmdCreateDatabase(item, context)
+        },
+        {
+            command: 'postgres-explorer.dropDatabase',
+            callback: async (item: DatabaseTreeItem) => await cmdDropDatabase(item, context)
+        },
+        {
+            command: 'postgres-explorer.renameDatabase',
+            callback: async (item: DatabaseTreeItem) => await cmdRenameDatabase(item, context)
+        },
+        {
+            command: 'postgres-explorer.changeOwner',
+            callback: async (item: DatabaseTreeItem) => await cmdChangeOwner(item, context)
+        },
+        {
+            command: 'postgres-explorer.changeTablespace',
+            callback: async (item: DatabaseTreeItem) => await cmdChangeTablespace(item, context)
+        },
+        {
+            command: 'postgres-explorer.modifySettings',
+            callback: async (item: DatabaseTreeItem) => await cmdModifySettings(item, context)
         },
         // Add schema commands
         {
