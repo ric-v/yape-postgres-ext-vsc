@@ -29,20 +29,43 @@ export class ConnectionFormPanel {
                 switch (message.command) {
                     case 'testConnection':
                         try {
+                            // First try with specified database
                             const client = new Client({
                                 host: message.connection.host,
                                 port: message.connection.port,
                                 user: message.connection.username,
                                 password: message.connection.password,
-                                database: message.connection.database
+                                database: message.connection.database || 'postgres'
                             });
-                            await client.connect();
-                            const result = await client.query('SELECT version()');
-                            await client.end();
-                            this._panel.webview.postMessage({ 
-                                type: 'testSuccess',
-                                version: result.rows[0].version
-                            });
+                            try {
+                                await client.connect();
+                                const result = await client.query('SELECT version()');
+                                await client.end();
+                                this._panel.webview.postMessage({ 
+                                    type: 'testSuccess',
+                                    version: result.rows[0].version
+                                });
+                            } catch (err: any) {
+                                // If database doesn't exist, try postgres database
+                                if (err.code === '3D000' && message.connection.database !== 'postgres') {
+                                    const fallbackClient = new Client({
+                                        host: message.connection.host,
+                                        port: message.connection.port,
+                                        user: message.connection.username,
+                                        password: message.connection.password,
+                                        database: 'postgres'
+                                    });
+                                    await fallbackClient.connect();
+                                    const result = await fallbackClient.query('SELECT version()');
+                                    await fallbackClient.end();
+                                    this._panel.webview.postMessage({ 
+                                        type: 'testSuccess',
+                                        version: result.rows[0].version + ' (connected to postgres database)'
+                                    });
+                                } else {
+                                    throw err;
+                                }
+                            }
                         } catch (err: any) {
                             this._panel.webview.postMessage({ 
                                 type: 'testError',
@@ -73,7 +96,8 @@ export class ConnectionFormPanel {
                                 host: message.connection.host,
                                 port: message.connection.port,
                                 username: message.connection.username,
-                                password: message.connection.password
+                                password: message.connection.password,
+                                database: message.connection.database // Add database to saved connection
                             };
                             connections.push(newConnection);
                             await this.storeConnections(connections);

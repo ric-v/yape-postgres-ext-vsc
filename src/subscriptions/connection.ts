@@ -72,24 +72,44 @@ interface PostgresMetadata {
  * @param {string | undefined} databaseName - The name of the database to connect to.
  * @returns {Promise<Client>} - A promise that resolves to the connected PostgreSQL client.
  * @throws {Error} - Throws an error if the connection fails.
- * 
- * @example 
- * const client = await createPgClient(connection, 'my_database');
- * // Use the client to execute queries
- * await client.query('SELECT * FROM my_table');
- * await client.end(); // Close the connection when done
  */
 export async function createPgClient(connection: any, databaseName: string | undefined): Promise<Client> {
-    const client = new Client({
-        host: connection.host,
-        port: connection.port,
-        user: connection.username,
-        password: String(connection.password),
-        database: databaseName || connection.database,
-        connectionTimeoutMillis: 5000
-    });
-    await client.connect();
-    return client;
+    // First try connecting to the specified database
+    try {
+        const client = new Client({
+            host: connection.host,
+            port: connection.port,
+            user: connection.username,
+            password: String(connection.password),
+            database: databaseName || connection.database || 'postgres', // Default to postgres if no database specified
+            connectionTimeoutMillis: 5000
+        });
+        await client.connect();
+        return client;
+    } catch (err: any) {
+        // If the database doesn't exist, try connecting to 'postgres' database
+        if (err.code === '3D000' && (databaseName || connection.database) !== 'postgres') {
+            try {
+                const client = new Client({
+                    host: connection.host,
+                    port: connection.port,
+                    user: connection.username,
+                    password: String(connection.password),
+                    database: 'postgres',
+                    connectionTimeoutMillis: 5000
+                });
+                await client.connect();
+                return client;
+            } catch (fallbackErr: any) {
+                // If even postgres database fails, it's likely a connection/auth issue
+                throw new Error(
+                    `Failed to connect to database. Original error: Could not connect to "${databaseName || connection.database || '(undefined)'}": ${err.message}. ` +
+                    `Fallback to 'postgres' database also failed: ${fallbackErr.message}`
+                );
+            }
+        }
+        throw err;
+    }
 }
 
 /**
@@ -158,6 +178,17 @@ export async function closeClient(client: Client | undefined): Promise<void> {
  * // Notebook is now displayed
  */
 export async function createAndShowNotebook(cells: vscode.NotebookCellData[], metadata: PostgresMetadata): Promise<void> {
+    // Set metadata on each cell
+    cells.forEach(cell => {
+        cell.metadata = {
+            connectionId: metadata.connectionId,
+            databaseName: metadata.databaseName,
+            host: metadata.host,
+            port: metadata.port,
+            username: metadata.username
+        };
+    });
+
     const notebookData = new vscode.NotebookData(cells);
     notebookData.metadata = metadata;
     const notebook = await vscode.workspace.openNotebookDocument('postgres-notebook', notebookData);

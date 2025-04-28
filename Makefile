@@ -49,15 +49,16 @@ watch:
 
 git-tag:
 	@echo "Creating a new git tag..."
-	@read -p "Enter the version number (e.g., 1.0.0): " version; \
-	git tag -a "$$version" -m "Release $$version"; \
-	git push origin "$$version"; \
-	echo "Git tag $$version created and pushed."
-	@echo "Updating package.json version to $$version..."
-	@jq --arg version "$$version" '.version = $$version' package.json > tmp.json && mv tmp.json package.json
-	@echo "package.json version updated to $$version."
+	@read -p "Enter the version number (e.g., 1.0.0): " VERSION && \
+	VERSION=$${VERSION#v} && \
+	git tag -a "v$$VERSION" -m "Release v$$VERSION" && \
+	git push origin "v$$VERSION" && \
+	echo "Git tag v$$VERSION created and pushed." && \
+	echo "Updating package.json version to $$VERSION..." && \
+	jq --arg version "$$VERSION" '.version = $$version' package.json > tmp.json && mv tmp.json package.json && \
+	echo "package.json version updated to $$VERSION."
 
-# Help target
+# Help target	
 help:
 	@echo "Available targets:"
 	@echo "  all      : Clean, install dependencies, build and package (default)"
