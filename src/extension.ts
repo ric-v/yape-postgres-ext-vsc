@@ -1,19 +1,40 @@
-import * as vscode from 'vscode';
 import { Client } from 'pg';
+import * as vscode from 'vscode';
 import { ConnectionFormPanel } from './connectionForm';
-import { DatabaseTreeProvider, DatabaseTreeItem } from './databaseTreeProvider';
-import { TablePropertiesPanel } from './tableProperties';
-import { PostgresNotebookProvider } from './notebookProvider';
+import { DatabaseTreeItem, DatabaseTreeProvider } from './databaseTreeProvider';
 import { PostgresKernel } from './notebookKernel';
+import { PostgresNotebookProvider } from './notebookProvider';
 import { PostgresNotebookSerializer } from './postgresNotebook';
+import { cmdAddObjectInDatabase, cmdDatabaseDashboard, cmdDatabaseOperations } from './subscriptions/database';
+import { cmdExtensionOperations, cmdDropExtension, cmdEnableExtension } from './subscriptions/extensions';
+import { cmdForeignTableOperations, cmdEditForeignTable } from './subscriptions/foreignTables';
+import { cmdFunctionOperations, cmdCallFunction, cmdDropFunction, cmdEditFunction, cmdShowFunctionProperties } from './subscriptions/functions';
+import { cmdMatViewOperations, cmdDropMatView, cmdEditMatView, cmdRefreshMatView, cmdViewMatViewData, cmdViewMatViewProperties } from './subscriptions/materializedViews';
+import { cmdNewNotebook } from './subscriptions/notebook';
+import { cmdSchemaOperations, cmdCreateObjectInSchema, cmdCreateSchema } from './subscriptions/schema';
+import { cmdTableOperations, cmdDropTable, cmdEditTable, cmdInsertTable, cmdShowTableProperties, cmdTruncateTable, cmdUpdateTable, cmdViewTableData } from './subscriptions/tables';
+import { cmdAllOperationsTypes, cmdDropType, cmdEditTypes, cmdShowTypeProperties } from './subscriptions/types';
+import { cmdAddRole, cmdAddUser, cmdRoleOperations, cmdDropRole, cmdEditRole, cmdGrantRevokeRole, cmdShowRoleProperties } from './subscriptions/usersRoles';
+import { cmdViewOperations, cmdDropView, cmdEditView, cmdShowViewProperties, cmdViewData } from './subscriptions/views';
+import { cmdDisconnectDatabase, cmdDisconnectConnection, cmdConnectDatabase } from './subscriptions/connection';
 
 export async function activate(context: vscode.ExtensionContext) {
     console.log('postgres-explorer: Activating extension');
-    
+
     // Immediately migrate any existing passwords to SecretStorage
     await migrateExistingPasswords(context);
-    
-    // Create kernel with message handler to handle notebook cell output messages
+
+    // Create database tree provider instance
+    const databaseTreeProvider = new DatabaseTreeProvider(context);
+
+    // Register tree data provider and create tree view
+    const treeView = vscode.window.createTreeView('postgresExplorer', {
+        treeDataProvider: databaseTreeProvider,
+        showCollapseAll: true
+    });
+    context.subscriptions.push(treeView);
+
+    // Create kernel with message handler
     const kernel = new PostgresKernel(context, async (message: { type: string; command: string; format?: string; content?: string; filename?: string }) => {
         console.log('Extension: Received message from kernel:', message);
         if (message.type === 'custom' && message.command === 'export') {
@@ -27,2042 +48,274 @@ export async function activate(context: vscode.ExtensionContext) {
     });
     context.subscriptions.push(kernel);
 
-    // Register global command to handle exports
-    context.subscriptions.push(
-        vscode.commands.registerCommand('postgres-explorer.exportData', async (args) => {
-            console.log('Extension: Export command triggered with args:', args);
-            try {
-                const { format, content, filename } = args;
-                const saveUri = await vscode.window.showSaveDialog({
-                    defaultUri: vscode.Uri.file(filename),
-                    filters: {
-                        'CSV files': ['csv'],
-                        'Excel files': ['xls', 'xlsx']
-                    },
-                    saveLabel: `Export as ${format.toUpperCase()}`
-                });
-
-                console.log('Extension: Save dialog result:', saveUri?.fsPath);
-                if (saveUri) {
-                    console.log('Extension: Writing file content, size:', content.length);
-                    await vscode.workspace.fs.writeFile(
-                        saveUri,
-                        Buffer.from(content, 'utf-8')
-                    );
-                    console.log('Extension: File written successfully');
-                    vscode.window.showInformationMessage(
-                        `Successfully exported to ${saveUri.fsPath}`
-                    );
-                }
-            } catch (err: any) {
-                console.error('Extension: Export failed:', err);
-                vscode.window.showErrorMessage(`Export failed: ${err.message}`);
-            }
-        })
-    );
-
-    // Register save file command
-    context.subscriptions.push(
-        vscode.commands.registerCommand('postgres-explorer.saveFile', async (args) => {
-            try {
-                console.log('Saving file with args:', args);
-                const { content, filename, type } = args;
-                
-                const saveUri = await vscode.window.showSaveDialog({
-                    defaultUri: vscode.Uri.file(filename),
-                    filters: {
-                        'CSV files': ['csv'],
-                        'Excel files': ['xls', 'xlsx']
-                    },
-                    saveLabel: `Export as ${type.toUpperCase()}`
-                });
-
-                if (saveUri) {
-                    await vscode.workspace.fs.writeFile(
-                        saveUri,
-                        Buffer.from(content)
-                    );
-                    vscode.window.showInformationMessage(`Successfully exported to ${saveUri.fsPath}`);
-                }
-            } catch (err: any) {
-                console.error('Save file failed:', err);
-                vscode.window.showErrorMessage(`Export failed: ${err.message}`);
-            }
-        })
-    );
-
-    const databaseTreeProvider = new DatabaseTreeProvider(context);
-    
-    // Register notebook provider
+    // Register notebook providers
     const notebookProvider = new PostgresNotebookProvider();
     context.subscriptions.push(
-        vscode.workspace.registerNotebookSerializer('postgres-notebook', notebookProvider)
-    );
-
-    // Register notebook serializer
-    context.subscriptions.push(
+        vscode.workspace.registerNotebookSerializer('postgres-notebook', notebookProvider),
         vscode.workspace.registerNotebookSerializer('postgres-query', new PostgresNotebookSerializer())
     );
 
-    // Register commands
-    context.subscriptions.push(
-        vscode.commands.registerCommand('postgres-explorer.addConnection', () => {
-            // Show connection form when + button is clicked
-            ConnectionFormPanel.show(context.extensionUri, context);
-        })
-    );
-
-    // Add the + button to the view title
-    context.subscriptions.push(
-        vscode.window.registerTreeDataProvider('postgresExplorer', databaseTreeProvider)
-    );
-
-    // Register view container
-    const treeView = vscode.window.createTreeView('postgresExplorer', {
-        treeDataProvider: databaseTreeProvider,
-        showCollapseAll: true
-    });
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('postgres-explorer.refreshConnections', () => {
-            databaseTreeProvider.refresh();
-        })
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('postgres-explorer.showTableProperties', async (item: DatabaseTreeItem) => {
-            if (!item || !item.schema || !item.connectionId) {
-                vscode.window.showErrorMessage('Invalid table selection');
-                return;
+    // Register all commands
+    const commands = [
+        {
+            command: 'postgres-explorer.addConnection',
+            callback: () => {
+                ConnectionFormPanel.show(context.extensionUri, context);
             }
-
-            try {
-                const connection = await getConnectionWithPassword(item.connectionId, context);
-                let client: Client | undefined;
-                try {
-                    client = new Client({
-                        host: connection.host,
-                        port: connection.port,
-                        user: connection.username,
-                        password: String(connection.password),
-                        database: item.databaseName || connection.database,
-                        connectionTimeoutMillis: 5000
-                    });
-
-                    await client.connect();
-                    
-                    // Pass the connected client to TablePropertiesPanel
-                    await TablePropertiesPanel.show(client, item.schema!, item.label);
-                } catch (err: any) {
-                    const errorMessage = err?.message || 'Unknown error occurred';
-                    vscode.window.showErrorMessage(`Failed to show table properties: ${errorMessage}`);
-                    
-                    if (client) {
-                        try {
-                            await client.end();
-                        } catch (closeErr) {
-                            console.error('Error closing connection:', closeErr);
-                        }
-                    }
-                }
-            } catch (err: any) {
-                vscode.window.showErrorMessage(`Failed to retrieve connection: ${err.message}`);
+        },
+        {
+            command: 'postgres-explorer.refreshConnections',
+            callback: () => {
+                databaseTreeProvider.refresh();
             }
-        })
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('postgres-explorer.showViewProperties', async (item: DatabaseTreeItem) => {
-            if (!item || !item.schema || !item.connectionId) {
-                vscode.window.showErrorMessage('Invalid view selection');
-                return;
+        },
+        {
+            command: 'postgres-explorer.connect',
+            callback: async (item: any) => await cmdConnectDatabase(item, context, databaseTreeProvider)
+        },
+        {
+            command: 'postgres-explorer.disconnect',
+            callback: async () => {
+                databaseTreeProvider.refresh();
+                vscode.window.showInformationMessage('Disconnected from PostgreSQL database');
             }
-
-            try {
-                const connection = await getConnectionWithPassword(item.connectionId, context);
-                let client: Client | undefined;
-                try {
-                    client = new Client({
-                        host: connection.host,
-                        port: connection.port,
-                        user: connection.username,
-                        password: String(connection.password),
-                        database: item.databaseName || connection.database,
-                        connectionTimeoutMillis: 5000
-                    });
-
-                    await client.connect();
-                    
-                    // Pass the connected client to TablePropertiesPanel with isView flag
-                    await TablePropertiesPanel.show(client, item.schema!, item.label, true);
-                } catch (err: any) {
-                    const errorMessage = err?.message || 'Unknown error occurred';
-                    vscode.window.showErrorMessage(`Failed to show view properties: ${errorMessage}`);
-                    
-                    if (client) {
-                        try {
-                            await client.end();
-                        } catch (closeErr) {
-                            console.error('Error closing connection:', closeErr);
-                        }
-                    }
-                }
-            } catch (err: any) {
-                vscode.window.showErrorMessage(`Failed to retrieve connection: ${err.message}`);
-            }
-        })
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('postgres-explorer.showFunctionProperties', async (item: DatabaseTreeItem) => {
-            if (!item || !item.schema || !item.connectionId) {
-                vscode.window.showErrorMessage('Invalid function selection');
-                return;
-            }
-
-            try {
-                const connection = await getConnectionWithPassword(item.connectionId, context);
-                let client: Client | undefined;
-                try {
-                    client = new Client({
-                        host: connection.host,
-                        port: connection.port,
-                        user: connection.username,
-                        password: String(connection.password),
-                        database: item.databaseName || connection.database,
-                        connectionTimeoutMillis: 5000
-                    });
-
-                    await client.connect();
-                    
-                    // Pass the connected client to TablePropertiesPanel with isFunction flag
-                    await TablePropertiesPanel.show(client, item.schema!, item.label, false, true);
-                } catch (err: any) {
-                    const errorMessage = err?.message || 'Unknown error occurred';
-                    vscode.window.showErrorMessage(`Failed to show function properties: ${errorMessage}`);
-                    
-                    if (client) {
-                        try {
-                            await client.end();
-                        } catch (closeErr) {
-                            console.error('Error closing connection:', closeErr);
-                        }
-                    }
-                }
-            } catch (err: any) {
-                vscode.window.showErrorMessage(`Failed to retrieve connection: ${err.message}`);
-            }
-        })
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('postgres-explorer.connect', async () => {
-            try {
-                const connectionString = await vscode.window.showInputBox({
-                    prompt: 'Enter PostgreSQL connection string',
-                    placeHolder: 'postgresql://user:password@localhost:5432/dbname'
-                });
-
-                if (!connectionString) {
+        },
+        {
+            command: 'postgres-explorer.queryTable',
+            callback: async (item: any) => {
+                if (!item || !item.schema) {
                     return;
                 }
 
-                const client = new Client(connectionString);
-                await client.connect();
-                vscode.window.showInformationMessage('Connected to PostgreSQL database');
-                databaseTreeProvider.refresh();
-                await client.end();
-            } catch (err: any) {
-                const errorMessage = err?.message || 'Unknown error occurred';
-                vscode.window.showErrorMessage(`Failed to connect: ${errorMessage}`);
-            }
-        })
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('postgres-explorer.disconnect', async () => {
-            databaseTreeProvider.refresh();
-            vscode.window.showInformationMessage('Disconnected from PostgreSQL database');
-        })
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('postgres-explorer.refresh', () => {
-            databaseTreeProvider.refresh();
-        })
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('postgres-explorer.queryTable', async (item: any) => {
-            if (!item || !item.schema) {
-                return;
-            }
-
-            const query = `SELECT * FROM ${item.schema}.${item.label} LIMIT 100;`;
-            const notebook = await vscode.workspace.openNotebookDocument('postgres-notebook', new vscode.NotebookData([
-                new vscode.NotebookCellData(vscode.NotebookCellKind.Code, query, 'sql')
-            ]));
-            await vscode.window.showNotebookDocument(notebook);
-        })
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('postgres-explorer.newNotebook', async (item: any) => {
-            if (!item) {
-                vscode.window.showErrorMessage('Please select a database, schema, or table to create a notebook');
-                return;
-            }
-
-            const connections = vscode.workspace.getConfiguration().get<any[]>('postgresExplorer.connections') || [];
-            const connection = connections.find(c => c.id === item.connectionId);
-            if (!connection) {
-                vscode.window.showErrorMessage('Connection not found');
-                return;
-            }
-
-            // Create notebook with connection metadata
-            const metadata = {
-                connectionId: item.connectionId,
-                databaseName: item.databaseName || item.label,
-                host: connection.host,
-                port: connection.port,
-                username: connection.username,
-                password: connection.password
-            };
-
-            const notebookData = new vscode.NotebookData([
-                new vscode.NotebookCellData(vscode.NotebookCellKind.Code, `-- Connected to database: ${metadata.databaseName}
--- Write your SQL query here
-SELECT * FROM ${item.schema ? `${item.schema}.${item.label}` : 'your_table'}
-LIMIT 100;`, 'sql')
-            ]);
-            notebookData.metadata = metadata;
-
-            const notebook = await vscode.workspace.openNotebookDocument('postgres-notebook', notebookData);
-            await vscode.window.showNotebookDocument(notebook);
-        })
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('postgres-explorer.deleteConnection', async (item: DatabaseTreeItem) => {
-            const answer = await vscode.window.showWarningMessage(
-                `Are you sure you want to delete connection '${item.label}'?`,
-                'Yes', 'No'
-            );
-            
-            if (answer === 'Yes') {
-                try {
-                    const config = vscode.workspace.getConfiguration();
-                    const connections = config.get<any[]>('postgresExplorer.connections') || [];
-
-                    // Remove the connection info from settings
-                    const updatedConnections = connections.filter(c => c.id !== item.connectionId);
-                    await config.update('postgresExplorer.connections', updatedConnections, vscode.ConfigurationTarget.Global);
-
-                    // Remove the password from SecretStorage
-                    await context.secrets.delete(`postgres-password-${item.connectionId}`);
-
-                    databaseTreeProvider.refresh();
-                } catch (err: any) {
-                    vscode.window.showErrorMessage(`Failed to delete connection: ${err.message}`);
-                }
-            }
-        })
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('postgres-explorer.functionOperations', async (item: DatabaseTreeItem) => {
-            if (!item || !item.schema || !item.connectionId) {
-                vscode.window.showErrorMessage('Invalid function selection');
-                return;
-            }
-
-            try {
-                const connection = await getConnectionWithPassword(item.connectionId, context);
-                let client: Client | undefined;
-                try {
-                    client = new Client({
-                        host: connection.host,
-                        port: connection.port,
-                        user: connection.username,
-                        password: String(connection.password),
-                        database: item.databaseName || connection.database,
-                        connectionTimeoutMillis: 5000
-                    });
-
-                    await client.connect();
-                    
-                    // Get function details for CREATE OR REPLACE statement
-                    const functionQuery = `
-                        SELECT p.proname,
-                               pg_get_function_arguments(p.oid) as arguments,
-                               pg_get_function_result(p.oid) as result_type,
-                               pg_get_functiondef(p.oid) as definition
-                        FROM pg_proc p
-                        WHERE p.proname = $1
-                        AND p.pronamespace = (SELECT oid FROM pg_namespace WHERE nspname = $2)`;
-
-                    const functionResult = await client.query(functionQuery, [item.label, item.schema]);
-                    if (functionResult.rows.length === 0) {
-                        throw new Error('Function not found');
-                    }
-
-                    const functionInfo = functionResult.rows[0];
-                    
-                    // Create notebook with function operations
-                    const metadata = {
-                        connectionId: item.connectionId,
-                        databaseName: item.databaseName,
-                        host: connection.host,
-                        port: connection.port,
-                        username: connection.username,
-                        password: connection.password
-                    };
-
-                    const notebookData = new vscode.NotebookData([
-                        new vscode.NotebookCellData(
-                            vscode.NotebookCellKind.Markup,
-                            `# Function Operations: ${item.schema}.${item.label}\n\nThis notebook contains common operations for the PostgreSQL function:\n- Create or replace function\n- Call function\n- Drop function`,
-                            'markdown'
-                        ),
-                        new vscode.NotebookCellData(
-                            vscode.NotebookCellKind.Code,
-                            `-- Create or replace function\n${functionInfo.definition}`,
-                            'sql'
-                        ),
-                        new vscode.NotebookCellData(
-                            vscode.NotebookCellKind.Code,
-                            `-- Call function\nSELECT ${item.schema}.${item.label}(${functionInfo.arguments ? '\n  -- Replace with actual values:\n  ' + functionInfo.arguments.split(',').join(',\n  ') : ''});`,
-                            'sql'
-                        ),
-                        new vscode.NotebookCellData(
-                            vscode.NotebookCellKind.Code,
-                            `-- Drop function\nDROP FUNCTION IF EXISTS ${item.schema}.${item.label}(${functionInfo.arguments});`,
-                            'sql'
-                        )
-                    ]);
-                    notebookData.metadata = metadata;
-
-                    const notebook = await vscode.workspace.openNotebookDocument('postgres-notebook', notebookData);
-                    await vscode.window.showNotebookDocument(notebook);
-                } catch (err: any) {
-                    const errorMessage = err?.message || 'Unknown error occurred';
-                    vscode.window.showErrorMessage(`Failed to create function operations notebook: ${errorMessage}`);
-                    
-                    if (client) {
-                        try {
-                            await client.end();
-                        } catch (closeErr) {
-                            console.error('Error closing connection:', closeErr);
-                        }
-                    }
-                }
-            } catch (err: any) {
-                vscode.window.showErrorMessage(`Failed to retrieve connection: ${err.message}`);
-            }
-        })
-    );
-
-    context.subscriptions.push(
-        // ...existing commands...
-        vscode.commands.registerCommand('postgres-explorer.createReplaceFunction', async (item: DatabaseTreeItem) => {
-            if (!item || !item.schema || !item.connectionId) {
-                vscode.window.showErrorMessage('Invalid function selection');
-                return;
-            }
-
-            try {
-                const connection = await getConnectionWithPassword(item.connectionId, context);
-                let client: Client | undefined;
-                try {
-                    client = new Client({
-                        host: connection.host,
-                        port: connection.port,
-                        user: connection.username,
-                        password: String(connection.password),
-                        database: item.databaseName || connection.database,
-                        connectionTimeoutMillis: 5000
-                    });
-
-                    await client.connect();
-                    
-                    // Get function definition
-                    const functionQuery = `
-                        SELECT pg_get_functiondef(p.oid) as definition
-                        FROM pg_proc p
-                        WHERE p.proname = $1
-                        AND p.pronamespace = (SELECT oid FROM pg_namespace WHERE nspname = $2)`;
-
-                    const functionResult = await client.query(functionQuery, [item.label, item.schema]);
-                    if (functionResult.rows.length === 0) {
-                        throw new Error('Function not found');
-                    }
-
-                    const functionInfo = functionResult.rows[0];
-                    
-                    // Create notebook with function definition
-                    const metadata = {
-                        connectionId: item.connectionId,
-                        databaseName: item.databaseName,
-                        host: connection.host,
-                        port: connection.port,
-                        username: connection.username,
-                        password: connection.password
-                    };
-
-                    const notebookData = new vscode.NotebookData([
-                        new vscode.NotebookCellData(
-                            vscode.NotebookCellKind.Markup,
-                            `# Edit Function: ${item.schema}.${item.label}\n\nModify the function definition below and execute the cell to update the function.`,
-                            'markdown'
-                        ),
-                        new vscode.NotebookCellData(
-                            vscode.NotebookCellKind.Code,
-                            functionInfo.definition,
-                            'sql'
-                        )
-                    ]);
-                    notebookData.metadata = metadata;
-
-                    const notebook = await vscode.workspace.openNotebookDocument('postgres-notebook', notebookData);
-                    await vscode.window.showNotebookDocument(notebook);
-                } catch (err: any) {
-                    const errorMessage = err?.message || 'Unknown error occurred';
-                    vscode.window.showErrorMessage(`Failed to create function edit notebook: ${errorMessage}`);
-                    
-                    if (client) {
-                        try {
-                            await client.end();
-                        } catch (closeErr) {
-                            console.error('Error closing connection:', closeErr);
-                        }
-                    }
-                }
-            } catch (err: any) {
-                vscode.window.showErrorMessage(`Failed to retrieve connection: ${err.message}`);
-            }
-        }),
-
-        vscode.commands.registerCommand('postgres-explorer.callFunction', async (item: DatabaseTreeItem) => {
-            if (!item || !item.schema || !item.connectionId) {
-                vscode.window.showErrorMessage('Invalid function selection');
-                return;
-            }
-
-            try {
-                const connection = await getConnectionWithPassword(item.connectionId, context);
-                let client: Client | undefined;
-                try {
-                    client = new Client({
-                        host: connection.host,
-                        port: connection.port,
-                        user: connection.username,
-                        password: String(connection.password),
-                        database: item.databaseName || connection.database,
-                        connectionTimeoutMillis: 5000
-                    });
-
-                    await client.connect();
-                    
-                    // Get function arguments
-                    const functionQuery = `
-                        SELECT p.proname,
-                               pg_get_function_arguments(p.oid) as arguments,
-                               pg_get_function_result(p.oid) as result_type,
-                               d.description
-                        FROM pg_proc p
-                        LEFT JOIN pg_description d ON p.oid = d.objoid
-                        WHERE p.proname = $1
-                        AND p.pronamespace = (SELECT oid FROM pg_namespace WHERE nspname = $2)`;
-
-                    const functionResult = await client.query(functionQuery, [item.label, item.schema]);
-                    if (functionResult.rows.length === 0) {
-                        throw new Error('Function not found');
-                    }
-
-                    const functionInfo = functionResult.rows[0];
-                    
-                    // Create notebook for calling function
-                    const metadata = {
-                        connectionId: item.connectionId,
-                        databaseName: item.databaseName,
-                        host: connection.host,
-                        port: connection.port,
-                        username: connection.username,
-                        password: connection.password
-                    };
-
-                    const notebookData = new vscode.NotebookData([
-                        new vscode.NotebookCellData(
-                            vscode.NotebookCellKind.Markup,
-                            `# Call Function: ${item.schema}.${item.label}\n\n${functionInfo.description ? '**Description:** ' + functionInfo.description + '\n\n' : ''}` +
-                            `**Arguments:** ${functionInfo.arguments || 'None'}\n` +
-                            `**Returns:** ${functionInfo.result_type}\n\n` +
-                            `Edit the argument values below and execute the cell to call the function.`,
-                            'markdown'
-                        ),
-                        new vscode.NotebookCellData(
-                            vscode.NotebookCellKind.Code,
-                            `-- Call function
-SELECT ${item.schema}.${item.label}(${functionInfo.arguments ? 
-    '\n  -- Replace with actual values:\n  ' + functionInfo.arguments.split(',').join(',\n  ') 
-    : ''});`,
-                            'sql'
-                        )
-                    ]);
-                    notebookData.metadata = metadata;
-
-                    const notebook = await vscode.workspace.openNotebookDocument('postgres-notebook', notebookData);
-                    await vscode.window.showNotebookDocument(notebook);
-                } catch (err: any) {
-                    const errorMessage = err?.message || 'Unknown error occurred';
-                    vscode.window.showErrorMessage(`Failed to create function call notebook: ${errorMessage}`);
-                    
-                    if (client) {
-                        try {
-                            await client.end();
-                        } catch (closeErr) {
-                            console.error('Error closing connection:', closeErr);
-                        }
-                    }
-                }
-            } catch (err: any) {
-                vscode.window.showErrorMessage(`Failed to retrieve connection: ${err.message}`);
-            }
-        }),
-
-        vscode.commands.registerCommand('postgres-explorer.dropFunction', async (item: DatabaseTreeItem) => {
-            if (!item || !item.schema || !item.connectionId) {
-                vscode.window.showErrorMessage('Invalid function selection');
-                return;
-            }
-
-            try {
-                const connection = await getConnectionWithPassword(item.connectionId, context);
-                let client: Client | undefined;
-                try {
-                    client = new Client({
-                        host: connection.host,
-                        port: connection.port,
-                        user: connection.username,
-                        password: String(connection.password),
-                        database: item.databaseName || connection.database,
-                        connectionTimeoutMillis: 5000
-                    });
-
-                    await client.connect();
-                    
-                    // Get function arguments
-                    const functionQuery = `
-                        SELECT pg_get_function_arguments(p.oid) as arguments
-                        FROM pg_proc p
-                        WHERE p.proname = $1
-                        AND p.pronamespace = (SELECT oid FROM pg_namespace WHERE nspname = $2)`;
-
-                    const functionResult = await client.query(functionQuery, [item.label, item.schema]);
-                    if (functionResult.rows.length === 0) {
-                        throw new Error('Function not found');
-                    }
-
-                    const functionInfo = functionResult.rows[0];
-                    
-                    // Create notebook for dropping function
-                    const metadata = {
-                        connectionId: item.connectionId,
-                        databaseName: item.databaseName,
-                        host: connection.host,
-                        port: connection.port,
-                        username: connection.username,
-                        password: connection.password
-                    };
-
-                    const notebookData = new vscode.NotebookData([
-                        new vscode.NotebookCellData(
-                            vscode.NotebookCellKind.Markup,
-                            `# Drop Function: ${item.schema}.${item.label}\n\nExecute the cell below to permanently remove this function. This action cannot be undone.`,
-                            'markdown'
-                        ),
-                        new vscode.NotebookCellData(
-                            vscode.NotebookCellKind.Code,
-                            `-- Drop function
-DROP FUNCTION IF EXISTS ${item.schema}.${item.label}(${functionInfo.arguments});`,
-                            'sql'
-                        )
-                    ]);
-                    notebookData.metadata = metadata;
-
-                    const notebook = await vscode.workspace.openNotebookDocument('postgres-notebook', notebookData);
-                    await vscode.window.showNotebookDocument(notebook);
-                } catch (err: any) {
-                    const errorMessage = err?.message || 'Unknown error occurred';
-                    vscode.window.showErrorMessage(`Failed to create drop function notebook: ${errorMessage}`);
-                    
-                    if (client) {
-                        try {
-                            await client.end();
-                        } catch (closeErr) {
-                            console.error('Error closing connection:', closeErr);
-                        }
-                    }
-                }
-            } catch (err: any) {
-                vscode.window.showErrorMessage(`Failed to retrieve connection: ${err.message}`);
-            }
-        }),
-
-        vscode.commands.registerCommand('postgres-explorer.editTableDefinition', async (item: DatabaseTreeItem) => {
-            if (!item || !item.schema || !item.connectionId) {
-                vscode.window.showErrorMessage('Invalid table selection');
-                return;
-            }
-
-            try {
-                const connection = await getConnectionWithPassword(item.connectionId, context);
-                let client: Client | undefined;
-                try {
-                    client = new Client({
-                        host: connection.host,
-                        port: connection.port,
-                        user: connection.username,
-                        password: String(connection.password),
-                        database: item.databaseName || connection.database,
-                        connectionTimeoutMillis: 5000
-                    });
-
-                    await client.connect();
-                    
-                    // Get table definition with all constraints
-                    const tableQuery = `
-                        WITH columns AS (
-                            SELECT 
-                                column_name,
-                                data_type,
-                                character_maximum_length,
-                                numeric_precision,
-                                numeric_scale,
-                                is_nullable,
-                                column_default,
-                                ordinal_position
-                            FROM information_schema.columns
-                            WHERE table_schema = $1
-                            AND table_name = $2
-                            ORDER BY ordinal_position
-                        ),
-                        constraints AS (
-                            SELECT 
-                                tc.constraint_name,
-                                tc.constraint_type,
-                                array_agg(kcu.column_name ORDER BY kcu.ordinal_position) as columns,
-                                CASE 
-                                    WHEN tc.constraint_type = 'FOREIGN KEY' THEN
-                                        json_build_object(
-                                            'schema', ccu.table_schema,
-                                            'table', ccu.table_name,
-                                            'columns', array_agg(ccu.column_name ORDER BY kcu.ordinal_position)
-                                        )
-                                    ELSE NULL
-                                END as foreign_key_reference
-                            FROM information_schema.table_constraints tc
-                            JOIN information_schema.key_column_usage kcu 
-                                ON tc.constraint_name = kcu.constraint_name
-                                AND tc.table_schema = kcu.table_schema
-                                AND tc.table_name = kcu.table_name
-                            LEFT JOIN information_schema.constraint_column_usage ccu
-                                ON tc.constraint_name = ccu.constraint_name
-                                AND tc.constraint_schema = ccu.constraint_schema
-                            WHERE tc.table_schema = $1
-                            AND tc.table_name = $2
-                            GROUP BY tc.constraint_name, tc.constraint_type, ccu.table_schema, ccu.table_name
-                        )
-                        SELECT 
-                            (
-                                SELECT string_agg(
-                                    format('%I %s%s%s', 
-                                        column_name, 
-                                        data_type || 
-                                            CASE 
-                                                WHEN character_maximum_length IS NOT NULL THEN '(' || character_maximum_length || ')'
-                                                WHEN numeric_precision IS NOT NULL THEN 
-                                                    '(' || numeric_precision || COALESCE(',' || numeric_scale, '') || ')'
-                                                ELSE ''
-                                            END,
-                                        CASE WHEN is_nullable = 'NO' THEN ' NOT NULL' ELSE '' END,
-                                        CASE WHEN column_default IS NOT NULL THEN ' DEFAULT ' || column_default ELSE '' END
-                                    ),
-                                    E',\n    '
-                                    ORDER BY ordinal_position
-                                )
-                                FROM columns
-                            ) as columns,
-                            COALESCE(
-                                (
-                                    SELECT json_agg(
-                                        json_build_object(
-                                            'name', constraint_name,
-                                            'type', constraint_type,
-                                            'columns', columns,
-                                            'reference', foreign_key_reference
-                                        )
-                                        ORDER BY constraint_name
-                                    )
-                                    FROM constraints
-                                ),
-                                '[]'::json
-                            ) as constraints`;
-
-                    const tableResult = await client.query(tableQuery, [item.schema, item.label]);
-                    if (tableResult.rows.length === 0) {
-                        throw new Error('Table not found');
-                    }
-
-                    // Generate CREATE TABLE statement with all constraints
-                    let tableConstraints = new Map();
-                    let columnDefs: string[] = [];
-
-                    // Process each column and inline column constraints
-                    tableResult.rows.forEach(col => {
-                        let colDef = `${col.column_name} ${col.data_type}`;
-                        
-                        // Add length/precision/scale if specified
-                        if (col.character_maximum_length) {
-                            colDef += `(${col.character_maximum_length})`;
-                        } else if (col.numeric_precision) {
-                            colDef += `(${col.numeric_precision}${col.numeric_scale ? `,${col.numeric_scale}` : ''})`;
-                        }
-
-                        // Add NOT NULL constraint
-                        if (col.is_nullable === 'NO') {
-                            colDef += ' NOT NULL';
-                        }
-
-                        // Add column default
-                        if (col.column_default) {
-                            colDef += ` DEFAULT ${col.column_default}`;
-                        }
-
-                        columnDefs.push(colDef);
-
-                        // Process table constraints
-                        if (col.table_constraints && col.table_constraints[0]?.type !== null) {
-                            col.table_constraints.forEach((constraint: { type: any; name: any; columns: any[]; foreign_key_reference: any; }) => {
-                                const key = `${constraint.type}_${constraint.name}`;
-                                if (!tableConstraints.has(key)) {
-                                    let constraintDef = `CONSTRAINT ${constraint.name} `;
-                                    switch (constraint.type) {
-                                        case 'PRIMARY KEY':
-                                            constraintDef += `PRIMARY KEY (${constraint.columns.join(', ')})`;
-                                            break;
-                                        case 'UNIQUE':
-                                            constraintDef += `UNIQUE (${constraint.columns.join(', ')})`;
-                                            break;
-                                        case 'FOREIGN KEY':
-                                            const ref = constraint.foreign_key_reference;
-                                            constraintDef += `FOREIGN KEY (${constraint.columns.join(', ')}) ` +
-                                                `REFERENCES ${ref.schema}.${ref.table} (${ref.columns.join(', ')})`;
-                                            break;
-                                    }
-                                    tableConstraints.set(key, constraintDef);
-                                }
-                            });
-                        }
-                    });
-
-                    // Combine column definitions and table constraints
-                    const createTableStatement = [
-                        `CREATE TABLE ${item.schema}.${item.label} (`,
-                        columnDefs.join(',\n    '),
-                        tableConstraints.size > 0 ? ',' : '',
-                        tableConstraints.size > 0 ? Array.from(tableConstraints.values()).join(',\n    ') : '',
-                        ');'
-                    ].join('\n    ');
-                    
-                    // Create notebook for editing table
-                    const metadata = {
-                        connectionId: item.connectionId,
-                        databaseName: item.databaseName,
-                        host: connection.host,
-                        port: connection.port,
-                        username: connection.username,
-                        password: connection.password
-                    };
-
-                    const notebookData = new vscode.NotebookData([
-                        new vscode.NotebookCellData(
-                            vscode.NotebookCellKind.Markup,
-                            `# Edit Table: ${item.schema}.${item.label}\n\nModify the table definition below and execute the cell to update the table structure. Note that this will create a new table - you'll need to migrate the data separately if needed.`,
-                            'markdown'
-                        ),
-                        new vscode.NotebookCellData(
-                            vscode.NotebookCellKind.Code,
-                            createTableStatement,
-                            'sql'
-                        )
-                    ]);
-                    notebookData.metadata = metadata;
-
-                    const notebook = await vscode.workspace.openNotebookDocument('postgres-notebook', notebookData);
-                    await vscode.window.showNotebookDocument(notebook);
-                } catch (err: any) {
-                    const errorMessage = err?.message || 'Unknown error occurred';
-                    vscode.window.showErrorMessage(`Failed to create table edit notebook: ${errorMessage}`);
-                    
-                    if (client) {
-                        try {
-                            await client.end();
-                        } catch (closeErr) {
-                            console.error('Error closing connection:', closeErr);
-                        }
-                    }
-                }
-            } catch (err: any) {
-                vscode.window.showErrorMessage(`Failed to retrieve connection: ${err.message}`);
-            }
-        }),
-
-        vscode.commands.registerCommand('postgres-explorer.viewTableData', async (item: DatabaseTreeItem) => {
-            if (!item || !item.schema || !item.connectionId) {
-                vscode.window.showErrorMessage('Invalid table selection');
-                return;
-            }
-
-            try {
-                const connection = await getConnectionWithPassword(item.connectionId, context);
-                // Create notebook for viewing data
-                const metadata = {
-                    connectionId: item.connectionId,
-                    databaseName: item.databaseName,
-                    host: connection.host,
-                    port: connection.port,
-                    username: connection.username,
-                    password: connection.password
-                };
-
-                const notebookData = new vscode.NotebookData([
-                    new vscode.NotebookCellData(
-                        vscode.NotebookCellKind.Markup,
-                        `# View Table Data: ${item.schema}.${item.label}\n\nModify the query below to filter or transform the data as needed.`,
-                        'markdown'
-                    ),
-                    new vscode.NotebookCellData(
-                        vscode.NotebookCellKind.Code,
-                        `-- View table data
-SELECT *
-FROM ${item.schema}.${item.label}
-LIMIT 100;`,
-                        'sql'
-                    )
-                ]);
-                notebookData.metadata = metadata;
-
-                const notebook = await vscode.workspace.openNotebookDocument('postgres-notebook', notebookData);
+                const query = `SELECT * FROM ${item.schema}.${item.label} LIMIT 100;`;
+                const notebook = await vscode.workspace.openNotebookDocument('postgres-notebook', new vscode.NotebookData([
+                    new vscode.NotebookCellData(vscode.NotebookCellKind.Code, query, 'sql')
+                ]));
                 await vscode.window.showNotebookDocument(notebook);
-            } catch (err: any) {
-                vscode.window.showErrorMessage(`Failed to retrieve connection: ${err.message}`);
             }
-        }),
-
-        vscode.commands.registerCommand('postgres-explorer.dropTable', async (item: DatabaseTreeItem) => {
-            if (!item || !item.schema || !item.connectionId) {
-                vscode.window.showErrorMessage('Invalid table selection');
-                return;
-            }
-
-            try {
-                const connection = await getConnectionWithPassword(item.connectionId, context);
-                // Create notebook for dropping table
-                const metadata = {
-                    connectionId: item.connectionId,
-                    databaseName: item.databaseName,
-                    host: connection.host,
-                    port: connection.port,
-                    username: connection.username,
-                    password: connection.password
-                };
-
-                const notebookData = new vscode.NotebookData([
-                    new vscode.NotebookCellData(
-                        vscode.NotebookCellKind.Markup,
-                        `# Drop Table: ${item.schema}.${item.label}\n\n⚠️ **Warning:** This action will permanently delete the table and all its data. This operation cannot be undone.`,
-                        'markdown'
-                    ),
-                    new vscode.NotebookCellData(
-                        vscode.NotebookCellKind.Code,
-                        `-- Drop table
-DROP TABLE IF EXISTS ${item.schema}.${item.label};`,
-                        'sql'
-                    )
-                ]);
-                notebookData.metadata = metadata;
-
-                const notebook = await vscode.workspace.openNotebookDocument('postgres-notebook', notebookData);
-                await vscode.window.showNotebookDocument(notebook);
-            } catch (err: any) {
-                vscode.window.showErrorMessage(`Failed to retrieve connection: ${err.message}`);
-            }
-        }),
-
-        vscode.commands.registerCommand('postgres-explorer.editViewDefinition', async (item: DatabaseTreeItem) => {
-            if (!item || !item.schema || !item.connectionId) {
-                vscode.window.showErrorMessage('Invalid view selection');
-                return;
-            }
-
-            try {
-                const connection = await getConnectionWithPassword(item.connectionId, context);
-                let client: Client | undefined;
-                try {
-                    client = new Client({
-                        host: connection.host,
-                        port: connection.port,
-                        user: connection.username,
-                        password: String(connection.password),
-                        database: item.databaseName || connection.database,
-                        connectionTimeoutMillis: 5000
-                    });
-
-                    await client.connect();
-                    
-                    // Get view definition
-                    const viewQuery = `SELECT pg_get_viewdef($1::regclass, true) as definition`;
-                    const viewResult = await client.query(viewQuery, [`${item.schema}.${item.label}`]);
-                    if (!viewResult.rows[0]?.definition) {
-                        throw new Error('View definition not found');
-                    }
-
-                    const createViewStatement = `CREATE OR REPLACE VIEW ${item.schema}.${item.label} AS\n${viewResult.rows[0].definition}`;
-                    
-                    // Create notebook for editing view
-                    const metadata = {
-                        connectionId: item.connectionId,
-                        databaseName: item.databaseName,
-                        host: connection.host,
-                        port: connection.port,
-                        username: connection.username,
-                        password: connection.password
-                    };
-
-                    const notebookData = new vscode.NotebookData([
-                        new vscode.NotebookCellData(
-                            vscode.NotebookCellKind.Markup,
-                            `# Edit View: ${item.schema}.${item.label}\n\nModify the view definition below and execute the cell to update the view.`,
-                            'markdown'
-                        ),
-                        new vscode.NotebookCellData(
-                            vscode.NotebookCellKind.Code,
-                            createViewStatement,
-                            'sql'
-                        )
-                    ]);
-                    notebookData.metadata = metadata;
-
-                    const notebook = await vscode.workspace.openNotebookDocument('postgres-notebook', notebookData);
-                    await vscode.window.showNotebookDocument(notebook);
-                } catch (err: any) {
-                    const errorMessage = err?.message || 'Unknown error occurred';
-                    vscode.window.showErrorMessage(`Failed to create view edit notebook: ${errorMessage}`);
-                    
-                    if (client) {
-                        try {
-                            await client.end();
-                        } catch (closeErr) {
-                            console.error('Error closing connection:', closeErr);
-                        }
-                    }
-                }
-            } catch (err: any) {
-                vscode.window.showErrorMessage(`Failed to retrieve connection: ${err.message}`);
-            }
-        }),
-
-        vscode.commands.registerCommand('postgres-explorer.viewViewData', async (item: DatabaseTreeItem) => {
-            if (!item || !item.schema || !item.connectionId) {
-                vscode.window.showErrorMessage('Invalid view selection');
-                return;
-            }
-
-            try {
-                const connection = await getConnectionWithPassword(item.connectionId, context);
-                // Create notebook for viewing data
-                const metadata = {
-                    connectionId: item.connectionId,
-                    databaseName: item.databaseName,
-                    host: connection.host,
-                    port: connection.port,
-                    username: connection.username,
-                    password: connection.password
-                };
-
-                const notebookData = new vscode.NotebookData([
-                    new vscode.NotebookCellData(
-                        vscode.NotebookCellKind.Markup,
-                        `# View Data: ${item.schema}.${item.label}\n\nModify the query below to filter or transform the data as needed.`,
-                        'markdown'
-                    ),
-                    new vscode.NotebookCellData(
-                        vscode.NotebookCellKind.Code,
-                        `-- View data
-SELECT *
-FROM ${item.schema}.${item.label}
-LIMIT 100;`,
-                        'sql'
-                    )
-                ]);
-                notebookData.metadata = metadata;
-
-                const notebook = await vscode.workspace.openNotebookDocument('postgres-notebook', notebookData);
-                await vscode.window.showNotebookDocument(notebook);
-            } catch (err: any) {
-                vscode.window.showErrorMessage(`Failed to retrieve connection: ${err.message}`);
-            }
-        }),
-
-        vscode.commands.registerCommand('postgres-explorer.dropView', async (item: DatabaseTreeItem) => {
-            if (!item || !item.schema || !item.connectionId) {
-                vscode.window.showErrorMessage('Invalid view selection');
-                return;
-            }
-
-            try {
-                const connection = await getConnectionWithPassword(item.connectionId, context);
-                // Create notebook for dropping view
-                const metadata = {
-                    connectionId: item.connectionId,
-                    databaseName: item.databaseName,
-                    host: connection.host,
-                    port: connection.port,
-                    username: connection.username,
-                    password: connection.password
-                };
-
-                const notebookData = new vscode.NotebookData([
-                    new vscode.NotebookCellData(
-                        vscode.NotebookCellKind.Markup,
-                        `# Drop View: ${item.schema}.${item.label}\n\n⚠️ **Warning:** This action will permanently delete the view. This operation cannot be undone.`,
-                        'markdown'
-                    ),
-                    new vscode.NotebookCellData(
-                        vscode.NotebookCellKind.Code,
-                        `-- Drop view
-DROP VIEW IF EXISTS ${item.schema}.${item.label};`,
-                        'sql'
-                    )
-                ]);
-                notebookData.metadata = metadata;
-
-                const notebook = await vscode.workspace.openNotebookDocument('postgres-notebook', notebookData);
-                await vscode.window.showNotebookDocument(notebook);
-            } catch (err: any) {
-                vscode.window.showErrorMessage(`Failed to retrieve connection: ${err.message}`);
-            }
-        }),
-
-        vscode.commands.registerCommand('postgres-explorer.tableOperations', async (item: DatabaseTreeItem) => {
-            if (!item || !item.schema || !item.connectionId) {
-                vscode.window.showErrorMessage('Invalid table selection');
-                return;
-            }
-
-            try {
-                const connection = await getConnectionWithPassword(item.connectionId, context);
-                let client: Client | undefined;
-                try {
-                    client = new Client({
-                        host: connection.host,
-                        port: connection.port,
-                        user: connection.username,
-                        password: String(connection.password),
-                        database: item.databaseName || connection.database,
-                        connectionTimeoutMillis: 5000
-                    });
-
-                    await client.connect();
-                    
-                    // Get table definition with all constraints
-                    const tableQuery = `
-                        WITH columns AS (
-                            SELECT 
-                                column_name,
-                                data_type,
-                                character_maximum_length,
-                                numeric_precision,
-                                numeric_scale,
-                                is_nullable,
-                                column_default,
-                                ordinal_position
-                            FROM information_schema.columns
-                            WHERE table_schema = $1
-                            AND table_name = $2
-                            ORDER BY ordinal_position
-                        ),
-                        constraints AS (
-                            SELECT 
-                                tc.constraint_name,
-                                tc.constraint_type,
-                                array_agg(kcu.column_name ORDER BY kcu.ordinal_position) as columns,
-                                CASE 
-                                    WHEN tc.constraint_type = 'FOREIGN KEY' THEN
-                                        json_build_object(
-                                            'schema', ccu.table_schema,
-                                            'table', ccu.table_name,
-                                            'columns', array_agg(ccu.column_name ORDER BY kcu.ordinal_position)
-                                        )
-                                    ELSE NULL
-                                END as foreign_key_reference
-                            FROM information_schema.table_constraints tc
-                            JOIN information_schema.key_column_usage kcu 
-                                ON tc.constraint_name = kcu.constraint_name
-                                AND tc.table_schema = kcu.table_schema
-                                AND tc.table_name = kcu.table_name
-                            LEFT JOIN information_schema.constraint_column_usage ccu
-                                ON tc.constraint_name = ccu.constraint_name
-                                AND tc.constraint_schema = ccu.constraint_schema
-                            WHERE tc.table_schema = $1
-                            AND tc.table_name = $2
-                            GROUP BY tc.constraint_name, tc.constraint_type, ccu.table_schema, ccu.table_name
-                        )
-                        SELECT 
-                            (
-                                SELECT string_agg(
-                                    format('%I %s%s%s', 
-                                        column_name, 
-                                        data_type || 
-                                            CASE 
-                                                WHEN character_maximum_length IS NOT NULL THEN '(' || character_maximum_length || ')'
-                                                WHEN numeric_precision IS NOT NULL THEN 
-                                                    '(' || numeric_precision || COALESCE(',' || numeric_scale, '') || ')'
-                                                ELSE ''
-                                            END,
-                                        CASE WHEN is_nullable = 'NO' THEN ' NOT NULL' ELSE '' END,
-                                        CASE WHEN column_default IS NOT NULL THEN ' DEFAULT ' || column_default ELSE '' END
-                                    ),
-                                    E',\n    '
-                                    ORDER BY ordinal_position
-                                )
-                                FROM columns
-                            ) as columns,
-                            COALESCE(
-                                (
-                                    SELECT json_agg(
-                                        json_build_object(
-                                            'name', constraint_name,
-                                            'type', constraint_type,
-                                            'columns', columns,
-                                            'reference', foreign_key_reference
-                                        )
-                                        ORDER BY constraint_name
-                                    )
-                                    FROM constraints
-                                ),
-                                '[]'::json
-                            ) as constraints`;
-
-                    const result = await client.query(tableQuery, [item.schema, item.label]);
-                    
-                    // Create notebook for table operations
-                    const metadata = {
-                        connectionId: item.connectionId,
-                        databaseName: item.databaseName,
-                        host: connection.host,
-                        port: connection.port,
-                        username: connection.username,
-                        password: connection.password
-                    };
-
-                    // Build CREATE TABLE statement
-                    const createTable = `CREATE TABLE ${item.schema}.${item.label} (\n    ${result.rows[0].columns}`;
-                    
-                    // Add constraints if they exist
-                    const constraints = result.rows[0].constraints[0] && result.rows[0].constraints[0].name ? 
-                        result.rows[0].constraints.map((c: { type: string; name: string; columns: string[]; reference?: { schema: string; table: string; columns: string[] } }) => {
-                            switch(c.type) {
-                                case 'PRIMARY KEY':
-                                    return `    CONSTRAINT ${c.name} PRIMARY KEY (${c.columns.join(', ')})`;
-                                case 'FOREIGN KEY':
-                                    return `    CONSTRAINT ${c.name} FOREIGN KEY (${c.columns.join(', ')}) ` +
-                                        `REFERENCES ${c.reference?.schema}.${c.reference?.table} (${c.reference?.columns.join(', ')})`;
-                                case 'UNIQUE':
-                                    return `    CONSTRAINT ${c.name} UNIQUE (${c.columns.join(', ')})`;
-                                default:
-                                    return null;
-                            }
-                        }).filter((c: string | null): c is string => c !== null).join(',\n') : '';
-
-                    const tableDefinition = `${createTable}${constraints ? ',\n' + constraints : ''}\n);`;
-
-                    const notebookData = new vscode.NotebookData([
-                        new vscode.NotebookCellData(
-                            vscode.NotebookCellKind.Markup,
-                            `# Table Operations: ${item.schema}.${item.label}\n\nThis notebook contains common operations for the PostgreSQL table:
-- View table definition
-- Query table data
-- Insert data
-- Update data
-- Delete data
-- Truncate table
-- Drop table`,
-                            'markdown'
-                        ),
-                        new vscode.NotebookCellData(
-                            vscode.NotebookCellKind.Code,
-                            `-- Table definition\n${tableDefinition}`,
-                            'sql'
-                        ),
-                        new vscode.NotebookCellData(
-                            vscode.NotebookCellKind.Code,
-                            `-- Query data
-SELECT *
-FROM ${item.schema}.${item.label}
-LIMIT 100;`,
-                            'sql'
-                        ),
-                        new vscode.NotebookCellData(
-                            vscode.NotebookCellKind.Code,
-                            `-- Insert data
-INSERT INTO ${item.schema}.${item.label} (
-    -- List columns here
-)
-VALUES (
-    -- List values here
-);`,
-                            'sql'
-                        ),
-                        new vscode.NotebookCellData(
-                            vscode.NotebookCellKind.Code,
-                            `-- Update data
-UPDATE ${item.schema}.${item.label}
-SET column_name = new_value
-WHERE condition;`,
-                            'sql'
-                        ),
-                        new vscode.NotebookCellData(
-                            vscode.NotebookCellKind.Code,
-                            `-- Delete data
-DELETE FROM ${item.schema}.${item.label}
-WHERE condition;`,
-                            'sql'
-                        ),
-                        new vscode.NotebookCellData(
-                            vscode.NotebookCellKind.Code,
-                            `-- Truncate table (remove all data)
-TRUNCATE TABLE ${item.schema}.${item.label};`,
-                            'sql'
-                        ),
-                        new vscode.NotebookCellData(
-                            vscode.NotebookCellKind.Code,
-                            `-- Drop table
-DROP TABLE ${item.schema}.${item.label};`,
-                            'sql'
-                        )
-                    ]);
-                    notebookData.metadata = metadata;
-
-                    const notebook = await vscode.workspace.openNotebookDocument('postgres-notebook', notebookData);
-                    await vscode.window.showNotebookDocument(notebook);
-                } catch (err: any) {
-                    const errorMessage = err?.message || 'Unknown error occurred';
-                    vscode.window.showErrorMessage(`Failed to create table operations notebook: ${errorMessage}`);
-                    
-                    if (client) {
-                        try {
-                            await client.end();
-                        } catch (closeErr) {
-                            console.error('Error closing connection:', closeErr);
-                        }
-                    }
-                }
-            } catch (err: any) {
-                vscode.window.showErrorMessage(`Failed to retrieve connection: ${err.message}`);
-            }
-        }),
-
-        vscode.commands.registerCommand('postgres-explorer.viewOperations', async (item: DatabaseTreeItem) => {
-            if (!item || !item.schema || !item.connectionId) {
-                vscode.window.showErrorMessage('Invalid view selection');
-                return;
-            }
-
-            try {
-                const connection = await getConnectionWithPassword(item.connectionId, context);
-                let client: Client | undefined;
-                try {
-                    client = new Client({
-                        host: connection.host,
-                        port: connection.port,
-                        user: connection.username,
-                        password: String(connection.password),
-                        database: item.databaseName || connection.database,
-                        connectionTimeoutMillis: 5000
-                    });
-
-                    await client.connect();
-                    
-                    // Get view definition
-                    const viewQuery = `SELECT pg_get_viewdef($1::regclass, true) as definition`;
-                    const viewResult = await client.query(viewQuery, [`${item.schema}.${item.label}`]);
-                    if (!viewResult.rows[0]?.definition) {
-                        throw new Error('View definition not found');
-                    }
-
-                    const viewDefinition = `CREATE OR REPLACE VIEW ${item.schema}.${item.label} AS\n${viewResult.rows[0].definition}`;
-                    
-                    // Create notebook for view operations
-                    const metadata = {
-                        connectionId: item.connectionId,
-                        databaseName: item.databaseName,
-                        host: connection.host,
-                        port: connection.port,
-                        username: connection.username,
-                        password: connection.password
-                    };
-
-                    const notebookData = new vscode.NotebookData([
-                        new vscode.NotebookCellData(
-                            vscode.NotebookCellKind.Markup,
-                            `# View Operations: ${item.schema}.${item.label}\n\nThis notebook contains common operations for the PostgreSQL view:
-- View definition
-- Query view data
-- Modify view definition
-- Drop view`,
-                            'markdown'
-                        ),
-                        new vscode.NotebookCellData(
-                            vscode.NotebookCellKind.Code,
-                            `-- View definition\n${viewDefinition}`,
-                            'sql'
-                        ),
-                        new vscode.NotebookCellData(
-                            vscode.NotebookCellKind.Code,
-                            `-- Query view data
-SELECT *
-FROM ${item.schema}.${item.label}
-LIMIT 100;`,
-                            'sql'
-                        ),
-                        new vscode.NotebookCellData(
-                            vscode.NotebookCellKind.Code,
-                            `-- Modify view definition
-CREATE OR REPLACE VIEW ${item.schema}.${item.label} AS
-SELECT * FROM source_table
-WHERE condition;`,
-                            'sql'
-                        ),
-                        new vscode.NotebookCellData(
-                            vscode.NotebookCellKind.Code,
-                            `-- Drop view
-DROP VIEW ${item.schema}.${item.label};`,
-                            'sql'
-                        )
-                    ]);
-                    notebookData.metadata = metadata;
-
-                    const notebook = await vscode.workspace.openNotebookDocument('postgres-notebook', notebookData);
-                    await vscode.window.showNotebookDocument(notebook);
-                } catch (err: any) {
-                    const errorMessage = err?.message || 'Unknown error occurred';
-                    vscode.window.showErrorMessage(`Failed to create view operations notebook: ${errorMessage}`);
-                    
-                    if (client) {
-                        try {
-                            await client.end();
-                        } catch (closeErr) {
-                            console.error('Error closing connection:', closeErr);
-                        }
-                    }
-                }
-            } catch (err: any) {
-                vscode.window.showErrorMessage(`Failed to retrieve connection: ${err.message}`);
-            }
-        }),
-
-        vscode.commands.registerCommand('postgres-explorer.truncateTable', async (item: DatabaseTreeItem) => {
-            if (!item || !item.schema || !item.connectionId) {
-                vscode.window.showErrorMessage('Invalid table selection');
-                return;
-            }
-
-            try {
-                const connection = await getConnectionWithPassword(item.connectionId, context);
-                const metadata = {
-                    connectionId: item.connectionId,
-                    databaseName: item.databaseName,
-                    host: connection.host,
-                    port: connection.port,
-                    username: connection.username,
-                    password: connection.password
-                };
-
-                const notebookData = new vscode.NotebookData([
-                    new vscode.NotebookCellData(
-                        vscode.NotebookCellKind.Markup,
-                        `# Truncate Table: ${item.schema}.${item.label}\n\n⚠️ **Warning:** This action will remove all data from the table. This operation cannot be undone.`,
-                        'markdown'
-                    ),
-                    new vscode.NotebookCellData(
-                        vscode.NotebookCellKind.Code,
-                        `-- Truncate table
-TRUNCATE TABLE ${item.schema}.${item.label};`,
-                        'sql'
-                    )
-                ]);
-                notebookData.metadata = metadata;
-
-                const notebook = await vscode.workspace.openNotebookDocument('postgres-notebook', notebookData);
-                await vscode.window.showNotebookDocument(notebook);
-            } catch (err: any) {
-                vscode.window.showErrorMessage(`Failed to create truncate notebook: ${err.message}`);
-            }
-        }),
-
-        vscode.commands.registerCommand('postgres-explorer.insertData', async (item: DatabaseTreeItem) => {
-            if (!item || !item.schema || !item.connectionId) {
-                vscode.window.showErrorMessage('Invalid table selection');
-                return;
-            }
-
-            try {
-                const connection = await getConnectionWithPassword(item.connectionId, context);
-                let client: Client | undefined;
-                try {
-                    client = new Client({
-                        host: connection.host,
-                        port: connection.port,
-                        user: connection.username,
-                        password: String(connection.password),
-                        database: item.databaseName || connection.database,
-                        connectionTimeoutMillis: 5000
-                    });
-
-                    await client.connect();
-                    
-                    // Get column information for the table
-                    const columnQuery = `
-                        SELECT column_name, data_type, is_nullable, column_default
-                        FROM information_schema.columns 
-                        WHERE table_schema = $1 
-                        AND table_name = $2 
-                        ORDER BY ordinal_position`;
-                    
-                    const result = await client.query(columnQuery, [item.schema, item.label]);
-                    
-                    // Generate INSERT statement with column names and placeholder values
-                    const columns = result.rows.map(col => col.column_name);
-                    const placeholders = result.rows.map(col => {
-                        if (col.column_default) {
-                            return `DEFAULT`;
-                        }
-                        switch (col.data_type.toLowerCase()) {
-                            case 'text':
-                            case 'character varying':
-                            case 'varchar':
-                            case 'char':
-                            case 'uuid':
-                            case 'date':
-                            case 'timestamp':
-                            case 'timestamptz':
-                                return `'value'`;
-                            case 'integer':
-                            case 'bigint':
-                            case 'smallint':
-                            case 'decimal':
-                            case 'numeric':
-                            case 'real':
-                            case 'double precision':
-                                return '0';
-                            case 'boolean':
-                                return 'false';
-                            case 'json':
-                            case 'jsonb':
-                                return `'{}'`;
-                            default:
-                                return 'NULL';
-                        }
-                    });
-
-                    const metadata = {
-                        connectionId: item.connectionId,
-                        databaseName: item.databaseName,
-                        host: connection.host,
-                        port: connection.port,
-                        username: connection.username,
-                        password: connection.password
-                    };
-
-                    const notebookData = new vscode.NotebookData([
-                        new vscode.NotebookCellData(
-                            vscode.NotebookCellKind.Markup,
-                            `# Insert Data: ${item.schema}.${item.label}\n\nReplace the placeholder values in the INSERT statement below with your actual data.`,
-                            'markdown'
-                        ),
-                        new vscode.NotebookCellData(
-                            vscode.NotebookCellKind.Code,
-                            `-- Insert single row
-INSERT INTO ${item.schema}.${item.label} (
-    ${columns.map(col => `${col}`).join(',\n    ')}
-)
-VALUES (
-    ${placeholders.join(',\n    ')}
-)
-RETURNING *;
-
--- Insert multiple rows (example)
-INSERT INTO ${item.schema}.${item.label} (
-    ${columns.map(col => `${col}`).join(',\n    ')}
-)
-VALUES
-    (${placeholders.join(', ')}),
-    (${placeholders.join(', ')})
-RETURNING *;`,
-                            'sql'
-                        )
-                    ]);
-                    notebookData.metadata = metadata;
-
-                    const notebook = await vscode.workspace.openNotebookDocument('postgres-notebook', notebookData);
-                    await vscode.window.showNotebookDocument(notebook);
-                } catch (err: any) {
-                    const errorMessage = err?.message || 'Unknown error occurred';
-                    vscode.window.showErrorMessage(`Failed to create insert notebook: ${errorMessage}`);
-                    
-                    if (client) {
-                        try {
-                            await client.end();
-                        } catch (closeErr) {
-                            console.error('Error closing connection:', closeErr);
-                        }
-                    }
-                }
-            } catch (err: any) {
-                vscode.window.showErrorMessage(`Failed to retrieve connection: ${err.message}`);
-            }
-        }),
-
-        vscode.commands.registerCommand('postgres-explorer.updateData', async (item: DatabaseTreeItem) => {
-            if (!item || !item.schema || !item.connectionId) {
-                vscode.window.showErrorMessage('Invalid table selection');
-                return;
-            }
-
-            try {
-                const connection = await getConnectionWithPassword(item.connectionId, context);
-                let client: Client | undefined;
-                try {
-                    client = new Client({
-                        host: connection.host,
-                        port: connection.port,
-                        user: connection.username,
-                        password: String(connection.password),
-                        database: item.databaseName || connection.database,
-                        connectionTimeoutMillis: 5000
-                    });
-
-                    await client.connect();
-                    
-                    // Get column information including primary key
-                    const columnQuery = `
-                        SELECT 
-                            c.column_name, 
-                            c.data_type,
-                            CASE 
-                                WHEN tc.constraint_type = 'PRIMARY KEY' THEN true
-                                ELSE false
-                            END as is_primary_key
-                        FROM information_schema.columns c
-                        LEFT JOIN information_schema.key_column_usage kcu
-                            ON c.table_schema = kcu.table_schema
-                            AND c.table_name = kcu.table_name
-                            AND c.column_name = kcu.column_name
-                        LEFT JOIN information_schema.table_constraints tc
-                            ON kcu.constraint_name = tc.constraint_name
-                            AND kcu.table_schema = tc.table_schema
-                            AND kcu.table_name = tc.table_name
-                        WHERE c.table_schema = $1 
-                        AND c.table_name = $2 
-                        ORDER BY c.ordinal_position`;
-                    
-                    const result = await client.query(columnQuery, [item.schema, item.label]);
-                    
-                    // Find primary key columns for WHERE clause
-                    const pkColumns = result.rows.filter(col => col.is_primary_key).map(col => col.column_name);
-                    const whereClause = pkColumns.length > 0 ?
-                        `WHERE ${pkColumns.map(col => `${col} = value`).join(' AND ')}` :
-                        '-- Add your WHERE clause here to identify rows to update';
-
-                    const metadata = {
-                        connectionId: item.connectionId,
-                        databaseName: item.databaseName,
-                        host: connection.host,
-                        port: connection.port,
-                        username: connection.username,
-                        password: connection.password
-                    };
-
-                    const notebookData = new vscode.NotebookData([
-                        new vscode.NotebookCellData(
-                            vscode.NotebookCellKind.Markup,
-                            `# Update Data: ${item.schema}.${item.label}\n\nModify the UPDATE statement below to set new values and specify which rows to update using the WHERE clause.`,
-                            'markdown'
-                        ),
-                        new vscode.NotebookCellData(
-                            vscode.NotebookCellKind.Code,
-                            `-- Update data
-UPDATE ${item.schema}.${item.label}
-SET
-    -- List columns to update:
-    column_name = new_value
-${whereClause}
-RETURNING *;
-
--- Example of updating multiple columns
-UPDATE ${item.schema}.${item.label}
-SET
-    ${result.rows.map(col => `${col.column_name} = CASE 
-        WHEN ${col.data_type.toLowerCase().includes('char') || col.data_type.toLowerCase() === 'text' ? 
-            `condition THEN 'new_value'` : 
-            `condition THEN 0`}
-        ELSE ${col.column_name}
-    END`).join(',\n    ')}
-${whereClause}
-RETURNING *;`,
-                            'sql'
-                        )
-                    ]);
-                    notebookData.metadata = metadata;
-
-                    const notebook = await vscode.workspace.openNotebookDocument('postgres-notebook', notebookData);
-                    await vscode.window.showNotebookDocument(notebook);
-                } catch (err: any) {
-                    const errorMessage = err?.message || 'Unknown error occurred';
-                    vscode.window.showErrorMessage(`Failed to create update notebook: ${errorMessage}`);
-                    
-                    if (client) {
-                        try {
-                            await client.end();
-                        } catch (closeErr) {
-                            console.error('Error closing connection:', closeErr);
-                        }
-                    }
-                }
-            } catch (err: any) {
-                vscode.window.showErrorMessage(`Failed to retrieve connection: ${err.message}`);
-            }
-        }),
-
-        vscode.commands.registerCommand('postgres-explorer.createSchema', async (item: DatabaseTreeItem) => {
-            if (!item || !item.connectionId) {
-                vscode.window.showErrorMessage('Invalid database selection');
-                return;
-            }
-
-            try {
-                const connection = await getConnectionWithPassword(item.connectionId, context);
-                const metadata = {
-                    connectionId: item.connectionId,
-                    databaseName: item.databaseName,
-                    host: connection.host,
-                    port: connection.port,
-                    username: connection.username,
-                    password: connection.password
-                };
-
-                const notebookData = new vscode.NotebookData([
-                    new vscode.NotebookCellData(
-                        vscode.NotebookCellKind.Markup,
-                        `# Create New Schema in Database: ${item.label}\n\nExecute the cell below to create a new schema. Modify the schema name and permissions as needed.`,
-                        'markdown'
-                    ),
-                    new vscode.NotebookCellData(
-                        vscode.NotebookCellKind.Code,
-                        `-- Create new schema
-CREATE SCHEMA schema_name;
-
--- Grant permissions (optional)
-GRANT USAGE ON SCHEMA schema_name TO role_name;
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA schema_name TO role_name;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA schema_name TO role_name;`,
-                        'sql'
-                    )
-                ]);
-                notebookData.metadata = metadata;
-
-                const notebook = await vscode.workspace.openNotebookDocument('postgres-notebook', notebookData);
-                await vscode.window.showNotebookDocument(notebook);
-            } catch (err: any) {
-                vscode.window.showErrorMessage(`Failed to create schema notebook: ${err.message}`);
-            }
-        }),
-
-        vscode.commands.registerCommand('postgres-explorer.databaseOperations', async (item: DatabaseTreeItem) => {
-            if (!item || !item.connectionId) {
-                vscode.window.showErrorMessage('Invalid database selection');
-                return;
-            }
-
-            try {
-                const connection = await getConnectionWithPassword(item.connectionId, context);
-                const metadata = {
-                    connectionId: item.connectionId,
-                    databaseName: item.databaseName,
-                    host: connection.host,
-                    port: connection.port,
-                    username: connection.username,
-                    password: connection.password
-                };
-
-                const notebookData = new vscode.NotebookData([
-                    new vscode.NotebookCellData(
-                        vscode.NotebookCellKind.Markup,
-                        `# Database Operations: ${item.label}\n\nThis notebook contains common operations for managing the database:\n- Show database info\n- List schemas\n- List users and roles\n- Show active connections\n- Database maintenance`,
-                        'markdown'
-                    ),
-                    new vscode.NotebookCellData(
-                        vscode.NotebookCellKind.Code,
-                        `-- Database information
-SELECT d.datname as "Database",
-       pg_size_pretty(pg_database_size(d.datname)) as "Size",
-       u.usename as "Owner"
-FROM pg_database d
-JOIN pg_user u ON d.datdba = u.usesysid
-WHERE d.datname = current_database();`,
-                        'sql'
-                    ),
-                    new vscode.NotebookCellData(
-                        vscode.NotebookCellKind.Code,
-                        `-- List schemas and sizes
-SELECT schema_name,
-       pg_size_pretty(sum(table_size)::bigint) as "Size",
-       count(table_name) as "Tables"
-FROM (
-  SELECT schemaname as schema_name,
-         tablename as table_name,
-         pg_total_relation_size(schemaname || '.' || tablename) as table_size
-  FROM pg_tables
-) t
-GROUP BY schema_name
-ORDER BY sum(table_size) DESC;`,
-                        'sql'
-                    ),
-                    new vscode.NotebookCellData(
-                        vscode.NotebookCellKind.Code,
-                        `-- List users and roles
-SELECT r.rolname as "Role",
-       r.rolsuper as "Superuser",
-       r.rolcreatedb as "Create DB",
-       r.rolcreaterole as "Create Role",
-       r.rolcanlogin as "Can Login"
-FROM pg_roles r
-ORDER BY r.rolname;`,
-                        'sql'
-                    ),
-                    new vscode.NotebookCellData(
-                        vscode.NotebookCellKind.Code,
-                        `-- Show active connections
-SELECT pid as "Process ID",
-       usename as "User",
-       datname as "Database",
-       client_addr as "Client Address",
-       application_name as "Application",
-       state as "State",
-       query as "Last Query"
-FROM pg_stat_activity
-WHERE datname = current_database();`,
-                        'sql'
-                    ),
-                    new vscode.NotebookCellData(
-                        vscode.NotebookCellKind.Code,
-                        `-- Database maintenance (vacuum analyze)
-VACUUM ANALYZE;`,
-                        'sql'
-                    )
-                ]);
-                notebookData.metadata = metadata;
-
-                const notebook = await vscode.workspace.openNotebookDocument('postgres-notebook', notebookData);
-                await vscode.window.showNotebookDocument(notebook);
-            } catch (err: any) {
-                vscode.window.showErrorMessage(`Failed to create database operations notebook: ${err.message}`);
-            }
-        }),
-
-        vscode.commands.registerCommand('postgres-explorer.createInSchema', async (item: DatabaseTreeItem) => {
-            if (!item || !item.schema || !item.connectionId) {
-                vscode.window.showErrorMessage('Invalid schema selection');
-                return;
-            }
-
-            const items = [
-                { label: 'Table', detail: 'Create a new table in this schema', query: `CREATE TABLE ${item.schema}.table_name (
-    id serial PRIMARY KEY,
-    column_name data_type,
-    created_at timestamptz DEFAULT current_timestamp
-);` },
-                { label: 'View', detail: 'Create a new view in this schema', query: `CREATE VIEW ${item.schema}.view_name AS
-SELECT column1, column2
-FROM some_table
-WHERE condition;` },
-                { label: 'Function', detail: 'Create a new function in this schema', query: `CREATE OR REPLACE FUNCTION ${item.schema}.function_name(
-    param1 data_type,
-    param2 data_type
-) RETURNS return_type AS $$
-BEGIN
-    -- Function logic here
-    RETURN result;
-END;
-$$ LANGUAGE plpgsql;` }
-            ];
-
-            const selection = await vscode.window.showQuickPick(items, {
-                title: 'Create in Schema',
-                placeHolder: 'Select what to create'
-            });
-
-            if (selection) {
-                try {
-                    const connection = await getConnectionWithPassword(item.connectionId, context);
-                    const metadata = {
-                        connectionId: item.connectionId,
-                        databaseName: item.databaseName,
-                        host: connection.host,
-                        port: connection.port,
-                        username: connection.username,
-                        password: connection.password
-                    };
-
-                    const notebookData = new vscode.NotebookData([
-                        new vscode.NotebookCellData(
-                            vscode.NotebookCellKind.Markup,
-                            `# Create New ${selection.label} in Schema: ${item.schema}\n\nModify the definition below and execute the cell to create the ${selection.label.toLowerCase()}.`,
-                            'markdown'
-                        ),
-                        new vscode.NotebookCellData(
-                            vscode.NotebookCellKind.Code,
-                            selection.query,
-                            'sql'
-                        )
-                    ]);
-                    notebookData.metadata = metadata;
-
-                    const notebook = await vscode.workspace.openNotebookDocument('postgres-notebook', notebookData);
-                    await vscode.window.showNotebookDocument(notebook);
-                } catch (err: any) {
-                    vscode.window.showErrorMessage(`Failed to create notebook: ${err.message}`);
-                }
-            }
-        }),
-
-        vscode.commands.registerCommand('postgres-explorer.schemaOperations', async (item: DatabaseTreeItem) => {
-            if (!item || !item.schema || !item.connectionId) {
-                vscode.window.showErrorMessage('Invalid schema selection');
-                return;
-            }
-
-            try {
-                const connection = await getConnectionWithPassword(item.connectionId, context);
-                const metadata = {
-                    connectionId: item.connectionId,
-                    databaseName: item.databaseName,
-                    host: connection.host,
-                    port: connection.port,
-                    username: connection.username,
-                    password: connection.password
-                };
-
-                const notebookData = new vscode.NotebookData([
-                    new vscode.NotebookCellData(
-                        vscode.NotebookCellKind.Markup,
-                        `# Schema Operations: ${item.schema}\n\nThis notebook contains common operations for managing the schema:\n- Schema information\n- List objects\n- Manage permissions\n- Schema maintenance`,
-                        'markdown'
-                    ),
-                    new vscode.NotebookCellData(
-                        vscode.NotebookCellKind.Code,
-                        `-- Schema size and object counts
-SELECT
-    '${item.schema}' as schema_name,
-    pg_size_pretty(sum(pg_total_relation_size(quote_ident(schemaname) || '.' || quote_ident(tablename)))::bigint) as total_size,
-    count(distinct tablename) as num_tables,
-    count(distinct viewname) as num_views,
-    count(distinct routines.routine_name) as num_functions
-FROM pg_tables
-LEFT JOIN pg_views ON pg_views.schemaname = pg_tables.schemaname
-LEFT JOIN information_schema.routines ON routines.routine_schema = pg_tables.schemaname
-WHERE pg_tables.schemaname = '${item.schema}'
-GROUP BY pg_tables.schemaname;`,
-                        'sql'
-                    ),
-                    new vscode.NotebookCellData(
-                        vscode.NotebookCellKind.Code,
-                        `-- List all objects in schema
-SELECT 
-    case c.relkind
-        when 'r' then 'table'
-        when 'v' then 'view'
-        when 'm' then 'materialized view'
-        when 'i' then 'index'
-        when 'S' then 'sequence'
-        when 's' then 'special'
-        when 'f' then 'foreign table'
-        when 'p' then 'partitioned table'
-    end as object_type,
-    c.relname as object_name,
-    pg_size_pretty(pg_total_relation_size(quote_ident('${item.schema}') || '.' || quote_ident(c.relname))) as size
-FROM pg_class c
-JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE n.nspname = '${item.schema}'
-AND c.relkind in ('r', 'v', 'm', 'S', 'f', 'p')
-ORDER BY c.relkind, c.relname;`,
-                        'sql'
-                    ),
-                    new vscode.NotebookCellData(
-                        vscode.NotebookCellKind.Code,
-                        `-- Show schema privileges
-SELECT grantee, privilege_type
-FROM information_schema.role_usage_grants
-WHERE object_schema = '${item.schema}'
-UNION ALL
-SELECT grantee, privilege_type
-FROM information_schema.table_privileges
-WHERE table_schema = '${item.schema}'
-ORDER BY grantee, privilege_type;`,
-                        'sql'
-                    ),
-                    new vscode.NotebookCellData(
-                        vscode.NotebookCellKind.Code,
-                        `-- Grant common privileges (modify as needed)
-GRANT USAGE ON SCHEMA ${item.schema} TO role_name;
-GRANT SELECT ON ALL TABLES IN SCHEMA ${item.schema} TO role_name;
-GRANT SELECT ON ALL SEQUENCES IN SCHEMA ${item.schema} TO role_name;`,
-                        'sql'
-                    ),
-                    new vscode.NotebookCellData(
-                        vscode.NotebookCellKind.Code,
-                        `-- Schema maintenance (vacuum analyze all tables)
-DO $$
-DECLARE
-    row record;
-BEGIN
-    FOR row IN 
-        SELECT tablename 
-        FROM pg_tables 
-        WHERE schemaname = '${item.schema}'
-    LOOP
-        EXECUTE 'VACUUM ANALYZE ' || quote_ident('${item.schema}') || '.' || quote_ident(row.tablename);
-    END LOOP;
-END $$;`,
-                        'sql'
-                    )
-                ]);
-                notebookData.metadata = metadata;
-
-                const notebook = await vscode.workspace.openNotebookDocument('postgres-notebook', notebookData);
-                await vscode.window.showNotebookDocument(notebook);
-            } catch (err: any) {
-                vscode.window.showErrorMessage(`Failed to create schema operations notebook: ${err.message}`);
-            }
-        })
-    );
-
-    // Migrate existing passwords to SecretStorage on extension activation
-    migrateExistingPasswords(context).catch(err => {
-        console.error('Failed to migrate passwords:', err);
+        },
+        {
+            command: 'postgres-explorer.newNotebook',
+            callback: async (item: any) => await cmdNewNotebook(item)
+        },
+        {
+            command: 'postgres-explorer.refresh',
+            callback: () => databaseTreeProvider.refresh()
+        },
+        // Add database commands
+        {
+            command: 'postgres-explorer.createInDatabase',
+            callback: async (item: DatabaseTreeItem) => await cmdAddObjectInDatabase(item, context)
+        },
+        {
+            command: 'postgres-explorer.databaseOperations',
+            callback: async (item: DatabaseTreeItem) => await cmdDatabaseOperations(item, context)
+        },
+        {
+            command: 'postgres-explorer.showDashboard',
+            callback: async (item: DatabaseTreeItem) => await cmdDatabaseDashboard(item, context)
+        },
+        // Add schema commands
+        {
+            command: 'postgres-explorer.createSchema',
+            callback: async (item: DatabaseTreeItem) => await cmdCreateSchema(item, context)
+        },
+        {
+            command: 'postgres-explorer.createInSchema',
+            callback: async (item: DatabaseTreeItem) => await cmdCreateObjectInSchema(item, context)
+        },
+        {
+            command: 'postgres-explorer.schemaOperations',
+            callback: async (item: DatabaseTreeItem) => await cmdSchemaOperations(item, context)
+        },
+        // Add table commands
+        {
+            command: 'postgres-explorer.editTable',
+            callback: async (item: DatabaseTreeItem) => await cmdEditTable(item, context)
+        },
+        {
+            command: 'postgres-explorer.viewTableData',
+            callback: async (item: DatabaseTreeItem) => await cmdViewTableData(item, context)
+        },
+        {
+            command: 'postgres-explorer.dropTable',
+            callback: async (item: DatabaseTreeItem) => await cmdDropTable(item, context)
+        },
+        {
+            command: 'postgres-explorer.tableOperations',
+            callback: async (item: DatabaseTreeItem) => await cmdTableOperations(item, context)
+        },
+        {
+            command: 'postgres-explorer.truncateTable',
+            callback: async (item: DatabaseTreeItem) => await cmdTruncateTable(item, context)
+        },
+        {
+            command: 'postgres-explorer.insertData',
+            callback: async (item: DatabaseTreeItem) => await cmdInsertTable(item, context)
+        },
+        {
+            command: 'postgres-explorer.updateData',
+            callback: async (item: DatabaseTreeItem) => await cmdUpdateTable(item, context)
+        },
+        {
+            command: 'postgres-explorer.showTableProperties',
+            callback: async (item: DatabaseTreeItem) => await cmdShowTableProperties(item, context)
+        },
+        // Add view commands
+        {
+            command: 'postgres-explorer.editViewDefinition',
+            callback: async (item: DatabaseTreeItem) => await cmdEditView(item, context)
+        },
+        {
+            command: 'postgres-explorer.viewViewData',
+            callback: async (item: DatabaseTreeItem) => await cmdViewData(item, context)
+        },
+        {
+            command: 'postgres-explorer.dropView',
+            callback: async (item: DatabaseTreeItem) => await cmdDropView(item, context)
+        },
+        {
+            command: 'postgres-explorer.viewOperations',
+            callback: async (item: DatabaseTreeItem) => await cmdViewOperations(item, context)
+        },
+        {
+            command: 'postgres-explorer.showViewProperties',
+            callback: async (item: DatabaseTreeItem) => await cmdShowViewProperties(item, context)
+        },
+        // Add function commands
+        {
+            command: 'postgres-explorer.showFunctionProperties',
+            callback: async (item: DatabaseTreeItem) => await cmdShowFunctionProperties(item, context)
+        },
+        {
+            command: 'postgres-explorer.functionOperations',
+            callback: async (item: DatabaseTreeItem) => await cmdFunctionOperations(item, context)
+        },
+        {
+            command: 'postgres-explorer.createReplaceFunction',
+            callback: async (item: DatabaseTreeItem) => await cmdEditFunction(item, context)
+        },
+        {
+            command: 'postgres-explorer.callFunction',
+            callback: async (item: DatabaseTreeItem) => await cmdCallFunction(item, context)
+        },
+        {
+            command: 'postgres-explorer.dropFunction',
+            callback: async (item: DatabaseTreeItem) => await cmdDropFunction(item, context)
+        },
+        // Add materialized view commands
+        {
+            command: 'postgres-explorer.refreshMaterializedView',
+            callback: async (item: DatabaseTreeItem) => await cmdRefreshMatView(item, context)
+        },
+        {
+            command: 'postgres-explorer.editMatView',
+            callback: async (item: DatabaseTreeItem) => await cmdEditMatView(item, context)
+        },
+        {
+            command: 'postgres-explorer.viewMaterializedViewData',
+            callback: async (item: DatabaseTreeItem) => await cmdViewMatViewData(item, context)
+        },
+        {
+            command: 'postgres-explorer.showMaterializedViewProperties',
+            callback: async (item: DatabaseTreeItem) => await cmdViewMatViewProperties(item, context)
+        },
+        {
+            command: 'postgres-explorer.dropMatView',
+            callback: async (item: DatabaseTreeItem) => await cmdDropMatView(item, context)
+        },
+        {
+            command: 'postgres-explorer.materializedViewOperations',
+            callback: async (item: DatabaseTreeItem) => await cmdMatViewOperations(item, context)
+        },
+        // Add type commands
+        {
+            command: 'postgres-explorer.typeOperations',
+            callback: async (item: DatabaseTreeItem) => await cmdAllOperationsTypes(item, context)
+        },
+        {
+            command: 'postgres-explorer.editType',
+            callback: async (item: DatabaseTreeItem) => await cmdEditTypes(item, context)
+        },
+        {
+            command: 'postgres-explorer.showTypeProperties',
+            callback: async (item: DatabaseTreeItem) => await cmdShowTypeProperties(item, context)
+        },
+        {
+            command: 'postgres-explorer.dropType',
+            callback: async (item: DatabaseTreeItem) => await cmdDropType(item, context)
+        },
+        // Add foreign table commands
+        {
+            command: 'postgres-explorer.foreignTableOperations',
+            callback: async (item: DatabaseTreeItem) => await cmdForeignTableOperations(item, context)
+        },
+        {
+            command: 'postgres-explorer.editForeignTable',
+            callback: async (item: DatabaseTreeItem) => await cmdEditForeignTable(item, context)
+        },
+        // Add role/user commands
+        {
+            command: 'postgres-explorer.createUser',
+            callback: async (item: DatabaseTreeItem) => await cmdAddUser(item, context)
+        },
+        {
+            command: 'postgres-explorer.createRole',
+            callback: async (item: DatabaseTreeItem) => await cmdAddRole(item, context)
+        },
+        {
+            command: 'postgres-explorer.editRole',
+            callback: async (item: DatabaseTreeItem) => await cmdEditRole(item, context)
+        },
+        {
+            command: 'postgres-explorer.grantRevoke',
+            callback: async (item: DatabaseTreeItem) => await cmdGrantRevokeRole(item, context)
+        },
+        {
+            command: 'postgres-explorer.dropRole',
+            callback: async (item: DatabaseTreeItem) => await cmdDropRole(item, context)
+        },
+        {
+            command: 'postgres-explorer.roleOperations',
+            callback: async (item: DatabaseTreeItem) => await cmdRoleOperations(item, context)
+        },
+        {
+            command: 'postgres-explorer.showRoleProperties',
+            callback: async (item: DatabaseTreeItem) => await cmdShowRoleProperties(item, context)
+        },
+        // Add extension commands
+        {
+            command: 'postgres-explorer.enableExtension',
+            callback: async (item: DatabaseTreeItem) => await cmdEnableExtension(item, context)
+        },
+        {
+            command: 'postgres-explorer.extensionOperations',
+            callback: async (item: DatabaseTreeItem) => await cmdExtensionOperations(item, context)
+        },
+        {
+            command: 'postgres-explorer.dropExtension',
+            callback: async (item: DatabaseTreeItem) => await cmdDropExtension(item, context)
+        },
+        // Add connection commands
+        {
+            command: 'postgres-explorer.disconnectConnection',
+            callback: async (item: DatabaseTreeItem) => await cmdDisconnectConnection(item, context, databaseTreeProvider)
+        },
+        {
+            command: 'postgres-explorer.deleteConnection',
+            callback: async (item: DatabaseTreeItem) => await cmdDisconnectDatabase(item, context, databaseTreeProvider)
+        },
+        {
+            command: 'postgres-explorer.addConnection',
+            callback: () => ConnectionFormPanel.show(context.extensionUri, context)
+        }
+    ];
+
+    // Register all commands
+    commands.forEach(({ command, callback }) => {
+        context.subscriptions.push(
+            vscode.commands.registerCommand(command, callback)
+        );
     });
 }
 
@@ -2070,233 +323,21 @@ async function migrateExistingPasswords(context: vscode.ExtensionContext) {
     try {
         const config = vscode.workspace.getConfiguration();
         const connections = config.get<any[]>('postgresExplorer.connections') || [];
-        
+
         // First remove passwords from settings to ensure they don't persist
         const sanitizedConnections = connections.map(({ password, ...connWithoutPassword }) => connWithoutPassword);
         await config.update('postgresExplorer.connections', sanitizedConnections, vscode.ConfigurationTarget.Global);
-        
+
         // Then store passwords in SecretStorage
         for (const conn of connections) {
             if (conn.password) {
                 await context.secrets.store(`postgres-password-${conn.id}`, conn.password);
             }
         }
-        
+
         return true;
     } catch (error) {
         console.error('Failed to migrate passwords:', error);
         return false;
     }
-}
-
-// Update command handlers to use SecretStorage
-async function getConnectionWithPassword(connectionId: string, context: vscode.ExtensionContext): Promise<any> {
-    const connections = vscode.workspace.getConfiguration().get<any[]>('postgresExplorer.connections') || [];
-    const connection = connections.find(c => c.id === connectionId);
-    
-    if (!connection) {
-        throw new Error('Connection not found');
-    }
-
-    const password = await context.secrets.get(`postgres-password-${connectionId}`);
-    if (!password) {
-        throw new Error('Password not found in secure storage');
-    }
-
-    return {
-        ...connection,
-        password
-    };
-}
-
-class PostgresExplorer implements vscode.TreeDataProvider<DatabaseItem> {
-    private _onDidChangeTreeData: vscode.EventEmitter<DatabaseItem | undefined | null | void> = new vscode.EventEmitter<DatabaseItem | undefined | null | void>();
-    readonly onDidChangeTreeData: vscode.Event<DatabaseItem | undefined | null | void> = this._onDidChangeTreeData.event;
-
-    refresh(): void {
-        this._onDidChangeTreeData.fire();
-    }
-
-    getTreeItem(element: DatabaseItem): vscode.TreeItem {
-        return element;
-    }
-
-    async getChildren(element?: DatabaseItem): Promise<DatabaseItem[]> {
-        const connections = vscode.workspace.getConfiguration().get<any[]>('postgresExplorer.connections') || [];
-        if (connections.length === 0) {
-            return [];
-        }
-
-        let client: Client | undefined;
-        try {
-            if (!element) {
-                // Root level - show connections
-                return connections.map(conn => new DatabaseItem(
-                    conn.name || `${conn.host}:${conn.port}`,
-                    vscode.TreeItemCollapsibleState.Collapsed,
-                    'connection',
-                    undefined,
-                    undefined,
-                    conn.id
-                ));
-            }
-
-            // Find the connection details
-            const connection = connections.find(c => c.id === element.connectionId);
-            if (!connection) {
-                return [];
-            }
-
-            // Connect to appropriate database based on the tree level
-            const dbName = element.type === 'connection' ? 'postgres' : element.databaseName;
-            client = new Client({
-                host: connection.host,
-                port: connection.port,
-                user: connection.username,
-                password: String(connection.password),
-                database: dbName,
-                connectionTimeoutMillis: 5000
-            });
-            await client.connect();
-
-            if (element.type === 'connection') {
-                // Show databases under connection
-                const result = await client.query(
-                    "SELECT datname FROM pg_database WHERE datistemplate = false AND datname != 'postgres'"
-                );
-                return result.rows.map(row => new DatabaseItem(
-                    row.datname,
-                    vscode.TreeItemCollapsibleState.Collapsed,
-                    'database',
-                    undefined,
-                    row.datname,
-                    element.connectionId
-                ));
-            }
-
-            if (element.type === 'database') {
-                // Show schemas under database
-                const result = await client.query(
-                    "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('information_schema', 'pg_catalog')"
-                );
-                return result.rows.map(row => new DatabaseItem(
-                    row.schema_name,
-                    vscode.TreeItemCollapsibleState.Collapsed,
-                    'schema',
-                    row.schema_name,
-                    element.databaseName,
-                    element.connectionId
-                ));
-            }
-
-            if (element.type === 'schema') {
-                // Show categories under schema
-                return [
-                    new DatabaseItem('Tables', vscode.TreeItemCollapsibleState.Collapsed, 'category', element.label, element.databaseName, element.connectionId),
-                    new DatabaseItem('Views', vscode.TreeItemCollapsibleState.Collapsed, 'category', element.label, element.databaseName, element.connectionId),
-                    new DatabaseItem('Functions', vscode.TreeItemCollapsibleState.Collapsed, 'category', element.label, element.databaseName, element.connectionId)
-                ];
-            }
-
-            if (element.type === 'category') {
-                if (element.label === 'Tables') {
-                    const result = await client.query(
-                        "SELECT table_name FROM information_schema.tables WHERE table_schema = $1 AND table_type = 'BASE TABLE'",
-                        [element.schema]
-                    );
-                    return result.rows.map(row => new DatabaseItem(
-                        row.table_name,
-                        vscode.TreeItemCollapsibleState.Collapsed,
-                        'table',
-                        element.schema,
-                        element.databaseName,
-                        element.connectionId
-                    ));
-                }
-                
-                if (element.label === 'Views') {
-                    const result = await client.query(
-                        "SELECT table_name FROM information_schema.views WHERE table_schema = $1",
-                        [element.schema]
-                    );
-                    return result.rows.map(row => new DatabaseItem(
-                        row.table_name,
-                        vscode.TreeItemCollapsibleState.Collapsed,
-                        'view',
-                        element.schema,
-                        element.databaseName,
-                        element.connectionId
-                    ));
-                }
-                
-                if (element.label === 'Functions') {
-                    const result = await client.query(
-                        `SELECT routine_name 
-                         FROM information_schema.routines 
-                         WHERE routine_schema = $1 
-                         AND routine_type = 'FUNCTION'`,
-                        [element.schema]
-                    );
-                    return result.rows.map(row => new DatabaseItem(
-                        row.routine_name,
-                        vscode.TreeItemCollapsibleState.None,
-                        'function',
-                        element.schema,
-                        element.databaseName,
-                        element.connectionId
-                    ));
-                }
-            }
-
-            if (element.type === 'table' || element.type === 'view') {
-                const result = await client.query(
-                    "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2",
-                    [element.schema, element.label]
-                );
-                return result.rows.map(row => new DatabaseItem(
-                    `${row.column_name} (${row.data_type})`,
-                    vscode.TreeItemCollapsibleState.None,
-                    'column'
-                ));
-            }
-
-            return [];
-        } catch (err: any) {
-            vscode.window.showErrorMessage(`Database error: ${err.message}`);
-            return [];
-        } finally {
-            if (client) {
-                await client.end();
-            }
-        }
-    }
-}
-
-class DatabaseItem extends vscode.TreeItem {
-    constructor(
-        public readonly label: string,
-        public readonly collapsibleState: vscode.TreeItemCollapsibleState,
-        public readonly type: 'connection' | 'database' | 'schema' | 'table' | 'column' | 'category' | 'function' | 'view',
-        public readonly schema?: string,
-        public readonly databaseName?: string,
-        public readonly connectionId?: string
-    ) {
-        super(label, collapsibleState);
-        this.contextValue = type;
-        this.tooltip = this.label;
-        this.iconPath = {
-            connection: new vscode.ThemeIcon('plug'),
-            database: new vscode.ThemeIcon('database'),
-            schema: new vscode.ThemeIcon('symbol-namespace'),
-            table: new vscode.ThemeIcon('table'),
-            column: new vscode.ThemeIcon('symbol-field'),
-            category: new vscode.ThemeIcon('list-tree'),
-            function: new vscode.ThemeIcon('symbol-method'),
-            view: new vscode.ThemeIcon('type-hierarchy-sub')
-        }[type];
-    }
-}
-
-export function deactivate() {
-    // Remove client handling as it's now handled per request
 }

@@ -1,5 +1,5 @@
-import * as vscode from 'vscode';
 import { Client } from 'pg';
+import * as vscode from 'vscode';
 
 interface NotebookMetadata {
     connectionId: string;
@@ -8,6 +8,18 @@ interface NotebookMetadata {
     port: number;
     username: string;
     password: string;
+    custom?: {
+        cells: any[];
+        metadata: {
+            connectionId: string;
+            databaseName: string;
+            host: string;
+            port: number;
+            username: string;
+            password: string;
+            enableScripts: boolean;
+        };
+    };
 }
 
 export class PostgresKernel {
@@ -38,6 +50,294 @@ export class PostgresKernel {
         this.controller.supportsExecutionOrder = true;
         this.controller.description = 'PostgreSQL Query Executor';
         this.controller.executeHandler = this._executeAll.bind(this);
+
+        const getClientFromNotebook = async (document: vscode.TextDocument): Promise<Client | undefined> => {
+            const cell = vscode.workspace.notebookDocuments
+                .find(notebook => notebook.getCells().some(c => c.document === document))
+                ?.getCells()
+                .find(c => c.document === document);
+
+            if (!cell) return undefined;
+
+            const metadata = cell.notebook.metadata as NotebookMetadata;
+            if (!metadata?.connectionId) return undefined;
+
+            const connections = vscode.workspace.getConfiguration().get<any[]>('postgresExplorer.connections') || [];
+            const connection = connections.find(c => c.id === metadata.connectionId);
+            if (!connection) return undefined;
+
+            const password = await this.context.secrets.get(`postgres-password-${metadata.connectionId}`);
+            if (!password) return undefined;
+
+            const client = new Client({
+                host: connection.host,
+                port: connection.port,
+                user: connection.username,
+                password: password,
+                database: metadata.databaseName || connection.database
+            });
+
+            try {
+                await client.connect();
+                return client;
+            } catch (err) {
+                console.error('Error connecting to database:', err);
+                return undefined;
+            }
+        };
+
+        // Create SQL command completions
+        const sqlCommands = [
+            { label: 'SELECT', description: 'Retrieve data from tables', documentation: 'SELECT [columns] FROM [table] WHERE [condition];' },
+            { label: 'INSERT', description: 'Add new records', documentation: 'INSERT INTO [table] (columns) VALUES (values);' },
+            { label: 'UPDATE', description: 'Modify existing records', documentation: 'UPDATE [table] SET [column = value] WHERE [condition];' },
+            { label: 'DELETE', description: 'Remove records', documentation: 'DELETE FROM [table] WHERE [condition];' },
+            { label: 'CREATE TABLE', description: 'Create a new table', documentation: 'CREATE TABLE [name] (column_definitions);' },
+            { label: 'ALTER TABLE', description: 'Modify table structure', documentation: 'ALTER TABLE [table] [action];' },
+            { label: 'DROP TABLE', description: 'Delete a table', documentation: 'DROP TABLE [table];' },
+            { label: 'CREATE INDEX', description: 'Create a new index', documentation: 'CREATE INDEX [name] ON [table] (columns);' },
+            { label: 'CREATE VIEW', description: 'Create a view', documentation: 'CREATE VIEW [name] AS SELECT ...;' },
+            { label: 'GRANT', description: 'Grant permissions', documentation: 'GRANT [privileges] ON [object] TO [role];' },
+            { label: 'REVOKE', description: 'Revoke permissions', documentation: 'REVOKE [privileges] ON [object] FROM [role];' },
+            { label: 'BEGIN', description: 'Start a transaction', documentation: 'BEGIN; -- transaction statements -- COMMIT;' },
+            { label: 'COMMIT', description: 'Commit a transaction', documentation: 'COMMIT;' },
+            { label: 'ROLLBACK', description: 'Rollback a transaction', documentation: 'ROLLBACK;' }
+        ];
+
+        // Create SQL keyword completions
+        const sqlKeywords = [
+            // DML Keywords
+            { label: 'SELECT', detail: 'Query data', documentation: 'SELECT [columns] FROM [table] [WHERE condition]' },
+            { label: 'FROM', detail: 'Specify source table', documentation: 'FROM table_name [alias]' },
+            { label: 'WHERE', detail: 'Filter conditions', documentation: 'WHERE condition' },
+            { label: 'GROUP BY', detail: 'Group results', documentation: 'GROUP BY column1, column2' },
+            { label: 'HAVING', detail: 'Filter groups', documentation: 'HAVING aggregate_condition' },
+            { label: 'ORDER BY', detail: 'Sort results', documentation: 'ORDER BY column1 [ASC|DESC]' },
+            { label: 'LIMIT', detail: 'Limit results', documentation: 'LIMIT number' },
+            { label: 'OFFSET', detail: 'Skip results', documentation: 'OFFSET number' },
+            { label: 'INSERT INTO', detail: 'Add new records', documentation: 'INSERT INTO table (columns) VALUES (values)' },
+            { label: 'UPDATE', detail: 'Modify records', documentation: 'UPDATE table SET column = value [WHERE condition]' },
+            { label: 'DELETE FROM', detail: 'Remove records', documentation: 'DELETE FROM table [WHERE condition]' },
+            
+            // Joins
+            { label: 'INNER JOIN', detail: 'Inner join tables', documentation: 'INNER JOIN table ON condition' },
+            { label: 'LEFT JOIN', detail: 'Left outer join', documentation: 'LEFT [OUTER] JOIN table ON condition' },
+            { label: 'RIGHT JOIN', detail: 'Right outer join', documentation: 'RIGHT [OUTER] JOIN table ON condition' },
+            { label: 'FULL JOIN', detail: 'Full outer join', documentation: 'FULL [OUTER] JOIN table ON condition' },
+            { label: 'CROSS JOIN', detail: 'Cross join tables', documentation: 'CROSS JOIN table' },
+            
+            // DDL Keywords
+            { label: 'CREATE TABLE', detail: 'Create new table', documentation: 'CREATE TABLE name (column_definitions)' },
+            { label: 'ALTER TABLE', detail: 'Modify table', documentation: 'ALTER TABLE name [action]' },
+            { label: 'DROP TABLE', detail: 'Delete table', documentation: 'DROP TABLE [IF EXISTS] name' },
+            { label: 'CREATE INDEX', detail: 'Create index', documentation: 'CREATE INDEX name ON table (columns)' },
+            { label: 'CREATE VIEW', detail: 'Create view', documentation: 'CREATE VIEW name AS SELECT ...' },
+            
+            // Functions
+            { label: 'COUNT', detail: 'Count rows', documentation: 'COUNT(*) or COUNT(column)' },
+            { label: 'SUM', detail: 'Sum values', documentation: 'SUM(column)' },
+            { label: 'AVG', detail: 'Average value', documentation: 'AVG(column)' },
+            { label: 'MAX', detail: 'Maximum value', documentation: 'MAX(column)' },
+            { label: 'MIN', detail: 'Minimum value', documentation: 'MIN(column)' },
+            
+            // Clauses
+            { label: 'AS', detail: 'Alias', documentation: 'column AS alias, table AS alias' },
+            { label: 'ON', detail: 'Join condition', documentation: 'ON table1.column = table2.column' },
+            { label: 'AND', detail: 'Logical AND', documentation: 'condition1 AND condition2' },
+            { label: 'OR', detail: 'Logical OR', documentation: 'condition1 OR condition2' },
+            { label: 'IN', detail: 'Value in set', documentation: 'column IN (value1, value2, ...)' },
+            { label: 'BETWEEN', detail: 'Value in range', documentation: 'column BETWEEN value1 AND value2' },
+            { label: 'LIKE', detail: 'Pattern matching', documentation: 'column LIKE pattern' },
+            { label: 'IS NULL', detail: 'Null check', documentation: 'column IS NULL' },
+            { label: 'IS NOT NULL', detail: 'Not null check', documentation: 'column IS NOT NULL' },
+            
+            // Transaction Control
+            { label: 'BEGIN', detail: 'Start transaction', documentation: 'BEGIN [TRANSACTION]' },
+            { label: 'COMMIT', detail: 'Commit transaction', documentation: 'COMMIT' },
+            { label: 'ROLLBACK', detail: 'Rollback transaction', documentation: 'ROLLBACK' }
+        ];
+
+        // Register completion provider for SQL
+        context.subscriptions.push(
+            vscode.languages.registerCompletionItemProvider(
+                { scheme: 'vscode-notebook-cell', language: 'sql' },
+                {
+                    async provideCompletionItems(document: vscode.TextDocument, position: vscode.Position) {
+                        const linePrefix = document.lineAt(position).text.substr(0, position.character).toLowerCase();
+                        const wordRange = document.getWordRangeAtPosition(position);
+                        const word = wordRange ? document.getText(wordRange).toLowerCase() : '';
+
+                        // Always provide SQL keyword suggestions
+                        const keywordItems = sqlKeywords.filter(kw => 
+                            !word || kw.label.toLowerCase().includes(word)
+                        ).map(kw => {
+                            const item = new vscode.CompletionItem(kw.label, vscode.CompletionItemKind.Keyword);
+                            item.detail = kw.detail;
+                            item.documentation = new vscode.MarkdownString(kw.documentation);
+                            return item;
+                        });
+
+                        // Check for column suggestions after table alias (e.g. "t.")
+                        const aliasMatch = linePrefix.match(/(\w+)\.\s*$/);
+                        if (aliasMatch) {
+                            // Look for table alias in previous part of the query
+                            const fullQuery = document.getText();
+                            const aliasPattern = new RegExp(`(?:FROM|JOIN)\\s+([\\w\\.]+)\\s+(?:AS\\s+)?${aliasMatch[1]}\\b`, 'i');
+                            const tableMatch = aliasPattern.exec(fullQuery);
+
+                            if (tableMatch) {
+                                const [, tablePath] = tableMatch;
+                                const [schema = 'public', table] = tablePath.split('.');
+                                const client = await getClientFromNotebook(document);
+                                if (!client) return [];
+
+                                try {
+                                    const result = await client.query(
+                                        `SELECT column_name, data_type, is_nullable 
+                                         FROM information_schema.columns 
+                                         WHERE table_schema = $1 
+                                         AND table_name = $2 
+                                         ORDER BY ordinal_position`,
+                                        [schema, table]
+                                    );
+
+                                    return result.rows.map((row: { column_name: string; data_type: string; is_nullable: string }) => {
+                                        const completion = new vscode.CompletionItem(row.column_name);
+                                        completion.kind = vscode.CompletionItemKind.Field;
+                                        completion.detail = row.data_type;
+                                        completion.documentation = `Type: ${row.data_type}\nNullable: ${row.is_nullable === 'YES' ? 'Yes' : 'No'}`;
+                                        return completion;
+                                    });
+                                } catch (err) {
+                                    console.error('Error getting column completions:', err);
+                                    return [];
+                                } finally {
+                                    await client.end();
+                                }
+                            }
+                        }
+
+                        // Check if we're after a schema reference (schema.)
+                        const schemaMatch = linePrefix.match(/(\w+)\.\s*$/);
+                        if (schemaMatch) {
+                            const client = await getClientFromNotebook(document);
+                            if (!client) return [];
+
+                            try {
+                                const result = await client.query(
+                                    `SELECT table_name 
+                                     FROM information_schema.tables 
+                                     WHERE table_schema = $1 
+                                     ORDER BY table_name`,
+                                    [schemaMatch[1]]
+                                );
+                                return result.rows.map((row: { table_name: string }) => {
+                                    const completion = new vscode.CompletionItem(row.table_name);
+                                    completion.kind = vscode.CompletionItemKind.Value;
+                                    return completion;
+                                });
+                            } catch (err) {
+                                console.error('Error getting table completions:', err);
+                                return [];
+                            } finally {
+                                await client.end();
+                            }
+                        }
+
+                        // Provide schema suggestions after 'FROM' or 'JOIN'
+                        const keywords = /(?:from|join)\s+(\w*)$/i;
+                        const match = linePrefix.match(keywords);
+                        if (match) {
+                            const client = await getClientFromNotebook(document);
+                            if (!client) return [];
+
+                            try {
+                                const result = await client.query(
+                                    `SELECT schema_name 
+                                     FROM information_schema.schemata 
+                                     WHERE schema_name NOT IN ('information_schema', 'pg_catalog')
+                                     ORDER BY schema_name`
+                                );
+                                return result.rows.map((row: { schema_name: string }) => {
+                                    const completion = new vscode.CompletionItem(row.schema_name);
+                                    completion.kind = vscode.CompletionItemKind.Module;
+                                    completion.insertText = row.schema_name + '.';
+                                    return completion;
+                                });
+                            } catch (err) {
+                                console.error('Error getting schema completions:', err);
+                                return [];
+                            } finally {
+                                await client.end();
+                            }
+                        }
+
+                        return keywordItems;
+                    }
+                }
+            )
+        );
+
+        // Register completion provider for SQL
+        context.subscriptions.push(
+            vscode.languages.registerCompletionItemProvider(
+                { scheme: 'vscode-notebook-cell', language: 'sql' },
+                {
+                    async provideCompletionItems(document: vscode.TextDocument, position: vscode.Position) {
+                        const linePrefix = document.lineAt(position).text.substr(0, position.character);
+
+                        // Return SQL command suggestions at start of line or after semicolon
+                        if (linePrefix.trim() === '' || linePrefix.trim().endsWith(';')) {
+                            return sqlCommands.map(cmd => {
+                                const item = new vscode.CompletionItem(cmd.label, vscode.CompletionItemKind.Keyword);
+                                item.detail = cmd.description;
+                                item.documentation = new vscode.MarkdownString(cmd.documentation);
+                                return item;
+                            });
+                        }
+
+                        return [];
+                    }
+                },
+                ' ', ';' // Trigger on space and semicolon
+            )
+        );
+    }
+
+    // Helper function to get client from notebook metadata
+    private async getClientFromNotebook(document: vscode.TextDocument): Promise<Client | undefined> {
+        const cell = vscode.workspace.notebookDocuments
+            .find(notebook => notebook.getCells().some(c => c.document === document))
+            ?.getCells()
+            .find(c => c.document === document);
+
+        if (!cell) return undefined;
+
+        const metadata = cell.notebook.metadata as NotebookMetadata;
+        if (!metadata?.connectionId) return undefined;
+
+        const connections = vscode.workspace.getConfiguration().get<any[]>('postgresExplorer.connections') || [];
+        const connection = connections.find(c => c.id === metadata.connectionId);
+        if (!connection) return undefined;
+
+        const password = await this.context.secrets.get(`postgres-password-${metadata.connectionId}`);
+        if (!password) return undefined;
+
+        const client = new Client({
+            host: connection.host,
+            port: connection.port,
+            user: connection.username,
+            password: password,
+            database: metadata.databaseName || connection.database
+        });
+
+        try {
+            await client.connect();
+            return client;
+        } catch (err) {
+            console.error('Error connecting to database:', err);
+            return undefined;
+        }
     }
 
     private async _executeAll(cells: vscode.NotebookCell[], _notebook: vscode.NotebookDocument, _controller: vscode.NotebookController): Promise<void> {
@@ -88,8 +388,13 @@ export class PostgresKernel {
             const endTime = Date.now();
             const executionTime = (endTime - startTime) / 1000;
 
-            if (result.command.toUpperCase().match(/^(CREATE|ALTER|DROP|TRUNCATE)/)) {
-                // Schema modification operations
+            // Check if this is a DDL command by checking the command property or analyzing the query
+            const isDDLCommand = result.command && 
+                               result.command.toString().toUpperCase().match(/^(CREATE|ALTER|DROP|TRUNCATE)/) ||
+                               query.trim().toUpperCase().match(/^(CREATE|ALTER|DROP|TRUNCATE)/);
+
+            if (isDDLCommand) {
+                // Rest of the DDL handling code...
                 const html = `
                     <div style="
                         padding: 10px;
@@ -117,13 +422,29 @@ export class PostgresKernel {
                 ]);
                 execution.replaceOutput([output]);
                 execution.end(true);
-            } else if (result.fields.length > 0) {
-                // Queries that return data
+            } else if (result.fields && result.fields.length > 0) {
+                // Rest of the existing code for handling SELECT queries...
                 console.log('PostgresKernel: Query returned', result.rows.length, 'rows');
                 
                 const headers = result.fields.map(f => f.name);
                 const rows = result.rows;
                 
+                const formatCellValue = (val: any): { minimized: string, full: string } => {
+                    if (val === null) return { minimized: '', full: '' };
+                    if (typeof val === 'object') {
+                        try {
+                            const minimized = JSON.stringify(val);
+                            const full = JSON.stringify(val, null, 2);
+                            return { minimized, full };
+                        } catch (e) {
+                            const str = String(val);
+                            return { minimized: str, full: str };
+                        }
+                    }
+                    const str = String(val);
+                    return { minimized: str, full: str };
+                };
+
                 const html = `
                     <style>
                         .output-controls {
@@ -231,6 +552,26 @@ export class PostgresKernel {
                         .hidden {
                             display: none !important;
                         }
+                        td pre {
+                            margin: 0;
+                            cursor: pointer;
+                            transition: all 0.2s;
+                            max-height: 1.2em;
+                            overflow: hidden;
+                        }
+                        
+                        td pre:hover, td pre.expanded {
+                            max-height: none;
+                            background: var(--vscode-editor-background);
+                            box-shadow: 0 2px 8px var(--vscode-widget-shadow);
+                            position: relative;
+                            z-index: 1;
+                        }
+                        
+                        td pre[data-full]:not(:hover):not(.expanded)::after {
+                            content: "...";
+                            color: var(--vscode-descriptionForeground);
+                        }
                     </style>
                     <div class="output-wrapper">
                         <div class="output-controls">
@@ -262,7 +603,11 @@ export class PostgresKernel {
                                     </thead>
                                     <tbody>
                                         ${rows.map(row => 
-                                            `<tr>${headers.map(h => `<td>${row[h] === null ? '' : String(row[h])}</td>`).join('')}</tr>`
+                                            `<tr>${headers.map(h => {
+                                                const { minimized, full } = formatCellValue(row[h]);
+                                                const hasFullVersion = minimized !== full;
+                                                return `<td><pre ${hasFullVersion ? `data-full="${encodeURIComponent(full)}"` : ''}>${minimized}</pre></td>`;
+                                            }).join('')}</tr>`
                                         ).join('')}
                                     </tbody>
                                 </table>
@@ -295,8 +640,11 @@ export class PostgresKernel {
                             const table = document.getElementById('resultTable');
                             const headers = Array.from(table.querySelectorAll('th')).map(th => th.textContent);
                             const rows = Array.from(table.querySelectorAll('tbody tr')).map(row => 
-                                Array.from(row.querySelectorAll('td')).map(cell => {
-                                    const val = cell.textContent || '';
+                                Array.from(row.querySelectorAll('td pre')).map(pre => {
+                                    // Use full version for export
+                                    const val = pre.hasAttribute('data-full') ? 
+                                        decodeURIComponent(pre.getAttribute('data-full')) : 
+                                        pre.textContent;
                                     return val.includes(',') || val.includes('"') || val.includes('\\n') ?
                                         '"' + val.replace(/"/g, '""') + '"' :
                                         val;
@@ -316,8 +664,11 @@ export class PostgresKernel {
                             const headers = Array.from(table.querySelectorAll('th')).map(th => th.textContent);
                             const rows = Array.from(table.querySelectorAll('tbody tr')).map(row => {
                                 const rowData = {};
-                                Array.from(row.querySelectorAll('td')).forEach((cell, index) => {
-                                    rowData[headers[index]] = cell.textContent || '';
+                                Array.from(row.querySelectorAll('td pre')).forEach((pre, index) => {
+                                    // Use full version for export
+                                    rowData[headers[index]] = pre.hasAttribute('data-full') ? 
+                                        decodeURIComponent(pre.getAttribute('data-full')) : 
+                                        pre.textContent;
                                 });
                                 return rowData;
                             });
@@ -330,7 +681,12 @@ export class PostgresKernel {
                             const table = document.getElementById('resultTable');
                             const headers = Array.from(table.querySelectorAll('th')).map(th => th.textContent);
                             const rows = Array.from(table.querySelectorAll('tbody tr')).map(row => 
-                                Array.from(row.querySelectorAll('td')).map(cell => cell.textContent || '')
+                                Array.from(row.querySelectorAll('td pre')).map(pre => {
+                                    // Use full version for export
+                                    return pre.hasAttribute('data-full') ? 
+                                        decodeURIComponent(pre.getAttribute('data-full')) : 
+                                        pre.textContent;
+                                })
                             );
 
                             let xml = '<?xml version="1.0"?>\\n<?mso-application progid="Excel.Sheet"?>\\n';
@@ -370,6 +726,24 @@ export class PostgresKernel {
                             // Close the export menu after downloading
                             document.getElementById('exportMenu').classList.remove('show');
                         }
+
+                        // Add click handler for expandable cells
+                        document.querySelectorAll('td pre[data-full]').forEach(pre => {
+                            pre.addEventListener('click', function(e) {
+                                const full = decodeURIComponent(this.getAttribute('data-full'));
+                                if (this.classList.contains('expanded')) {
+                                    this.textContent = this.getAttribute('data-minimized') || this.textContent;
+                                    this.classList.remove('expanded');
+                                } else {
+                                    if (!this.hasAttribute('data-minimized')) {
+                                        this.setAttribute('data-minimized', this.textContent);
+                                    }
+                                    this.textContent = full;
+                                    this.classList.add('expanded');
+                                }
+                                e.stopPropagation();
+                            });
+                        });
                     </script>`;
 
                 const output = new vscode.NotebookCellOutput([

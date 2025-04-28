@@ -6,3 +6,4 @@ package-lock.json
 pat
 *.vsix
 dist
+pat-open-vsx
