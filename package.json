@@ -1,7 +1,7 @@
 {
   "name": "postgres-explorer",
   "displayName": "PostgreSQL Explorer",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "PostgreSQL database explorer for VS Code with notebook support",
   "publisher": "ric-v",
   "private": false,
@@ -20,7 +20,7 @@
     "theme": "dark"
   },
   "engines": {
-    "vscode": "^1.80.0",
+    "vscode": "^1.90.0",
     "node": ">=18.0.0"
   },
   "categories": [
@@ -37,6 +37,19 @@
     "notebook"
   ],
   "contributes": {
+    "languages": [
+      {
+        "id": "postgres",
+        "aliases": [
+          "PostgreSQL",
+          "postgres"
+        ],
+        "extensions": [
+          ".pgsql"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
     "commands": [
       {
         "command": "postgres-explorer.addConnection",
@@ -177,6 +190,11 @@
         "icon": "$(notebook)"
       },
       {
+        "command": "postgres-explorer.createSchema",
+        "title": "Create Schema",
+        "icon": "$(add)"
+      },
+      {
         "command": "postgres-explorer.refreshMaterializedView",
         "title": "Refresh Materialized View",
         "category": "Postgres Explorer",
@@ -240,6 +258,16 @@
       {
         "command": "postgres-explorer.createForeignTable",
         "title": "Create Foreign Table",
+        "icon": "$(add)"
+      },
+      {
+        "command": "postgres-explorer.createRole",
+        "title": "Create Role",
+        "icon": "$(add)"
+      },
+      {
+        "command": "postgres-explorer.enableExtension",
+        "title": "Enable Extension",
         "icon": "$(add)"
       },
       {
@@ -456,6 +484,26 @@
         "command": "postgres-explorer.showConfiguration",
         "title": "Show Configuration",
         "category": "PostgreSQL"
+      },
+      {
+        "command": "postgres-explorer.createDatabase",
+        "title": "Create Database",
+        "icon": "$(add)"
+      },
+      {
+        "command": "postgres-explorer.dropDatabase",
+        "title": "Drop Database",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "postgres-explorer.scriptAlterDatabase",
+        "title": "ALTER Script",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "postgres-explorer.aiAssist",
+        "title": "Put AI to work",
+        "icon": "$(sparkle)"
       }
     ],
     "submenus": [
@@ -468,6 +516,11 @@
         "id": "postgres-explorer.maintenanceMenu",
         "label": "Maintenance",
         "icon": "$(tools)"
+      },
+      {
+        "id": "postgres-explorer.databaseScriptsMenu",
+        "label": "Scripts",
+        "icon": "$(code)"
       }
     ],
     "viewsContainers": {
@@ -566,6 +619,33 @@
               }
             }
           }
+        },
+        "postgresExplorer.aiProvider": {
+          "type": "string",
+          "enum": [
+            "vscode-lm",
+            "openai",
+            "anthropic",
+            "gemini",
+            "custom"
+          ],
+          "default": "vscode-lm",
+          "description": "AI Provider to use for query assistance"
+        },
+        "postgresExplorer.aiApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API Key for direct AI providers (OpenAI/Anthropic)"
+        },
+        "postgresExplorer.aiModel": {
+          "type": "string",
+          "default": "",
+          "description": "Model name (e.g., gpt-4, claude-3-opus). Leave empty for defaults."
+        },
+        "postgresExplorer.aiEndpoint": {
+          "type": "string",
+          "default": "",
+          "description": "Custom API endpoint (optional)"
         }
       }
     },
@@ -619,6 +699,11 @@
           "command": "postgres-explorer.disconnectConnection",
           "when": "view == postgresExplorer && viewItem == connection",
           "group": "inline@1"
+        },
+        {
+          "command": "postgres-explorer.createDatabase",
+          "when": "view == postgresExplorer && viewItem == connection",
+          "group": "1_actions"
         },
         {
           "command": "postgres-explorer.showViewProperties",
@@ -754,33 +839,53 @@
           "group": "1_operations@0"
         },
         {
+          "command": "postgres-explorer.createDatabase",
+          "when": "view == postgresExplorer && viewItem == databases-group",
+          "group": "inline"
+        },
+        {
+          "command": "postgres-explorer.createSchema",
+          "when": "view == postgresExplorer && viewItem == category-schemas",
+          "group": "inline"
+        },
+        {
+          "command": "postgres-explorer.createRole",
+          "when": "view == postgresExplorer && viewItem == category-users-roles",
+          "group": "inline"
+        },
+        {
+          "command": "postgres-explorer.enableExtension",
+          "when": "view == postgresExplorer && viewItem == category-extensions",
+          "group": "inline"
+        },
+        {
           "command": "postgres-explorer.createTable",
-          "when": "view == postgresExplorer && viewItem == category && viewValue == Tables",
+          "when": "view == postgresExplorer && viewItem == category-tables",
           "group": "inline"
         },
         {
           "command": "postgres-explorer.createView",
-          "when": "view == postgresExplorer && viewItem == category && viewValue == Views",
+          "when": "view == postgresExplorer && viewItem == category-views",
           "group": "inline"
         },
         {
           "command": "postgres-explorer.createFunction",
-          "when": "view == postgresExplorer && viewItem == category && viewValue == Functions",
-          "group": "inline"
-        },
-        {
-          "command": "postgres-explorer.createType",
-          "when": "view == postgresExplorer && viewItem == category && viewValue == Types",
+          "when": "view == postgresExplorer && viewItem == category-functions",
           "group": "inline"
         },
         {
           "command": "postgres-explorer.createMaterializedView",
-          "when": "view == postgresExplorer && viewItem == category && viewValue == MaterializedViews",
+          "when": "view == postgresExplorer && viewItem == category-materialized-views",
+          "group": "inline"
+        },
+        {
+          "command": "postgres-explorer.createType",
+          "when": "view == postgresExplorer && viewItem == category-types",
           "group": "inline"
         },
         {
           "command": "postgres-explorer.createForeignTable",
-          "when": "view == postgresExplorer && viewItem == category && viewValue == ForeignTables",
+          "when": "view == postgresExplorer && viewItem == category-foreign-tables",
           "group": "inline"
         },
         {
@@ -910,6 +1015,26 @@
           "group": "1_operations@6"
         },
         {
+          "command": "postgres-explorer.dropDatabase",
+          "when": "view == postgresExplorer && viewItem == database",
+          "group": "9_delete"
+        },
+        {
+          "submenu": "postgres-explorer.databaseScriptsMenu",
+          "when": "view == postgresExplorer && viewItem == database",
+          "group": "1_operations@2"
+        },
+        {
+          "command": "postgres-explorer.dropDatabase",
+          "when": "view == postgresExplorer && viewItem == database",
+          "group": "9_delete"
+        },
+        {
+          "submenu": "postgres-explorer.databaseScriptsMenu",
+          "when": "view == postgresExplorer && viewItem == database",
+          "group": "1_operations@2"
+        },
+        {
           "command": "postgres-explorer.disconnectDatabase",
           "when": "view == postgresExplorer && viewItem == database",
           "group": "9_disconnect"
@@ -970,6 +1095,27 @@
           "command": "postgres-explorer.maintenanceReindex",
           "group": "1_maintenance"
         }
+      ],
+      "postgres-explorer.databaseScriptsMenu": [
+        {
+          "command": "postgres-explorer.generateCreateScript",
+          "group": "1_read"
+        },
+        {
+          "command": "postgres-explorer.scriptAlterDatabase",
+          "group": "2_write"
+        },
+        {
+          "command": "postgres-explorer.dropDatabase",
+          "group": "3_delete"
+        }
+      ],
+      "notebook/cell/title": [
+        {
+          "command": "postgres-explorer.aiAssist",
+          "when": "notebookType == postgres-notebook",
+          "group": "inline"
+        }
       ]
     }
   },
@@ -978,7 +1124,7 @@
     "onNotebook:postgres-query",
     "onCommand:postgres-explorer.createSchema"
   ],
-  "main": "./dist/extension.js",
+  "main": "./out/extension.js",
   "scripts": {
     "vscode:prepublish": "npm run esbuild-base --minify",
     "esbuild-base": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node",
