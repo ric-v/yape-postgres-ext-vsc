@@ -33,9 +33,6 @@ export async function activate(context: vscode.ExtensionContext) {
     SecretStorageService.getInstance(context);
     ConnectionManager.getInstance();
 
-    // Immediately migrate any existing passwords to SecretStorage
-    await migrateExistingPasswords(context);
-
     // Create database tree provider instance
     const databaseTreeProvider = new DatabaseTreeProvider(context);
 
@@ -45,47 +42,6 @@ export async function activate(context: vscode.ExtensionContext) {
         showCollapseAll: true
     });
     context.subscriptions.push(treeView);
-
-    // Create kernel with message handler
-    // Create kernel for postgres-notebook
-    const kernel = new PostgresKernel(context, 'postgres-notebook', async (message: { type: string; command: string; format?: string; content?: string; filename?: string }) => {
-        console.log('Extension: Received message from kernel:', message);
-        if (message.type === 'custom' && message.command === 'export') {
-            console.log('Extension: Handling export command');
-            vscode.commands.executeCommand('postgres-explorer.exportData', {
-                format: message.format,
-                content: message.content,
-                filename: message.filename
-            });
-        }
-    });
-
-    // Create kernel for postgres-query (SQL files)
-    const queryKernel = new PostgresKernel(context, 'postgres-query');
-    // context.subscriptions.push(kernel); // Kernel is not a disposable in the new implementation, but controller is managed internally
-
-    // Register notebook providers
-    const notebookProvider = new PostgresNotebookProvider();
-    context.subscriptions.push(
-        vscode.workspace.registerNotebookSerializer('postgres-notebook', notebookProvider),
-        vscode.workspace.registerNotebookSerializer('postgres-query', new PostgresNotebookSerializer())
-    );
-
-    // Register SQL completion provider
-    const { SqlCompletionProvider } = require('./providers/SqlCompletionProvider');
-    const sqlCompletionProvider = new SqlCompletionProvider();
-    context.subscriptions.push(
-        vscode.languages.registerCompletionItemProvider(
-            { language: 'sql' },
-            sqlCompletionProvider,
-            '.' // Trigger on dot for schema.table suggestions
-        ),
-        vscode.languages.registerCompletionItemProvider(
-            { scheme: 'vscode-notebook-cell', language: 'sql' },
-            sqlCompletionProvider,
-            '.'
-        )
-    );
 
     // Register all commands
     const commands = [
@@ -508,6 +464,47 @@ export async function activate(context: vscode.ExtensionContext) {
 
     outputChannel.appendLine('All commands registered successfully.');
 
+    // Create kernel with message handler
+    // Create kernel for postgres-notebook
+    const kernel = new PostgresKernel(context, 'postgres-notebook', async (message: { type: string; command: string; format?: string; content?: string; filename?: string }) => {
+        console.log('Extension: Received message from kernel:', message);
+        if (message.type === 'custom' && message.command === 'export') {
+            console.log('Extension: Handling export command');
+            vscode.commands.executeCommand('postgres-explorer.exportData', {
+                format: message.format,
+                content: message.content,
+                filename: message.filename
+            });
+        }
+    });
+
+    // Create kernel for postgres-query (SQL files)
+    const queryKernel = new PostgresKernel(context, 'postgres-query');
+    // context.subscriptions.push(kernel); // Kernel is not a disposable in the new implementation, but controller is managed internally
+
+    // Register notebook providers
+    const notebookProvider = new PostgresNotebookProvider();
+    context.subscriptions.push(
+        vscode.workspace.registerNotebookSerializer('postgres-notebook', notebookProvider),
+        vscode.workspace.registerNotebookSerializer('postgres-query', new PostgresNotebookSerializer())
+    );
+
+    // Register SQL completion provider
+    const { SqlCompletionProvider } = require('./providers/SqlCompletionProvider');
+    const sqlCompletionProvider = new SqlCompletionProvider();
+    context.subscriptions.push(
+        vscode.languages.registerCompletionItemProvider(
+            { language: 'sql' },
+            sqlCompletionProvider,
+            '.' // Trigger on dot for schema.table suggestions
+        ),
+        vscode.languages.registerCompletionItemProvider(
+            { scheme: 'vscode-notebook-cell', language: 'sql' },
+            sqlCompletionProvider,
+            '.'
+        )
+    );
+
     // Register CodeLens Provider
     context.subscriptions.push(
         vscode.languages.registerCodeLensProvider(
@@ -516,6 +513,9 @@ export async function activate(context: vscode.ExtensionContext) {
         )
     );
     outputChannel.appendLine('AiCodeLensProvider registered.');
+
+    // Immediately migrate any existing passwords to SecretStorage
+    await migrateExistingPasswords(context);
 }
 
 export async function deactivate() {
