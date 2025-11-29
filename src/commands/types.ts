@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
-import { DatabaseTreeItem } from '../databaseTreeProvider';
-import { closeClient, createAndShowNotebook, createMetadata, createPgClient, getConnectionWithPassword, validateItem } from './connection';
+import { DatabaseTreeItem, DatabaseTreeProvider } from '../providers/DatabaseTreeProvider';
+import { createAndShowNotebook, createMetadata, getConnectionWithPassword, validateItem } from '../commands/connection';
+import { ConnectionManager } from '../services/ConnectionManager';
 
 /**
  * SQL Queries for type operations
@@ -53,8 +54,15 @@ ORDER BY a.attnum`;
 export async function cmdAllOperationsTypes(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
-        const client = await createPgClient(connection, item.databaseName);
+        const connection = await getConnectionWithPassword(item.connectionId!);
+        const client = await ConnectionManager.getInstance().getConnection({
+            id: connection.id,
+            host: connection.host,
+            port: connection.port,
+            username: connection.username,
+            database: item.databaseName,
+            name: connection.name
+        });
 
         try {
             const typeResult = await client.query(TYPE_FIELDS_QUERY, [item.label, item.schema]);
@@ -68,10 +76,7 @@ export async function cmdAllOperationsTypes(item: DatabaseTreeItem, context: vsc
             const cells = [
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Markup,
-                    `# Type Operations: ${item.schema}.${item.label}\n\nThis notebook contains operations for managing the PostgreSQL type:
-- View type definition
-- Edit type
-- Drop type`,
+                    `# Type Operations: ${item.schema}.${item.label}\n\nThis notebook contains operations for managing the PostgreSQL type. Run the cells below to execute the operations.\n\n## Available Operations\n- **View Definition**: Show the CREATE TYPE statement\n- **Edit Type**: Template for modifying the type (requires recreation)\n- **Drop Type**: Delete the type (Warning: Irreversible)`,
                     'markdown'
                 ),
                 new vscode.NotebookCellData(
@@ -101,7 +106,7 @@ DROP TYPE IF EXISTS ${item.schema}.${item.label} CASCADE;`,
 
             await createAndShowNotebook(cells, metadata);
         } finally {
-            await closeClient(client);
+            // Do not close shared client
         }
     } catch (err: any) {
         vscode.window.showErrorMessage(`Failed to create type operations notebook: ${err.message}`);
@@ -111,8 +116,15 @@ DROP TYPE IF EXISTS ${item.schema}.${item.label} CASCADE;`,
 export async function cmdEditTypes(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
-        const client = await createPgClient(connection, item.databaseName);
+        const connection = await getConnectionWithPassword(item.connectionId!);
+        const client = await ConnectionManager.getInstance().getConnection({
+            id: connection.id,
+            host: connection.host,
+            port: connection.port,
+            username: connection.username,
+            database: item.databaseName,
+            name: connection.name
+        });
 
         try {
             const typeResult = await client.query(TYPE_FIELDS_QUERY, [item.label, item.schema]);
@@ -144,7 +156,7 @@ ${fields}
 
             await createAndShowNotebook(cells, metadata);
         } finally {
-            await closeClient(client);
+            // Do not close shared client
         }
     } catch (err: any) {
         vscode.window.showErrorMessage(`Failed to create type edit notebook: ${err.message}`);
@@ -154,8 +166,15 @@ ${fields}
 export async function cmdViewTypeProperties(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
-        const client = await createPgClient(connection, item.databaseName);
+        const connection = await getConnectionWithPassword(item.connectionId!);
+        const client = await ConnectionManager.getInstance().getConnection({
+            id: connection.id,
+            host: connection.host,
+            port: connection.port,
+            username: connection.username,
+            database: item.databaseName,
+            name: connection.name
+        });
 
         try {
             const typeResult = await client.query(TYPE_INFO_QUERY, [item.label, item.schema]);
@@ -285,7 +304,7 @@ export async function cmdViewTypeProperties(item: DatabaseTreeItem, context: vsc
 </body>
 </html>`;
         } finally {
-            await closeClient(client);
+            // Do not close shared client
         }
     } catch (err: any) {
         vscode.window.showErrorMessage(`Failed to show type properties: ${err.message}`);
@@ -298,8 +317,15 @@ export async function cmdViewTypeProperties(item: DatabaseTreeItem, context: vsc
 export async function cmdShowTypeProperties(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
-        const client = await createPgClient(connection, item.databaseName);
+        const connection = await getConnectionWithPassword(item.connectionId!);
+        const client = await ConnectionManager.getInstance().getConnection({
+            id: connection.id,
+            host: connection.host,
+            port: connection.port,
+            username: connection.username,
+            database: item.databaseName,
+            name: connection.name
+        });
 
         try {
             const typeResult = await client.query(TYPE_INFO_QUERY, [item.label, item.schema]);
@@ -326,7 +352,7 @@ export async function cmdShowTypeProperties(item: DatabaseTreeItem, context: vsc
             // ... rest of the existing WebView HTML ...
             `;
         } finally {
-            await closeClient(client);
+            // Do not close shared client
         }
     } catch (err: any) {
         vscode.window.showErrorMessage(`Failed to show type properties: ${err.message}`);
@@ -336,13 +362,13 @@ export async function cmdShowTypeProperties(item: DatabaseTreeItem, context: vsc
 export async function cmdDropType(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
+        const connection = await getConnectionWithPassword(item.connectionId!);
         const metadata = createMetadata(connection, item.databaseName);
 
         const cells = [
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `# Drop Type: ${item.schema}.${item.label}\n\n⚠️ **Warning:** This action will permanently delete the type. This operation cannot be undone.`,
+                `# Drop Type: ${item.schema}.${item.label}\n\n> [!WARNING]\n> **Warning:** This action will permanently delete the type. This operation cannot be undone.`,
                 'markdown'
             ),
             new vscode.NotebookCellData(
@@ -357,4 +383,11 @@ DROP TYPE IF EXISTS ${item.schema}.${item.label} CASCADE;`,
     } catch (err: any) {
         vscode.window.showErrorMessage(`Failed to create drop type notebook: ${err.message}`);
     }
+}
+
+/**
+ * cmdRefreshType - Refreshes the type item in the tree view.
+ */
+export async function cmdRefreshType(item: DatabaseTreeItem, context: vscode.ExtensionContext, databaseTreeProvider?: DatabaseTreeProvider) {
+    databaseTreeProvider?.refresh(item);
 }

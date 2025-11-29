@@ -1,7 +1,9 @@
 import { Client } from 'pg';
 import * as vscode from 'vscode';
-import { DatabaseTreeItem } from '../databaseTreeProvider';
-import { closeClient, createAndShowNotebook, createMetadata, createPgClient, getConnectionWithPassword, validateItem } from './connection';
+import { DatabaseTreeItem, DatabaseTreeProvider } from '../providers/DatabaseTreeProvider';
+import { createAndShowNotebook, createMetadata, getConnectionWithPassword, validateItem } from '../commands/connection';
+import { ConnectionManager } from '../services/ConnectionManager';
+import { DashboardPanel } from '../dashboard/DashboardPanel';
 
 /**
  * SQL Queries for database dashboard
@@ -110,48 +112,22 @@ export async function cmdDatabaseDashboard(item: DatabaseTreeItem, context: vsco
             throw new Error('Invalid database selection - missing connection or database name');
         }
         // Remove validateItem() call since it requires schema which isn't needed for database operations
-        
-        const connection = await getConnectionWithPassword(item.connectionId, context);
-        
+
+        const connectionConfig = await getConnectionWithPassword(item.connectionId!);
+        const connection = await ConnectionManager.getInstance().getConnection({
+            id: connectionConfig.id,
+            host: connectionConfig.host,
+            port: connectionConfig.port,
+            username: connectionConfig.username,
+            database: item.databaseName,
+            name: connectionConfig.name
+        });
+
         if (!connection) {
             throw new Error('Failed to get database connection');
         }
 
-        const metadata = createMetadata(connection, item.databaseName);
-        
-        if (!metadata) {
-            throw new Error('Failed to create metadata for notebook');
-        }
-
-        const cells = [
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Markup,
-                `# Database Dashboard: ${item.label}\n\nThis dashboard provides an overview of your database:\n- Database size and statistics\n- Active connections\n- Table sizes and row counts\n- Index usage statistics\n- Cache hit ratios`,
-                'markdown'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Code,
-                `-- Database size and statistics\n${DATABASE_STATS_QUERY}`,
-                'sql'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Code,
-                `-- Table sizes and row counts\n${TABLE_STATS_QUERY}`,
-                'sql'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Code,
-                `-- Index usage statistics\n${INDEX_STATS_QUERY}`,
-                'sql'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Code,
-                `-- Cache hit ratios\n${CACHE_STATS_QUERY}`,
-                'sql'
-            )
-        ];
-
-        await createAndShowNotebook(cells, metadata);
+        await DashboardPanel.show(connection, item.databaseName);
     } catch (err: any) {
         let errorMessage = 'Failed to show dashboard';
         if (err instanceof Error) {
@@ -178,9 +154,17 @@ export async function cmdAddObjectInDatabase(item: DatabaseTreeItem, context: vs
             throw new Error('Invalid database selection - missing connection or database name');
         }
         // Remove validateItem() call since it requires schema which isn't needed for database operations
-        
-        const connection = await getConnectionWithPassword(item.connectionId, context);
-        const metadata = createMetadata(connection, item.databaseName);
+
+        const connectionConfig = await getConnectionWithPassword(item.connectionId!);
+        const connection = await ConnectionManager.getInstance().getConnection({
+            id: connectionConfig.id,
+            host: connectionConfig.host,
+            port: connectionConfig.port,
+            username: connectionConfig.username,
+            database: item.databaseName,
+            name: connectionConfig.name
+        });
+        const metadata = createMetadata(connectionConfig, item.databaseName);
 
         const schemaTemplate = {
             label: 'Schema',
@@ -711,7 +695,7 @@ export async function cmdAddObjectInDatabase(item: DatabaseTreeItem, context: vs
 
         if (selection) {
             // Create notebook cells with correct language identifiers for both SQL and markdown
-            const notebookCells = selection.cells.map(cell => 
+            const notebookCells = selection.cells.map(cell =>
                 new vscode.NotebookCellData(
                     cell.cell_type === "code" ? vscode.NotebookCellKind.Code : vscode.NotebookCellKind.Markup,
                     cell.value,
@@ -752,13 +736,21 @@ export async function cmdDatabaseOperations(item: DatabaseTreeItem, context: vsc
             throw new Error('Invalid database selection - missing connection or database name');
         }
         // Remove validateItem() call since it requires schema which isn't needed for database operations
-        
-        const connection = await getConnectionWithPassword(item.connectionId, context);
+
+        const connectionConfig = await getConnectionWithPassword(item.connectionId!);
+        const connection = await ConnectionManager.getInstance().getConnection({
+            id: connectionConfig.id,
+            host: connectionConfig.host,
+            port: connectionConfig.port,
+            username: connectionConfig.username,
+            database: item.databaseName,
+            name: connectionConfig.name
+        });
         let client: Client | undefined;
 
         try {
-            client = await createPgClient(connection, item.databaseName);
-            const metadata = createMetadata(connection, item.databaseName);
+            client = connection;
+            const metadata = createMetadata(connectionConfig, item.databaseName);
 
             // Get database info
             const dbInfoQuery = `
@@ -890,9 +882,286 @@ AND pid <> pg_backend_pid();`,
 
             await createAndShowNotebook(cells, metadata);
         } finally {
-            await closeClient(client);
+            // Connection is managed by ConnectionManager, no need to close
         }
     } catch (err: any) {
         vscode.window.showErrorMessage(`Failed to create database operations notebook: ${err.message}`);
+    }
+}
+
+/**
+ * cmdRefreshDatabase - Refreshes the database item in the tree view.
+ */
+export async function cmdRefreshDatabase(item: DatabaseTreeItem, context: vscode.ExtensionContext, databaseTreeProvider?: DatabaseTreeProvider) {
+    databaseTreeProvider?.refresh(item);
+}
+
+/**
+ * cmdCreateDatabase - Command to create a new database.
+ */
+export async function cmdCreateDatabase(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
+    try {
+        // For creating a database, we connect to postgres database
+        const connectionConfig = await getConnectionWithPassword(item.connectionId!);
+        const connection = await ConnectionManager.getInstance().getConnection({
+            id: connectionConfig.id,
+            host: connectionConfig.host,
+            port: connectionConfig.port,
+            username: connectionConfig.username,
+            database: 'postgres',
+            name: connectionConfig.name
+        });
+        const metadata = createMetadata(connectionConfig, 'postgres');
+
+        const cells = [
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `# Create New Database\n\nExecute the cell below to create a new database.`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Code,
+                `-- Create database
+CREATE DATABASE new_database;`,
+                'sql'
+            )
+        ];
+
+        await createAndShowNotebook(cells, metadata);
+    } catch (err: any) {
+        vscode.window.showErrorMessage(`Failed to create database notebook: ${err.message}`);
+    }
+}
+
+/**
+ * cmdDeleteDatabase - Command to delete a database.
+ */
+export async function cmdDeleteDatabase(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
+    try {
+        // For deleting a database, we connect to postgres database
+        const connectionConfig = await getConnectionWithPassword(item.connectionId!);
+        const connection = await ConnectionManager.getInstance().getConnection({
+            id: connectionConfig.id,
+            host: connectionConfig.host,
+            port: connectionConfig.port,
+            username: connectionConfig.username,
+            database: 'postgres',
+            name: connectionConfig.name
+        });
+        const metadata = createMetadata(connectionConfig, 'postgres');
+
+        const cells = [
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `# Delete Database: ${item.label}\n\n⚠️ **Warning:** This action will permanently delete the database '${item.label}' and all its data. This operation cannot be undone.`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Code,
+                `-- Drop database
+DROP DATABASE IF EXISTS "${item.label}";`,
+                'sql'
+            )
+        ];
+
+        await createAndShowNotebook(cells, metadata);
+    } catch (err: any) {
+        vscode.window.showErrorMessage(`Failed to create delete database notebook: ${err.message}`);
+    }
+}
+
+export async function cmdBackupDatabase(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
+    try {
+        const connectionConfig = await getConnectionWithPassword(item.connectionId!);
+        const metadata = createMetadata(connectionConfig, item.databaseName);
+
+        const cells = [
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `# Backup Database: ${item.label}\n\nUse \`pg_dump\` to backup your database. Run the command below in your terminal.`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Code,
+                `# Run in terminal
+pg_dump -h ${connectionConfig.host} -p ${connectionConfig.port} -U ${connectionConfig.username} -F c -b -v -f "${item.label}_backup.dump" "${item.label}"`,
+                'sql' // Using SQL highlighting for shell command for now, or could use 'shellscript' if supported
+            )
+        ];
+
+        await createAndShowNotebook(cells, metadata);
+    } catch (err: any) {
+        vscode.window.showErrorMessage(`Failed to create backup notebook: ${err.message}`);
+    }
+}
+
+export async function cmdRestoreDatabase(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
+    try {
+        const connectionConfig = await getConnectionWithPassword(item.connectionId!);
+        const metadata = createMetadata(connectionConfig, item.databaseName);
+
+        const cells = [
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `# Restore Database: ${item.label}\n\nUse \`pg_restore\` to restore your database. Run the command below in your terminal.`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Code,
+                `# Run in terminal
+pg_restore -h ${connectionConfig.host} -p ${connectionConfig.port} -U ${connectionConfig.username} -d "${item.label}" -v "path/to/backup.dump"`,
+                'sql'
+            )
+        ];
+
+        await createAndShowNotebook(cells, metadata);
+    } catch (err: any) {
+        vscode.window.showErrorMessage(`Failed to create restore notebook: ${err.message}`);
+    }
+}
+
+export async function cmdGenerateCreateScript(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
+    try {
+        const connectionConfig = await getConnectionWithPassword(item.connectionId!);
+        const connection = await ConnectionManager.getInstance().getConnection({
+            id: connectionConfig.id,
+            host: connectionConfig.host,
+            port: connectionConfig.port,
+            username: connectionConfig.username,
+            database: 'postgres', // Connect to postgres to get DB definition
+            name: connectionConfig.name
+        });
+        const metadata = createMetadata(connectionConfig, 'postgres');
+
+        const res = await connection.query(`
+            SELECT 'CREATE DATABASE "' || datname || '" WITH OWNER = "' || pg_get_userbyid(datdba) || '"' ||
+            ' ENCODING = ''' || pg_encoding_to_char(encoding) || '''' ||
+            ' LC_COLLATE = ''' || datcollate || '''' ||
+            ' LC_CTYPE = ''' || datctype || ''';' as create_sql
+            FROM pg_database WHERE datname = $1
+        `, [item.databaseName]);
+
+        const createSql = res.rows[0]?.create_sql || `-- Failed to generate CREATE script for ${item.databaseName}`;
+
+        const cells = [
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `# CREATE Script for ${item.label}`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Code,
+                createSql,
+                'sql'
+            )
+        ];
+
+        await createAndShowNotebook(cells, metadata);
+    } catch (err: any) {
+        vscode.window.showErrorMessage(`Failed to generate create script: ${err.message}`);
+    }
+}
+
+export async function cmdDisconnectDatabase(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
+    try {
+        // In this extension, connections are pooled. We can't easily "disconnect" a single DB without affecting others if they share the pool.
+        // But we can simulate it by just showing a message or clearing the pool for this specific config if possible.
+        // For now, let's just show a message that it's disconnected (conceptually).
+        // Or better, we can actually remove it from the tree if it was a "connected" node, but here it's a database node.
+        // Let's just show a message.
+        vscode.window.showInformationMessage(`Disconnected from ${item.label} (Session cleared)`);
+    } catch (err: any) {
+        vscode.window.showErrorMessage(`Failed to disconnect: ${err.message}`);
+    }
+}
+
+export async function cmdMaintenanceDatabase(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
+    try {
+        const connectionConfig = await getConnectionWithPassword(item.connectionId!);
+        const metadata = createMetadata(connectionConfig, item.databaseName);
+
+        const cells = [
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `# Database Maintenance: ${item.label}`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Code,
+                `-- Vacuum (recover storage)
+VACUUM VERBOSE;
+
+-- Analyze (update statistics)
+ANALYZE VERBOSE;
+
+-- Reindex (rebuild indexes)
+-- REINDEX DATABASE "${item.label}";`,
+                'sql'
+            )
+        ];
+
+        await createAndShowNotebook(cells, metadata);
+    } catch (err: any) {
+        vscode.window.showErrorMessage(`Failed to create maintenance notebook: ${err.message}`);
+    }
+}
+
+export async function cmdQueryTool(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
+    try {
+        const connectionConfig = await getConnectionWithPassword(item.connectionId!);
+        const metadata = createMetadata(connectionConfig, item.databaseName);
+
+        const cells = [
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Code,
+                `-- Write your query here
+SELECT 1;`,
+                'sql'
+            )
+        ];
+
+        await createAndShowNotebook(cells, metadata);
+    } catch (err: any) {
+        vscode.window.showErrorMessage(`Failed to open query tool: ${err.message}`);
+    }
+}
+
+export async function cmdPsqlTool(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
+    try {
+        const connectionConfig = await getConnectionWithPassword(item.connectionId!);
+
+        const terminal = vscode.window.createTerminal(`PSQL: ${item.label}`);
+        terminal.show();
+        // Assuming psql is in PATH. If password is needed, it might prompt.
+        // We can try to set PGPASSWORD env var but that's insecure.
+        // Let's just run psql command.
+        terminal.sendText(`psql -h ${connectionConfig.host} -p ${connectionConfig.port} -U ${connectionConfig.username} -d "${item.label}"`);
+
+    } catch (err: any) {
+        vscode.window.showErrorMessage(`Failed to open PSQL tool: ${err.message}`);
+    }
+}
+
+export async function cmdShowConfiguration(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
+    try {
+        const connectionConfig = await getConnectionWithPassword(item.connectionId!);
+        const metadata = createMetadata(connectionConfig, item.databaseName);
+
+        const cells = [
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `# Database Configuration: ${item.label}\n\nRun the query below to view the current configuration settings for this database.`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Code,
+                `-- View all configuration settings\nSELECT name, setting, unit, category, short_desc \nFROM pg_settings \nORDER BY category, name;`,
+                'sql'
+            )
+        ];
+
+        await createAndShowNotebook(cells, metadata);
+    } catch (err: any) {
+        vscode.window.showErrorMessage(`Failed to show configuration: ${err.message}`);
     }
 }

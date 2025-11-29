@@ -1,26 +1,7 @@
 import { Client } from 'pg';
 import * as vscode from 'vscode';
-
-interface NotebookMetadata {
-    connectionId: string;
-    databaseName: string;
-    host: string;
-    port: number;
-    username: string;
-    password: string;
-    custom?: {
-        cells: any[];
-        metadata: {
-            connectionId: string;
-            databaseName: string;
-            host: string;
-            port: number;
-            username: string;
-            password: string;
-            enableScripts: boolean;
-        };
-    };
-}
+import { PostgresMetadata } from '../common/types';
+import { ConnectionManager } from '../services/ConnectionManager';
 
 export class PostgresKernel {
     private readonly id = 'postgres-kernel';
@@ -28,11 +9,11 @@ export class PostgresKernel {
     private readonly controller: vscode.NotebookController;
     private messageHandler?: (message: any) => void;
 
-    constructor(private readonly context: vscode.ExtensionContext, messageHandler?: (message: any) => void) {
+    constructor(private readonly context: vscode.ExtensionContext, viewType: string = 'postgres-notebook', messageHandler?: (message: any) => void) {
         console.log('PostgresKernel: Initializing');
         this.controller = vscode.notebooks.createNotebookController(
-            this.id,
-            'postgres-notebook',
+            this.id + '-' + viewType,
+            viewType,
             this.label
         );
 
@@ -59,27 +40,22 @@ export class PostgresKernel {
 
             if (!cell) return undefined;
 
-            const metadata = cell.notebook.metadata as NotebookMetadata;
+            const metadata = cell.notebook.metadata as PostgresMetadata;
             if (!metadata?.connectionId) return undefined;
 
             const connections = vscode.workspace.getConfiguration().get<any[]>('postgresExplorer.connections') || [];
             const connection = connections.find(c => c.id === metadata.connectionId);
             if (!connection) return undefined;
 
-            const password = await this.context.secrets.get(`postgres-password-${metadata.connectionId}`);
-            if (!password) return undefined;
-
-            const client = new Client({
-                host: connection.host,
-                port: connection.port,
-                user: connection.username,
-                password: password,
-                database: metadata.databaseName || connection.database
-            });
-
             try {
-                await client.connect();
-                return client;
+                return await ConnectionManager.getInstance().getConnection({
+                    id: connection.id,
+                    host: connection.host,
+                    port: connection.port,
+                    username: connection.username,
+                    database: metadata.databaseName || connection.database,
+                    name: connection.name
+                });
             } catch (err) {
                 console.error('Error connecting to database:', err);
                 return undefined;
@@ -118,28 +94,28 @@ export class PostgresKernel {
             { label: 'INSERT INTO', detail: 'Add new records', documentation: 'INSERT INTO table (columns) VALUES (values)' },
             { label: 'UPDATE', detail: 'Modify records', documentation: 'UPDATE table SET column = value [WHERE condition]' },
             { label: 'DELETE FROM', detail: 'Remove records', documentation: 'DELETE FROM table [WHERE condition]' },
-            
+
             // Joins
             { label: 'INNER JOIN', detail: 'Inner join tables', documentation: 'INNER JOIN table ON condition' },
             { label: 'LEFT JOIN', detail: 'Left outer join', documentation: 'LEFT [OUTER] JOIN table ON condition' },
             { label: 'RIGHT JOIN', detail: 'Right outer join', documentation: 'RIGHT [OUTER] JOIN table ON condition' },
             { label: 'FULL JOIN', detail: 'Full outer join', documentation: 'FULL [OUTER] JOIN table ON condition' },
             { label: 'CROSS JOIN', detail: 'Cross join tables', documentation: 'CROSS JOIN table' },
-            
+
             // DDL Keywords
             { label: 'CREATE TABLE', detail: 'Create new table', documentation: 'CREATE TABLE name (column_definitions)' },
             { label: 'ALTER TABLE', detail: 'Modify table', documentation: 'ALTER TABLE name [action]' },
             { label: 'DROP TABLE', detail: 'Delete table', documentation: 'DROP TABLE [IF EXISTS] name' },
             { label: 'CREATE INDEX', detail: 'Create index', documentation: 'CREATE INDEX name ON table (columns)' },
             { label: 'CREATE VIEW', detail: 'Create view', documentation: 'CREATE VIEW name AS SELECT ...' },
-            
+
             // Functions
             { label: 'COUNT', detail: 'Count rows', documentation: 'COUNT(*) or COUNT(column)' },
             { label: 'SUM', detail: 'Sum values', documentation: 'SUM(column)' },
             { label: 'AVG', detail: 'Average value', documentation: 'AVG(column)' },
             { label: 'MAX', detail: 'Maximum value', documentation: 'MAX(column)' },
             { label: 'MIN', detail: 'Minimum value', documentation: 'MIN(column)' },
-            
+
             // Clauses
             { label: 'AS', detail: 'Alias', documentation: 'column AS alias, table AS alias' },
             { label: 'ON', detail: 'Join condition', documentation: 'ON table1.column = table2.column' },
@@ -150,7 +126,7 @@ export class PostgresKernel {
             { label: 'LIKE', detail: 'Pattern matching', documentation: 'column LIKE pattern' },
             { label: 'IS NULL', detail: 'Null check', documentation: 'column IS NULL' },
             { label: 'IS NOT NULL', detail: 'Not null check', documentation: 'column IS NOT NULL' },
-            
+
             // Transaction Control
             { label: 'BEGIN', detail: 'Start transaction', documentation: 'BEGIN [TRANSACTION]' },
             { label: 'COMMIT', detail: 'Commit transaction', documentation: 'COMMIT' },
@@ -168,7 +144,7 @@ export class PostgresKernel {
                         const word = wordRange ? document.getText(wordRange).toLowerCase() : '';
 
                         // Always provide SQL keyword suggestions
-                        const keywordItems = sqlKeywords.filter(kw => 
+                        const keywordItems = sqlKeywords.filter(kw =>
                             !word || kw.label.toLowerCase().includes(word)
                         ).map(kw => {
                             const item = new vscode.CompletionItem(kw.label, vscode.CompletionItemKind.Keyword);
@@ -211,9 +187,8 @@ export class PostgresKernel {
                                 } catch (err) {
                                     console.error('Error getting column completions:', err);
                                     return [];
-                                } finally {
-                                    await client.end();
                                 }
+                                // Do not close client here, it's managed by ConnectionManager
                             }
                         }
 
@@ -239,8 +214,6 @@ export class PostgresKernel {
                             } catch (err) {
                                 console.error('Error getting table completions:', err);
                                 return [];
-                            } finally {
-                                await client.end();
                             }
                         }
 
@@ -267,8 +240,6 @@ export class PostgresKernel {
                             } catch (err) {
                                 console.error('Error getting schema completions:', err);
                                 return [];
-                            } finally {
-                                await client.end();
                             }
                         }
 
@@ -304,42 +275,6 @@ export class PostgresKernel {
         );
     }
 
-    // Helper function to get client from notebook metadata
-    private async getClientFromNotebook(document: vscode.TextDocument): Promise<Client | undefined> {
-        const cell = vscode.workspace.notebookDocuments
-            .find(notebook => notebook.getCells().some(c => c.document === document))
-            ?.getCells()
-            .find(c => c.document === document);
-
-        if (!cell) return undefined;
-
-        const metadata = cell.notebook.metadata as NotebookMetadata;
-        if (!metadata?.connectionId) return undefined;
-
-        const connections = vscode.workspace.getConfiguration().get<any[]>('postgresExplorer.connections') || [];
-        const connection = connections.find(c => c.id === metadata.connectionId);
-        if (!connection) return undefined;
-
-        const password = await this.context.secrets.get(`postgres-password-${metadata.connectionId}`);
-        if (!password) return undefined;
-
-        const client = new Client({
-            host: connection.host,
-            port: connection.port,
-            user: connection.username,
-            password: password,
-            database: metadata.databaseName || connection.database
-        });
-
-        try {
-            await client.connect();
-            return client;
-        } catch (err) {
-            console.error('Error connecting to database:', err);
-            return undefined;
-        }
-    }
-
     private async _executeAll(cells: vscode.NotebookCell[], _notebook: vscode.NotebookDocument, _controller: vscode.NotebookController): Promise<void> {
         for (const cell of cells) {
             await this._doExecution(cell);
@@ -353,7 +288,7 @@ export class PostgresKernel {
         execution.start(startTime);
 
         try {
-            const metadata = cell.notebook.metadata as NotebookMetadata;
+            const metadata = cell.notebook.metadata as PostgresMetadata;
             if (!metadata || !metadata.connectionId) {
                 throw new Error('No connection metadata found');
             }
@@ -365,33 +300,28 @@ export class PostgresKernel {
                 throw new Error('Connection not found');
             }
 
-            const password = await this.context.secrets.get(`postgres-password-${metadata.connectionId}`);
-            if (!password) {
-                throw new Error('Password not found in secure storage');
-            }
-
-            const client = new Client({
+            const client = await ConnectionManager.getInstance().getConnection({
+                id: connection.id,
                 host: connection.host,
                 port: connection.port,
-                user: connection.username,
-                password: password,
-                database: metadata.databaseName || connection.database
+                username: connection.username,
+                database: metadata.databaseName || connection.database,
+                name: connection.name
             });
 
-            await client.connect();
             console.log('PostgresKernel: Connected to database');
 
             const query = cell.document.getText();
             const result = await client.query(query);
-            await client.end();
+            // Do NOT close client here
 
             const endTime = Date.now();
             const executionTime = (endTime - startTime) / 1000;
 
             // Check if this is a DDL command by checking the command property or analyzing the query
-            const isDDLCommand = result.command && 
-                               result.command.toString().toUpperCase().match(/^(CREATE|ALTER|DROP|TRUNCATE)/) ||
-                               query.trim().toUpperCase().match(/^(CREATE|ALTER|DROP|TRUNCATE)/);
+            const isDDLCommand = result.command &&
+                result.command.toString().toUpperCase().match(/^(CREATE|ALTER|DROP|TRUNCATE)/) ||
+                query.trim().toUpperCase().match(/^(CREATE|ALTER|DROP|TRUNCATE)/);
 
             if (isDDLCommand) {
                 // Rest of the DDL handling code...
@@ -425,10 +355,10 @@ export class PostgresKernel {
             } else if (result.fields && result.fields.length > 0) {
                 // Rest of the existing code for handling SELECT queries...
                 console.log('PostgresKernel: Query returned', result.rows.length, 'rows');
-                
+
                 const headers = result.fields.map(f => f.name);
                 const rows = result.rows;
-                
+
                 const formatCellValue = (val: any): { minimized: string, full: string } => {
                     if (val === null) return { minimized: '', full: '' };
                     if (typeof val === 'object') {
@@ -505,6 +435,7 @@ export class PostgresKernel {
                         .export-option:hover {
                             background: var(--vscode-list-hoverBackground);
                             opacity: 1;
+                            background: var(--vscode-list-hoverBackground);
                         }
                         .clear-button {
                             opacity: 0.6;
@@ -602,13 +533,13 @@ export class PostgresKernel {
                                         <tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr>
                                     </thead>
                                     <tbody>
-                                        ${rows.map(row => 
-                                            `<tr>${headers.map(h => {
-                                                const { minimized, full } = formatCellValue(row[h]);
-                                                const hasFullVersion = minimized !== full;
-                                                return `<td><pre ${hasFullVersion ? `data-full="${encodeURIComponent(full)}"` : ''}>${minimized}</pre></td>`;
-                                            }).join('')}</tr>`
-                                        ).join('')}
+                                        ${rows.map(row =>
+                    `<tr>${headers.map(h => {
+                        const { minimized, full } = formatCellValue(row[h]);
+                        const hasFullVersion = minimized !== full;
+                        return `<td><pre ${hasFullVersion ? `data-full="${encodeURIComponent(full)}"` : ''}>${minimized}</pre></td>`;
+                    }).join('')}</tr>`
+                ).join('')}
                                     </tbody>
                                 </table>
                             </div>
@@ -803,9 +734,5 @@ export class PostgresKernel {
             ]);
             execution.end(false);
         }
-    }
-
-    dispose() {
-        this.controller.dispose();
     }
 }

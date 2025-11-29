@@ -34,7 +34,7 @@ export class PostgresNotebookProvider implements vscode.NotebookSerializer {
                     metadata = data.metadata;
                 }
                 if (Array.isArray(data.cells)) {
-                    cells = data.cells.map((cell: Cell) => 
+                    cells = data.cells.map((cell: Cell) =>
                         new vscode.NotebookCellData(
                             vscode.NotebookCellKind.Code,
                             cell.value,
@@ -148,21 +148,18 @@ export class PostgresNotebookController {
 
             try {
                 const result = await client.query(cell.document.getText());
-                
-                // Create a markdown table from the results
-                let output = '| ' + result.fields.map(field => field.name).join(' | ') + ' |\n';
-                output += '|' + result.fields.map(() => '---').join('|') + '|\n';
-                output += result.rows.map(row => 
-                    '| ' + Object.values(row).map(val => 
-                        val === null ? 'NULL' : 
-                        typeof val === 'object' ? JSON.stringify(val) : 
-                        String(val)
-                    ).join(' | ')
-                ).join(' |\n');
+
+                // Create a JSON output for the custom renderer
+                const outputData = {
+                    columns: result.fields.map(field => field.name),
+                    rows: result.rows,
+                    rowCount: result.rowCount,
+                    command: result.command
+                };
 
                 execution.replaceOutput([
                     new vscode.NotebookCellOutput([
-                        vscode.NotebookCellOutputItem.text(output, 'text/markdown')
+                        vscode.NotebookCellOutputItem.json(outputData, 'application/x-postgres-result')
                     ])
                 ]);
                 execution.end(true, Date.now());

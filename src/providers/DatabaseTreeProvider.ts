@@ -1,5 +1,6 @@
 import { Client } from 'pg';
 import * as vscode from 'vscode';
+import { ConnectionManager } from '../services/ConnectionManager';
 
 export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseTreeItem> {
     private _onDidChangeTreeData: vscode.EventEmitter<DatabaseTreeItem | undefined | null | void> = new vscode.EventEmitter<DatabaseTreeItem | undefined | null | void>();
@@ -44,66 +45,17 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseTre
 
         let client: Client | undefined;
         try {
-            // Get password from SecretStorage with better error handling
-            let password: string | undefined;
-            try {
-                password = await this.extensionContext.secrets.get(`postgres-password-${element.connectionId}`);
-            } catch (err: any) {
-                console.error('Error accessing SecretStorage:', err);
-                vscode.window.showErrorMessage('Failed to access secure storage. Please try restarting VS Code.');
-                return [];
-            }
-
-            if (!password) {
-                console.error(`Password not found in SecretStorage for connection ID: ${element.connectionId}`);
-                vscode.window.showErrorMessage('Connection password not found. Please remove and re-add the connection.');
-                return [];
-            }
-
             const dbName = element.type === 'connection' ? 'postgres' : element.databaseName;
-            
-            try {
-                console.log(`Attempting to connect to ${connection.host}:${connection.port} as ${connection.username}`);
-                client = new Client({
-                    host: connection.host,
-                    port: connection.port,
-                    user: connection.username,
-                    password: password,
-                    database: dbName,
-                    connectionTimeoutMillis: 5000
-                });
 
-                client.on('error', (err) => {
-                    console.error('Postgres client error:', err);
-                    vscode.window.showErrorMessage(`Database error: ${err.message}`);
-                });
-
-                await client.connect();
-                console.log('Successfully connected to database');
-            } catch (err: any) {
-                const pgError = err as { code?: string; detail?: string; message: string };
-                console.error('Database connection error:', {
-                    message: pgError.message,
-                    code: pgError.code,
-                    detail: pgError.detail
-                });
-
-                let errorMessage = 'Failed to connect to database: ';
-                if (pgError.code === 'ECONNREFUSED') {
-                    errorMessage += 'Connection refused. Please check if the database server is running and the host/port are correct.';
-                } else if (pgError.code === '28P01') {
-                    errorMessage += 'Invalid password. Please remove and re-add the connection.';
-                } else if (pgError.code === '28000') {
-                    errorMessage += 'Invalid username. Please check your connection settings.';
-                } else if (pgError.code === '3D000') {
-                    errorMessage += 'Database does not exist.';
-                } else {
-                    errorMessage += pgError.message || 'Unknown error';
-                }
-
-                vscode.window.showErrorMessage(errorMessage);
-                return [];
-            }
+            // Use ConnectionManager to get a shared connection
+            client = await ConnectionManager.getInstance().getConnection({
+                id: connection.id,
+                host: connection.host,
+                port: connection.port,
+                username: connection.username,
+                database: dbName,
+                name: connection.name
+            });
 
             switch (element.type) {
                 case 'connection':
@@ -334,11 +286,8 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseTre
             console.error(`Error getting tree items: ${err.message}`);
             vscode.window.showErrorMessage(`Failed to get tree items: ${err.message}`);
             return [];
-        } finally {
-            if (client) {
-                await client.end();
-            }
         }
+        // Do NOT close the client here, as it is managed by ConnectionManager
     }
 }
 
@@ -362,20 +311,20 @@ export class DatabaseTreeItem extends vscode.TreeItem {
         this.tooltip = this.getTooltip(type, comment, roleAttributes);
         this.description = this.getDescription(type, isInstalled, installedVersion, roleAttributes);
         this.iconPath = {
-            connection: new vscode.ThemeIcon('plug'),
-            database: new vscode.ThemeIcon('database'),
-            'databases-group': new vscode.ThemeIcon('database'),
-            schema: new vscode.ThemeIcon('symbol-namespace'),
-            table: new vscode.ThemeIcon('table'),
-            view: new vscode.ThemeIcon('type-hierarchy-sub'),
-            function: new vscode.ThemeIcon('symbol-method'),
-            column: new vscode.ThemeIcon('symbol-field'),
+            connection: new vscode.ThemeIcon('plug', new vscode.ThemeColor('charts.blue')),
+            database: new vscode.ThemeIcon('database', new vscode.ThemeColor('charts.purple')),
+            'databases-group': new vscode.ThemeIcon('database', new vscode.ThemeColor('charts.purple')),
+            schema: new vscode.ThemeIcon('symbol-namespace', new vscode.ThemeColor('charts.yellow')),
+            table: new vscode.ThemeIcon('table', new vscode.ThemeColor('charts.blue')),
+            view: new vscode.ThemeIcon('eye', new vscode.ThemeColor('charts.green')),
+            function: new vscode.ThemeIcon('symbol-method', new vscode.ThemeColor('charts.orange')),
+            column: new vscode.ThemeIcon('symbol-field', new vscode.ThemeColor('charts.blue')),
             category: new vscode.ThemeIcon('list-tree'),
-            'materialized-view': new vscode.ThemeIcon('symbol-structure'),
-            type: new vscode.ThemeIcon('symbol-type-parameter'),
-            'foreign-table': new vscode.ThemeIcon('symbol-interface'),
-            extension: new vscode.ThemeIcon(isInstalled ? 'extensions-installed' : 'extensions'),
-            role: new vscode.ThemeIcon('person')
+            'materialized-view': new vscode.ThemeIcon('symbol-structure', new vscode.ThemeColor('charts.green')),
+            type: new vscode.ThemeIcon('symbol-type-parameter', new vscode.ThemeColor('charts.red')),
+            'foreign-table': new vscode.ThemeIcon('symbol-interface', new vscode.ThemeColor('charts.blue')),
+            extension: new vscode.ThemeIcon(isInstalled ? 'extensions-installed' : 'extensions', isInstalled ? new vscode.ThemeColor('charts.green') : undefined),
+            role: new vscode.ThemeIcon('person', new vscode.ThemeColor('charts.yellow'))
         }[type];
     }
 

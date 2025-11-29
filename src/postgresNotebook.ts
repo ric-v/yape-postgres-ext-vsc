@@ -6,20 +6,15 @@ export class PostgresNotebookSerializer implements vscode.NotebookSerializer {
         _token: vscode.CancellationToken
     ): Promise<vscode.NotebookData> {
         const contents = new TextDecoder().decode(content);
-        let raw: any;
-        try {
-            raw = JSON.parse(contents);
-        } catch {
-            raw = { cells: [] };
-        }
 
-        const cells = raw.cells.map((item: any) => 
+        // Create a single cell with the entire content
+        const cells = [
             new vscode.NotebookCellData(
-                item.kind === 'markdown' ? vscode.NotebookCellKind.Markup : vscode.NotebookCellKind.Code,
-                item.value,
-                item.language
+                vscode.NotebookCellKind.Code,
+                contents,
+                'sql'
             )
-        );
+        ];
 
         return new vscode.NotebookData(cells);
     }
@@ -28,12 +23,11 @@ export class PostgresNotebookSerializer implements vscode.NotebookSerializer {
         data: vscode.NotebookData,
         _token: vscode.CancellationToken
     ): Promise<Uint8Array> {
-        const cells = data.cells.map(cell => ({
-            kind: cell.kind === vscode.NotebookCellKind.Markup ? 'markdown' : 'sql',
-            value: cell.value,
-            language: cell.kind === vscode.NotebookCellKind.Markup ? 'markdown' : 'sql'
-        }));
+        // Join all code cells with newlines
+        const contents = data.cells
+            .map(cell => cell.value)
+            .join('\n\n');
 
-        return new TextEncoder().encode(JSON.stringify({ cells }));
+        return new TextEncoder().encode(contents);
     }
 }

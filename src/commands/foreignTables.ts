@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
-import { DatabaseTreeItem } from '../databaseTreeProvider';
-import { closeClient, createAndShowNotebook, createMetadata, createPgClient, getConnectionWithPassword, validateItem } from './connection';
+import { DatabaseTreeItem, DatabaseTreeProvider } from '../providers/DatabaseTreeProvider';
+import { createAndShowNotebook, createMetadata, getConnectionWithPassword, validateItem } from '../commands/connection';
+import { ConnectionManager } from '../services/ConnectionManager';
 
 /**
  * SQL Queries for foreign table operations
@@ -59,8 +60,15 @@ GROUP BY c.relname, fs.srvname, ftoptions`;
 export async function cmdForeignTableOperations(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
-        const client = await createPgClient(connection, item.databaseName);
+        const connection = await getConnectionWithPassword(item.connectionId!);
+        const client = await ConnectionManager.getInstance().getConnection({
+            id: connection.id,
+            host: connection.host,
+            port: connection.port,
+            username: connection.username,
+            database: item.databaseName,
+            name: connection.name
+        });
 
         try {
             const result = await client.query(FOREIGN_TABLE_INFO_QUERY, [item.schema, item.label]);
@@ -80,11 +88,7 @@ export async function cmdForeignTableOperations(item: DatabaseTreeItem, context:
             const cells = [
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Markup,
-                    `# Foreign Table Operations: ${item.schema}.${item.label}\n\nThis notebook contains operations for managing the PostgreSQL foreign table:
-- View table definition
-- Query data
-- Edit table definition
-- Drop table`,
+                    `# Foreign Table Operations: ${item.schema}.${item.label}\n\nThis notebook contains operations for managing the PostgreSQL foreign table. Run the cells below to execute the operations.\n\n## Available Operations\n- **View Definition**: Show the CREATE FOREIGN TABLE statement\n- **Query Data**: Select the first 100 rows\n- **Edit Table**: Template for modifying the table (requires recreation)\n- **Drop Table**: Delete the table (Warning: Irreversible)`,
                     'markdown'
                 ),
                 new vscode.NotebookCellData(
@@ -125,7 +129,7 @@ DROP FOREIGN TABLE IF EXISTS ${item.schema}.${item.label};`,
 
             await createAndShowNotebook(cells, metadata);
         } finally {
-            await closeClient(client);
+            // Do not close shared client
         }
     } catch (err: any) {
         vscode.window.showErrorMessage(`Failed to create foreign table operations notebook: ${err.message}`);
@@ -140,8 +144,15 @@ DROP FOREIGN TABLE IF EXISTS ${item.schema}.${item.label};`,
 export async function cmdEditForeignTable(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
-        const client = await createPgClient(connection, item.databaseName);
+        const connection = await getConnectionWithPassword(item.connectionId!);
+        const client = await ConnectionManager.getInstance().getConnection({
+            id: connection.id,
+            host: connection.host,
+            port: connection.port,
+            username: connection.username,
+            database: item.databaseName,
+            name: connection.name
+        });
 
         try {
             const result = await client.query(FOREIGN_TABLE_DEF_QUERY, [item.label, item.schema]);
@@ -172,9 +183,16 @@ ${createStatement}`,
 
             await createAndShowNotebook(cells, metadata);
         } finally {
-            await closeClient(client);
+            // Do not close shared client
         }
     } catch (err: any) {
         vscode.window.showErrorMessage(`Failed to create foreign table edit notebook: ${err.message}`);
     }
+}
+
+/**
+ * cmdRefreshForeignTable - Refreshes the foreign table item in the tree view.
+ */
+export async function cmdRefreshForeignTable(item: DatabaseTreeItem, context: vscode.ExtensionContext, databaseTreeProvider?: DatabaseTreeProvider) {
+    databaseTreeProvider?.refresh(item);
 }

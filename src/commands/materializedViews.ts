@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
-import { DatabaseTreeItem } from '../databaseTreeProvider';
-import { closeClient, createAndShowNotebook, createMetadata, createPgClient, getConnectionWithPassword, validateItem } from './connection';
+import { DatabaseTreeItem } from '../providers/DatabaseTreeProvider';
+import { createAndShowNotebook, createMetadata, getConnectionWithPassword, validateItem } from '../commands/connection';
+import { ConnectionManager } from '../services/ConnectionManager';
 
 /**
  * SQL Queries for materialized view operations
@@ -34,7 +35,7 @@ WHERE schemaname = $2 AND matviewname = $3`;
 export async function cmdRefreshMatView(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
+        const connection = await getConnectionWithPassword(item.connectionId!);
         const metadata = createMetadata(connection, item.databaseName);
 
         const cells = [
@@ -59,8 +60,15 @@ export async function cmdRefreshMatView(item: DatabaseTreeItem, context: vscode.
 export async function cmdEditMatView(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
-        const client = await createPgClient(connection, item.databaseName);
+        const connection = await getConnectionWithPassword(item.connectionId!);
+        const client = await ConnectionManager.getInstance().getConnection({
+            id: connection.id,
+            host: connection.host,
+            port: connection.port,
+            username: connection.username,
+            database: item.databaseName,
+            name: connection.name
+        });
 
         try {
             const result = await client.query(MATVIEW_DEF_QUERY, [`${item.schema}.${item.label}`, item.schema, item.label]);
@@ -74,7 +82,7 @@ export async function cmdEditMatView(item: DatabaseTreeItem, context: vscode.Ext
             const cells = [
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Markup,
-                    `# Edit Materialized View: ${item.schema}.${item.label}\n\nModify the materialized view definition below and execute the cell to update it. Note that this will drop and recreate the materialized view.`,
+                    `# Edit Materialized View: ${item.schema}.${item.label}\n\nModify the materialized view definition below and execute the cell to update it.\n\n> **Note:** This will drop and recreate the materialized view.`,
                     'markdown'
                 ),
                 new vscode.NotebookCellData(
@@ -86,7 +94,7 @@ export async function cmdEditMatView(item: DatabaseTreeItem, context: vscode.Ext
 
             await createAndShowNotebook(cells, metadata);
         } finally {
-            await closeClient(client);
+            // Connection is managed by ConnectionManager
         }
     } catch (err: any) {
         vscode.window.showErrorMessage(`Failed to create materialized view edit notebook: ${err.message}`);
@@ -96,7 +104,7 @@ export async function cmdEditMatView(item: DatabaseTreeItem, context: vscode.Ext
 export async function cmdViewMatViewData(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
+        const connection = await getConnectionWithPassword(item.connectionId!);
         const metadata = createMetadata(connection, item.databaseName);
 
         const cells = [
@@ -123,8 +131,15 @@ LIMIT 100;`,
 export async function cmdViewMatViewProperties(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
-        const client = await createPgClient(connection, item.databaseName);
+        const connection = await getConnectionWithPassword(item.connectionId!);
+        const client = await ConnectionManager.getInstance().getConnection({
+            id: connection.id,
+            host: connection.host,
+            port: connection.port,
+            username: connection.username,
+            database: item.databaseName,
+            name: connection.name
+        });
 
         try {
             const result = await client.query(MATVIEW_INFO_QUERY, [`${item.schema}.${item.label}`, item.schema, item.label]);
@@ -159,7 +174,7 @@ ${matview.tablespace ? `- Tablespace: ${matview.tablespace}` : ''}
 
             await createAndShowNotebook(cells, metadata);
         } finally {
-            await closeClient(client);
+            // Connection is managed by ConnectionManager
         }
     } catch (err: any) {
         vscode.window.showErrorMessage(`Failed to show materialized view properties: ${err.message}`);
@@ -169,13 +184,13 @@ ${matview.tablespace ? `- Tablespace: ${matview.tablespace}` : ''}
 export async function cmdDropMatView(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
+        const connection = await getConnectionWithPassword(item.connectionId!);
         const metadata = createMetadata(connection, item.databaseName);
 
         const cells = [
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `# Drop Materialized View: ${item.schema}.${item.label}\n\n⚠️ **Warning:** This action will permanently delete the materialized view. This operation cannot be undone.`,
+                `# Drop Materialized View: ${item.schema}.${item.label}\n\n> [!WARNING]\n> **Warning:** This action will permanently delete the materialized view. This operation cannot be undone.`,
                 'markdown'
             ),
             new vscode.NotebookCellData(
@@ -195,8 +210,15 @@ DROP MATERIALIZED VIEW IF EXISTS ${item.schema}.${item.label};`,
 export async function cmdMatViewOperations(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
-        const client = await createPgClient(connection, item.databaseName);
+        const connection = await getConnectionWithPassword(item.connectionId!);
+        const client = await ConnectionManager.getInstance().getConnection({
+            id: connection.id,
+            host: connection.host,
+            port: connection.port,
+            username: connection.username,
+            database: item.databaseName,
+            name: connection.name
+        });
 
         try {
             const result = await client.query(MATVIEW_INFO_QUERY, [`${item.schema}.${item.label}`, item.schema, item.label]);
@@ -210,20 +232,7 @@ export async function cmdMatViewOperations(item: DatabaseTreeItem, context: vsco
             const cells = [
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Markup,
-                    `# Materialized View Operations: ${item.schema}.${item.label}
-
-**Properties:**
-- Owner: ${matview.matviewowner}
-- Size: ${matview.size}
-- Has Indexes: ${matview.hasindexes ? 'Yes' : 'No'}
-- Is Populated: ${matview.ispopulated ? 'Yes' : 'No'}
-${matview.tablespace ? `- Tablespace: ${matview.tablespace}` : ''}
-
-Below are common operations for this materialized view:
-- View/edit definition
-- Query data
-- Refresh data
-- Drop materialized view`,
+                    `# Materialized View Operations: ${item.schema}.${item.label}\n\n**Properties:**\n- Owner: ${matview.matviewowner}\n- Size: ${matview.size}\n- Has Indexes: ${matview.hasindexes ? 'Yes' : 'No'}\n- Is Populated: ${matview.ispopulated ? 'Yes' : 'No'}\n${matview.tablespace ? `- Tablespace: ${matview.tablespace}` : ''}\n\nThis notebook contains common operations for this materialized view. Run the cells below to execute the operations.\n\n## Available Operations\n- **View Definition**: Show the CREATE MATERIALIZED VIEW statement\n- **Query Data**: Select the first 100 rows\n- **Refresh Data**: Update the view data\n- **Drop**: Delete the view (Warning: Irreversible)`,
                     'markdown'
                 ),
                 new vscode.NotebookCellData(
@@ -257,7 +266,7 @@ DROP MATERIALIZED VIEW IF EXISTS ${item.schema}.${item.label};`,
 
             await createAndShowNotebook(cells, metadata);
         } finally {
-            await closeClient(client);
+            // Connection is managed by ConnectionManager
         }
     } catch (err: any) {
         vscode.window.showErrorMessage(`Failed to create materialized view operations notebook: ${err.message}`);

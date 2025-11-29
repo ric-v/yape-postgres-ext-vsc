@@ -1,25 +1,30 @@
-import { Client } from 'pg';
 import * as vscode from 'vscode';
 import { ConnectionFormPanel } from './connectionForm';
-import { DatabaseTreeItem, DatabaseTreeProvider } from './databaseTreeProvider';
-import { PostgresKernel } from './notebookKernel';
+import { DatabaseTreeItem, DatabaseTreeProvider } from './providers/DatabaseTreeProvider';
+import { PostgresKernel } from './providers/NotebookKernel';
 import { PostgresNotebookProvider } from './notebookProvider';
 import { PostgresNotebookSerializer } from './postgresNotebook';
-import { cmdAddObjectInDatabase, cmdDatabaseDashboard, cmdDatabaseOperations } from './subscriptions/database';
-import { cmdExtensionOperations, cmdDropExtension, cmdEnableExtension } from './subscriptions/extensions';
-import { cmdForeignTableOperations, cmdEditForeignTable } from './subscriptions/foreignTables';
-import { cmdFunctionOperations, cmdCallFunction, cmdDropFunction, cmdEditFunction, cmdShowFunctionProperties } from './subscriptions/functions';
-import { cmdMatViewOperations, cmdDropMatView, cmdEditMatView, cmdRefreshMatView, cmdViewMatViewData, cmdViewMatViewProperties } from './subscriptions/materializedViews';
-import { cmdNewNotebook } from './subscriptions/notebook';
-import { cmdSchemaOperations, cmdCreateObjectInSchema, cmdCreateSchema } from './subscriptions/schema';
-import { cmdTableOperations, cmdDropTable, cmdEditTable, cmdInsertTable, cmdShowTableProperties, cmdTruncateTable, cmdUpdateTable, cmdViewTableData } from './subscriptions/tables';
-import { cmdAllOperationsTypes, cmdDropType, cmdEditTypes, cmdShowTypeProperties } from './subscriptions/types';
-import { cmdAddRole, cmdAddUser, cmdRoleOperations, cmdDropRole, cmdEditRole, cmdGrantRevokeRole, cmdShowRoleProperties } from './subscriptions/usersRoles';
-import { cmdViewOperations, cmdDropView, cmdEditView, cmdShowViewProperties, cmdViewData } from './subscriptions/views';
-import { cmdDisconnectDatabase, cmdDisconnectConnection, cmdConnectDatabase } from './subscriptions/connection';
+import { cmdRefreshDatabase, cmdCreateDatabase, cmdDeleteDatabase, cmdAddObjectInDatabase, cmdDatabaseOperations, cmdDatabaseDashboard, cmdBackupDatabase, cmdRestoreDatabase, cmdGenerateCreateScript, cmdDisconnectDatabase, cmdMaintenanceDatabase, cmdQueryTool, cmdPsqlTool, cmdShowConfiguration } from './commands/database';
+import { cmdRefreshSchema, cmdCreateSchema, cmdCreateObjectInSchema, cmdSchemaOperations, cmdShowSchemaProperties } from './commands/schema';
+import { cmdRefreshTable, cmdTableOperations, cmdEditTable, cmdInsertTable, cmdUpdateTable, cmdShowTableProperties, cmdViewTableData, cmdDropTable, cmdTruncateTable, cmdScriptSelect, cmdScriptInsert, cmdScriptUpdate, cmdScriptDelete, cmdScriptCreate, cmdMaintenanceVacuum, cmdMaintenanceAnalyze, cmdMaintenanceReindex } from './commands/tables';
+import { cmdRefreshView, cmdViewOperations, cmdShowViewProperties, cmdEditView, cmdViewData, cmdDropView } from './commands/views';
+import { cmdRefreshFunction, cmdFunctionOperations, cmdShowFunctionProperties, cmdEditFunction, cmdCallFunction, cmdDropFunction } from './commands/functions';
+import { cmdRefreshMatView, cmdMatViewOperations, cmdEditMatView, cmdViewMatViewData, cmdViewMatViewProperties, cmdDropMatView } from './commands/materializedViews';
+import { cmdRefreshForeignTable, cmdForeignTableOperations, cmdEditForeignTable } from './commands/foreignTables';
+import { cmdRefreshExtension, cmdExtensionOperations, cmdEnableExtension, cmdDropExtension } from './commands/extensions';
+import { cmdRefreshType, cmdAllOperationsTypes, cmdEditTypes, cmdShowTypeProperties, cmdDropType } from './commands/types';
+import { cmdRefreshRole, cmdRoleOperations, cmdAddRole, cmdShowRoleProperties, cmdAddUser, cmdEditRole, cmdGrantRevokeRole, cmdDropRole } from './commands/usersRoles';
+import { cmdNewNotebook } from './commands/notebook';
+import { cmdDisconnectConnection, cmdConnectDatabase } from './commands/connection';
+import { SecretStorageService } from './services/SecretStorageService';
+import { ConnectionManager } from './services/ConnectionManager';
 
 export async function activate(context: vscode.ExtensionContext) {
     console.log('postgres-explorer: Activating extension');
+
+    // Initialize services
+    SecretStorageService.getInstance(context);
+    ConnectionManager.getInstance();
 
     // Immediately migrate any existing passwords to SecretStorage
     await migrateExistingPasswords(context);
@@ -35,7 +40,8 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(treeView);
 
     // Create kernel with message handler
-    const kernel = new PostgresKernel(context, async (message: { type: string; command: string; format?: string; content?: string; filename?: string }) => {
+    // Create kernel for postgres-notebook
+    const kernel = new PostgresKernel(context, 'postgres-notebook', async (message: { type: string; command: string; format?: string; content?: string; filename?: string }) => {
         console.log('Extension: Received message from kernel:', message);
         if (message.type === 'custom' && message.command === 'export') {
             console.log('Extension: Handling export command');
@@ -46,7 +52,10 @@ export async function activate(context: vscode.ExtensionContext) {
             });
         }
     });
-    context.subscriptions.push(kernel);
+
+    // Create kernel for postgres-query (SQL files)
+    const queryKernel = new PostgresKernel(context, 'postgres-query');
+    // context.subscriptions.push(kernel); // Kernel is not a disposable in the new implementation, but controller is managed internally
 
     // Register notebook providers
     const notebookProvider = new PostgresNotebookProvider();
@@ -115,6 +124,38 @@ export async function activate(context: vscode.ExtensionContext) {
             command: 'postgres-explorer.showDashboard',
             callback: async (item: DatabaseTreeItem) => await cmdDatabaseDashboard(item, context)
         },
+        {
+            command: 'postgres-explorer.backupDatabase',
+            callback: async (item: DatabaseTreeItem) => await cmdBackupDatabase(item, context)
+        },
+        {
+            command: 'postgres-explorer.restoreDatabase',
+            callback: async (item: DatabaseTreeItem) => await cmdRestoreDatabase(item, context)
+        },
+        {
+            command: 'postgres-explorer.generateCreateScript',
+            callback: async (item: DatabaseTreeItem) => await cmdGenerateCreateScript(item, context)
+        },
+        {
+            command: 'postgres-explorer.disconnectDatabase',
+            callback: async (item: DatabaseTreeItem) => await cmdDisconnectDatabase(item, context)
+        },
+        {
+            command: 'postgres-explorer.maintenanceDatabase',
+            callback: async (item: DatabaseTreeItem) => await cmdMaintenanceDatabase(item, context)
+        },
+        {
+            command: 'postgres-explorer.queryTool',
+            callback: async (item: DatabaseTreeItem) => await cmdQueryTool(item, context)
+        },
+        {
+            command: 'postgres-explorer.psqlTool',
+            callback: async (item: DatabaseTreeItem) => await cmdPsqlTool(item, context)
+        },
+        {
+            command: 'postgres-explorer.showConfiguration',
+            callback: async (item: DatabaseTreeItem) => await cmdShowConfiguration(item, context)
+        },
         // Add schema commands
         {
             command: 'postgres-explorer.createSchema',
@@ -127,6 +168,10 @@ export async function activate(context: vscode.ExtensionContext) {
         {
             command: 'postgres-explorer.schemaOperations',
             callback: async (item: DatabaseTreeItem) => await cmdSchemaOperations(item, context)
+        },
+        {
+            command: 'postgres-explorer.showSchemaProperties',
+            callback: async (item: DatabaseTreeItem) => await cmdShowSchemaProperties(item, context)
         },
         // Add table commands
         {
@@ -161,7 +206,46 @@ export async function activate(context: vscode.ExtensionContext) {
             command: 'postgres-explorer.showTableProperties',
             callback: async (item: DatabaseTreeItem) => await cmdShowTableProperties(item, context)
         },
+        // Add script commands
+        {
+            command: 'postgres-explorer.scriptSelect',
+            callback: async (item: DatabaseTreeItem) => await cmdScriptSelect(item, context)
+        },
+        {
+            command: 'postgres-explorer.scriptInsert',
+            callback: async (item: DatabaseTreeItem) => await cmdScriptInsert(item, context)
+        },
+        {
+            command: 'postgres-explorer.scriptUpdate',
+            callback: async (item: DatabaseTreeItem) => await cmdScriptUpdate(item, context)
+        },
+        {
+            command: 'postgres-explorer.scriptDelete',
+            callback: async (item: DatabaseTreeItem) => await cmdScriptDelete(item, context)
+        },
+        {
+            command: 'postgres-explorer.scriptCreate',
+            callback: async (item: DatabaseTreeItem) => await cmdScriptCreate(item, context)
+        },
+        // Add maintenance commands
+        {
+            command: 'postgres-explorer.maintenanceVacuum',
+            callback: async (item: DatabaseTreeItem) => await cmdMaintenanceVacuum(item, context)
+        },
+        {
+            command: 'postgres-explorer.maintenanceAnalyze',
+            callback: async (item: DatabaseTreeItem) => await cmdMaintenanceAnalyze(item, context)
+        },
+        {
+            command: 'postgres-explorer.maintenanceReindex',
+            callback: async (item: DatabaseTreeItem) => await cmdMaintenanceReindex(item, context)
+        },
+
         // Add view commands
+        {
+            command: 'postgres-explorer.refreshView',
+            callback: async (item: DatabaseTreeItem) => await cmdRefreshView(item, context, databaseTreeProvider)
+        },
         {
             command: 'postgres-explorer.editViewDefinition',
             callback: async (item: DatabaseTreeItem) => await cmdEditView(item, context)
@@ -183,6 +267,10 @@ export async function activate(context: vscode.ExtensionContext) {
             callback: async (item: DatabaseTreeItem) => await cmdShowViewProperties(item, context)
         },
         // Add function commands
+        {
+            command: 'postgres-explorer.refreshFunction',
+            callback: async (item: DatabaseTreeItem) => await cmdRefreshFunction(item, context, databaseTreeProvider)
+        },
         {
             command: 'postgres-explorer.showFunctionProperties',
             callback: async (item: DatabaseTreeItem) => await cmdShowFunctionProperties(item, context)
@@ -230,6 +318,10 @@ export async function activate(context: vscode.ExtensionContext) {
         },
         // Add type commands
         {
+            command: 'postgres-explorer.refreshType',
+            callback: async (item: DatabaseTreeItem) => await cmdRefreshType(item, context, databaseTreeProvider)
+        },
+        {
             command: 'postgres-explorer.typeOperations',
             callback: async (item: DatabaseTreeItem) => await cmdAllOperationsTypes(item, context)
         },
@@ -247,6 +339,10 @@ export async function activate(context: vscode.ExtensionContext) {
         },
         // Add foreign table commands
         {
+            command: 'postgres-explorer.refreshForeignTable',
+            callback: async (item: DatabaseTreeItem) => await cmdRefreshForeignTable(item, context, databaseTreeProvider)
+        },
+        {
             command: 'postgres-explorer.foreignTableOperations',
             callback: async (item: DatabaseTreeItem) => await cmdForeignTableOperations(item, context)
         },
@@ -255,6 +351,10 @@ export async function activate(context: vscode.ExtensionContext) {
             callback: async (item: DatabaseTreeItem) => await cmdEditForeignTable(item, context)
         },
         // Add role/user commands
+        {
+            command: 'postgres-explorer.refreshRole',
+            callback: async (item: DatabaseTreeItem) => await cmdRefreshRole(item, context, databaseTreeProvider)
+        },
         {
             command: 'postgres-explorer.createUser',
             callback: async (item: DatabaseTreeItem) => await cmdAddUser(item, context)
@@ -285,6 +385,10 @@ export async function activate(context: vscode.ExtensionContext) {
         },
         // Add extension commands
         {
+            command: 'postgres-explorer.refreshExtension',
+            callback: async (item: DatabaseTreeItem) => await cmdRefreshExtension(item, context, databaseTreeProvider)
+        },
+        {
             command: 'postgres-explorer.enableExtension',
             callback: async (item: DatabaseTreeItem) => await cmdEnableExtension(item, context)
         },
@@ -303,12 +407,9 @@ export async function activate(context: vscode.ExtensionContext) {
         },
         {
             command: 'postgres-explorer.deleteConnection',
-            callback: async (item: DatabaseTreeItem) => await cmdDisconnectDatabase(item, context, databaseTreeProvider)
+            callback: async (item: DatabaseTreeItem) => await cmdDisconnectDatabase(item, context)
         },
-        {
-            command: 'postgres-explorer.addConnection',
-            callback: () => ConnectionFormPanel.show(context.extensionUri, context)
-        }
+
     ];
 
     // Register all commands
@@ -317,6 +418,10 @@ export async function activate(context: vscode.ExtensionContext) {
             vscode.commands.registerCommand(command, callback)
         );
     });
+}
+
+export async function deactivate() {
+    await ConnectionManager.getInstance().closeAll();
 }
 
 async function migrateExistingPasswords(context: vscode.ExtensionContext) {
@@ -331,7 +436,7 @@ async function migrateExistingPasswords(context: vscode.ExtensionContext) {
         // Then store passwords in SecretStorage
         for (const conn of connections) {
             if (conn.password) {
-                await context.secrets.store(`postgres-password-${conn.id}`, conn.password);
+                await SecretStorageService.getInstance().setPassword(conn.id, conn.password);
             }
         }
 
