@@ -4,12 +4,14 @@ import { fetchStats, DashboardStats } from './DashboardData';
 import { getHtmlForWebview, getLoadingHtml, getErrorHtml } from './DashboardHtml';
 
 export class DashboardPanel {
-    public static currentPanel: DashboardPanel | undefined;
+    private static panels: Map<string, DashboardPanel> = new Map();
     private readonly _panel: vscode.WebviewPanel;
     private readonly _disposables: vscode.Disposable[] = [];
+    private readonly _panelKey: string;
 
-    private constructor(panel: vscode.WebviewPanel, private readonly client: Client, private readonly dbName: string) {
+    private constructor(panel: vscode.WebviewPanel, private readonly client: Client, private readonly dbName: string, panelKey: string) {
         this._panel = panel;
+        this._panelKey = panelKey;
         this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
         this._panel.webview.html = getLoadingHtml();
 
@@ -52,16 +54,17 @@ export class DashboardPanel {
         this._update();
     }
 
-    public static async show(client: Client, dbName: string) {
+    public static async show(client: Client, dbName: string, connectionId?: string) {
         const column = vscode.window.activeTextEditor
             ? vscode.window.activeTextEditor.viewColumn
             : undefined;
 
-        if (DashboardPanel.currentPanel) {
-            DashboardPanel.currentPanel._panel.reveal(column);
-            return;
-        }
+        // Create unique key for this dashboard (connection + database)
+        // Use timestamp to allow multiple dashboards for the same database
+        const timestamp = Date.now();
+        const panelKey = `${connectionId || 'default'}-${dbName}-${timestamp}`;
 
+        // Always create a new panel to allow multiple dashboards
         const panel = vscode.window.createWebviewPanel(
             'postgresDashboard',
             `Dashboard: ${dbName}`,
@@ -72,11 +75,12 @@ export class DashboardPanel {
             }
         );
 
-        DashboardPanel.currentPanel = new DashboardPanel(panel, client, dbName);
+        const dashboardPanel = new DashboardPanel(panel, client, dbName, panelKey);
+        DashboardPanel.panels.set(panelKey, dashboardPanel);
     }
 
     public dispose() {
-        DashboardPanel.currentPanel = undefined;
+        DashboardPanel.panels.delete(this._panelKey);
         this._panel.dispose();
         while (this._disposables.length) {
             const x = this._disposables.pop();

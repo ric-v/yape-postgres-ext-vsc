@@ -3,7 +3,6 @@
 # Variables
 NODE_BIN := node
 NPM_BIN := npm
-YARN_BIN := yarn
 VSCE_CMD := npx -y @vscode/vsce
 OVSX_CMD := npx -y ovsx
 
@@ -21,11 +20,11 @@ clean:
 
 # Install dependencies
 install:
-	$(YARN_BIN) install
+	$(NPM_BIN) install
 
 # Build the extension
 build:
-	$(YARN_BIN) run vscode:prepublish
+	$(NPM_BIN) run vscode:prepublish
 
 # Package the extension
 package: build
@@ -57,7 +56,7 @@ publish-ovsx: package
 
 # Watch mode for development
 watch:
-	$(YARN_BIN) run watch
+	$(NPM_BIN) run watch
 
 # Git tag and version bump (interactive)
 git-tag:

@@ -1,10 +1,11 @@
 import * as vscode from 'vscode';
 import { ConnectionFormPanel } from './connectionForm';
+import { ConnectionManagementPanel } from './connectionManagement';
 import { DatabaseTreeItem, DatabaseTreeProvider } from './providers/DatabaseTreeProvider';
 import { PostgresKernel } from './providers/NotebookKernel';
 import { PostgresNotebookProvider } from './notebookProvider';
 import { PostgresNotebookSerializer } from './postgresNotebook';
-import { cmdRefreshDatabase, cmdCreateDatabase, cmdDeleteDatabase, cmdAddObjectInDatabase, cmdDatabaseOperations, cmdDatabaseDashboard, cmdBackupDatabase, cmdRestoreDatabase, cmdGenerateCreateScript, cmdDisconnectDatabase, cmdMaintenanceDatabase, cmdQueryTool, cmdPsqlTool, cmdShowConfiguration } from './commands/database';
+import { cmdRefreshDatabase, cmdCreateDatabase, cmdDeleteDatabase, cmdAddObjectInDatabase, cmdDatabaseOperations, cmdDatabaseDashboard, cmdBackupDatabase, cmdRestoreDatabase, cmdGenerateCreateScript, cmdDisconnectDatabase as cmdDisconnectDatabaseLegacy, cmdMaintenanceDatabase, cmdQueryTool, cmdPsqlTool, cmdShowConfiguration } from './commands/database';
 import { cmdRefreshSchema, cmdCreateSchema, cmdCreateObjectInSchema, cmdSchemaOperations, cmdShowSchemaProperties } from './commands/schema';
 import { cmdRefreshTable, cmdTableOperations, cmdEditTable, cmdInsertTable, cmdUpdateTable, cmdShowTableProperties, cmdViewTableData, cmdDropTable, cmdTruncateTable, cmdScriptSelect, cmdScriptInsert, cmdScriptUpdate, cmdScriptDelete, cmdScriptCreate, cmdMaintenanceVacuum, cmdMaintenanceAnalyze, cmdMaintenanceReindex } from './commands/tables';
 import { cmdRefreshView, cmdViewOperations, cmdShowViewProperties, cmdEditView, cmdViewData, cmdDropView } from './commands/views';
@@ -15,7 +16,7 @@ import { cmdRefreshExtension, cmdExtensionOperations, cmdEnableExtension, cmdDro
 import { cmdRefreshType, cmdAllOperationsTypes, cmdEditTypes, cmdShowTypeProperties, cmdDropType } from './commands/types';
 import { cmdRefreshRole, cmdRoleOperations, cmdAddRole, cmdShowRoleProperties, cmdAddUser, cmdEditRole, cmdGrantRevokeRole, cmdDropRole } from './commands/usersRoles';
 import { cmdNewNotebook } from './commands/notebook';
-import { cmdDisconnectConnection, cmdConnectDatabase } from './commands/connection';
+import { cmdDisconnectConnection, cmdConnectDatabase, cmdDisconnectDatabase } from './commands/connection';
 import { SecretStorageService } from './services/SecretStorageService';
 import { ConnectionManager } from './services/ConnectionManager';
 
@@ -64,6 +65,22 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.workspace.registerNotebookSerializer('postgres-query', new PostgresNotebookSerializer())
     );
 
+    // Register SQL completion provider
+    const { SqlCompletionProvider } = require('./providers/SqlCompletionProvider');
+    const sqlCompletionProvider = new SqlCompletionProvider();
+    context.subscriptions.push(
+        vscode.languages.registerCompletionItemProvider(
+            { language: 'sql' },
+            sqlCompletionProvider,
+            '.' // Trigger on dot for schema.table suggestions
+        ),
+        vscode.languages.registerCompletionItemProvider(
+            { scheme: 'vscode-notebook-cell', language: 'sql' },
+            sqlCompletionProvider,
+            '.'
+        )
+    );
+
     // Register all commands
     const commands = [
         {
@@ -76,6 +93,12 @@ export async function activate(context: vscode.ExtensionContext) {
             command: 'postgres-explorer.refreshConnections',
             callback: () => {
                 databaseTreeProvider.refresh();
+            }
+        },
+        {
+            command: 'postgres-explorer.manageConnections',
+            callback: () => {
+                ConnectionManagementPanel.show(context.extensionUri, context);
             }
         },
         {
@@ -138,7 +161,7 @@ export async function activate(context: vscode.ExtensionContext) {
         },
         {
             command: 'postgres-explorer.disconnectDatabase',
-            callback: async (item: DatabaseTreeItem) => await cmdDisconnectDatabase(item, context)
+            callback: async (item: DatabaseTreeItem) => await cmdDisconnectDatabaseLegacy(item, context)
         },
         {
             command: 'postgres-explorer.maintenanceDatabase',
@@ -407,7 +430,7 @@ export async function activate(context: vscode.ExtensionContext) {
         },
         {
             command: 'postgres-explorer.deleteConnection',
-            callback: async (item: DatabaseTreeItem) => await cmdDisconnectDatabase(item, context)
+            callback: async (item: DatabaseTreeItem) => await cmdDisconnectDatabase(item, context, databaseTreeProvider)
         },
 
     ];

@@ -49,6 +49,11 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "postgres-explorer.manageConnections",
+        "title": "Manage Connections",
+        "icon": "$(settings-gear)"
+      },
+      {
         "command": "postgres-explorer.showTableProperties",
         "title": "Show Table Properties",
         "icon": "$(info)"
@@ -585,6 +590,11 @@
         },
         {
           "command": "postgres-explorer.refreshConnections",
+          "when": "view == postgresExplorer",
+          "group": "navigation"
+        },
+        {
+          "command": "postgres-explorer.manageConnections",
           "when": "view == postgresExplorer",
           "group": "navigation"
         }
