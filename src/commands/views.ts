@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
-import { DatabaseTreeItem } from '../databaseTreeProvider';
+import { DatabaseTreeItem, DatabaseTreeProvider } from '../providers/DatabaseTreeProvider';
+import { createAndShowNotebook, createMetadata, getConnectionWithPassword, validateItem } from '../commands/connection';
+import { ConnectionManager } from '../services/ConnectionManager';
 import { TablePropertiesPanel } from '../tableProperties';
-import { closeClient, createAndShowNotebook, createMetadata, createPgClient, getConnectionWithPassword, validateItem } from './connection';
 
 /**
  * SQL query to get the view definition from PostgreSQL.
@@ -11,7 +12,7 @@ import { closeClient, createAndShowNotebook, createMetadata, createPgClient, get
  * VIEW_DEFINITION_QUERY - SQL query to get the view definition from PostgreSQL.
  * fetches - the view definition from the database.
  */
-const VIEW_DEFINITION_QUERY = `SELECT pg_get_viewdef($1::regclass, true) as definition`;
+const VIEW_DEFINITION_QUERY = `SELECT pg_get_viewdef($1:: regclass, true) as definition`;
 
 /**
  * viewEditCmd - Command to edit a PostgreSQL view in a notebook.
@@ -22,16 +23,23 @@ const VIEW_DEFINITION_QUERY = `SELECT pg_get_viewdef($1::regclass, true) as defi
 export async function cmdEditView(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
-        const client = await createPgClient(connection, item.databaseName);
+        const connection = await getConnectionWithPassword(item.connectionId!);
+        const client = await ConnectionManager.getInstance().getConnection({
+            id: connection.id,
+            host: connection.host,
+            port: connection.port,
+            username: connection.username,
+            database: item.databaseName,
+            name: connection.name
+        });
 
         try {
-            const viewResult = await client.query(VIEW_DEFINITION_QUERY, [`${item.schema}.${item.label}`]);
+            const viewResult = await client.query(VIEW_DEFINITION_QUERY, [`${item.schema}.${item.label} `]);
             if (!viewResult.rows[0]?.definition) {
                 throw new Error('View definition not found');
             }
 
-            const createViewStatement = `CREATE OR REPLACE VIEW ${item.schema}.${item.label} AS\n${viewResult.rows[0].definition}`;
+            const createViewStatement = `CREATE OR REPLACE VIEW ${item.schema}.${item.label} AS\n${viewResult.rows[0].definition} `;
             const metadata = createMetadata(connection, item.databaseName);
 
             const cells = [
@@ -49,10 +57,10 @@ export async function cmdEditView(item: DatabaseTreeItem, context: vscode.Extens
 
             await createAndShowNotebook(cells, metadata);
         } finally {
-            await closeClient(client);
+            // Do not close shared client
         }
     } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to create view edit notebook: ${err.message}`);
+        vscode.window.showErrorMessage(`Failed to create view edit notebook: ${err.message} `);
     }
 }
 
@@ -65,7 +73,7 @@ export async function cmdEditView(item: DatabaseTreeItem, context: vscode.Extens
 export async function cmdViewData(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
+        const connection = await getConnectionWithPassword(item.connectionId!);
         const metadata = createMetadata(connection, item.databaseName);
 
         const cells = [
@@ -78,15 +86,15 @@ export async function cmdViewData(item: DatabaseTreeItem, context: vscode.Extens
                 vscode.NotebookCellKind.Code,
                 `-- View data
 SELECT *
-FROM ${item.schema}.${item.label}
-LIMIT 100;`,
+    FROM ${item.schema}.${item.label}
+LIMIT 100; `,
                 'sql'
             )
         ];
 
         await createAndShowNotebook(cells, metadata);
     } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to create view data notebook: ${err.message}`);
+        vscode.window.showErrorMessage(`Failed to create view data notebook: ${err.message} `);
     }
 }
 
@@ -99,26 +107,26 @@ LIMIT 100;`,
 export async function cmdDropView(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
+        const connection = await getConnectionWithPassword(item.connectionId!);
         const metadata = createMetadata(connection, item.databaseName);
 
         const cells = [
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `# Drop View: ${item.schema}.${item.label}\n\n⚠️ **Warning:** This action will permanently delete the view. This operation cannot be undone.`,
+                `# Drop View: ${item.schema}.${item.label}\n\n> [!WARNING]\n> **Warning:** This action will permanently delete the view. This operation cannot be undone.`,
                 'markdown'
             ),
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Code,
                 `-- Drop view
-DROP VIEW IF EXISTS ${item.schema}.${item.label};`,
+DROP VIEW IF EXISTS ${item.schema}.${item.label}; `,
                 'sql'
             )
         ];
 
         await createAndShowNotebook(cells, metadata);
     } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to create drop view notebook: ${err.message}`);
+        vscode.window.showErrorMessage(`Failed to create drop view notebook: ${err.message} `);
     }
 }
 
@@ -131,39 +139,42 @@ DROP VIEW IF EXISTS ${item.schema}.${item.label};`,
 export async function cmdViewOperations(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
-        const client = await createPgClient(connection, item.databaseName);
+        const connection = await getConnectionWithPassword(item.connectionId!);
+        const client = await ConnectionManager.getInstance().getConnection({
+            id: connection.id,
+            host: connection.host,
+            port: connection.port,
+            username: connection.username,
+            database: item.databaseName,
+            name: connection.name
+        });
 
         try {
-            const viewResult = await client.query(VIEW_DEFINITION_QUERY, [`${item.schema}.${item.label}`]);
+            const viewResult = await client.query(VIEW_DEFINITION_QUERY, [`${item.schema}.${item.label} `]);
             if (!viewResult.rows[0]?.definition) {
                 throw new Error('View definition not found');
             }
 
-            const viewDefinition = `CREATE OR REPLACE VIEW ${item.schema}.${item.label} AS\n${viewResult.rows[0].definition}`;
+            const viewDefinition = `CREATE OR REPLACE VIEW ${item.schema}.${item.label} AS\n${viewResult.rows[0].definition} `;
             const metadata = createMetadata(connection, item.databaseName);
 
             const cells = [
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Markup,
-                    `# View Operations: ${item.schema}.${item.label}\n\nThis notebook contains common operations for the PostgreSQL view:
-- View definition
-- Query view data
-- Modify view definition
-- Drop view`,
+                    `# View Operations: ${item.schema}.${item.label}\n\nThis notebook contains common operations for the PostgreSQL view. Run the cells below to execute the operations.\n\n## Available Operations\n- **View Definition**: Show the CREATE VIEW statement\n- **Query Data**: Select the first 100 rows\n- **Modify Definition**: Template for updating the view\n- **Drop**: Delete the view (Warning: Irreversible)`,
                     'markdown'
                 ),
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Code,
-                    `-- View definition\n${viewDefinition}`,
+                    `-- View definition\n${viewDefinition} `,
                     'sql'
                 ),
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Code,
                     `-- Query view data
 SELECT *
-FROM ${item.schema}.${item.label}
-LIMIT 100;`,
+    FROM ${item.schema}.${item.label}
+LIMIT 100; `,
                     'sql'
                 ),
                 new vscode.NotebookCellData(
@@ -171,23 +182,23 @@ LIMIT 100;`,
                     `-- Modify view definition
 CREATE OR REPLACE VIEW ${item.schema}.${item.label} AS
 SELECT * FROM source_table
-WHERE condition;`,
+WHERE condition; `,
                     'sql'
                 ),
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Code,
                     `-- Drop view
-DROP VIEW ${item.schema}.${item.label};`,
+DROP VIEW ${item.schema}.${item.label}; `,
                     'sql'
                 )
             ];
 
             await createAndShowNotebook(cells, metadata);
         } finally {
-            await closeClient(client);
+            // Do not close shared client
         }
     } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to create view operations notebook: ${err.message}`);
+        vscode.window.showErrorMessage(`Failed to create view operations notebook: ${err.message} `);
     }
 }
 
@@ -200,15 +211,29 @@ DROP VIEW ${item.schema}.${item.label};`,
 export async function cmdShowViewProperties(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
-        const client = await createPgClient(connection, item.databaseName);
+        const connection = await getConnectionWithPassword(item.connectionId!);
+        const client = await ConnectionManager.getInstance().getConnection({
+            id: connection.id,
+            host: connection.host,
+            port: connection.port,
+            username: connection.username,
+            database: item.databaseName,
+            name: connection.name
+        });
 
         try {
             await TablePropertiesPanel.show(client, item.schema, item.label, true);
         } finally {
-            await closeClient(client);
+            // Do not close shared client
         }
     } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to show view properties: ${err.message}`);
+        vscode.window.showErrorMessage(`Failed to show view properties: ${err.message} `);
     }
+}
+
+/**
+ * cmdRefreshView - Refreshes the view item in the tree view.
+ */
+export async function cmdRefreshView(item: DatabaseTreeItem, context: vscode.ExtensionContext, databaseTreeProvider?: DatabaseTreeProvider) {
+    databaseTreeProvider?.refresh(item);
 }

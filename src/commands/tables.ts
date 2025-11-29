@@ -1,20 +1,11 @@
 import { Client } from 'pg';
 import * as vscode from 'vscode';
-import { DatabaseTreeItem } from '../databaseTreeProvider';
+import { DatabaseTreeItem, DatabaseTreeProvider } from '../providers/DatabaseTreeProvider';
 import { TablePropertiesPanel } from '../tableProperties';
-import { closeClient, createAndShowNotebook, createMetadata, createPgClient, getConnectionWithPassword, validateItem } from './connection';
+import { createAndShowNotebook, createMetadata, getConnectionWithPassword, validateItem } from './connection';
+import { ConnectionManager } from '../services/ConnectionManager';
 
-/**
- * SQL Queries for table operations
- */
-
-/**
- * TABLE_INFO_QUERY - SQL query to retrieve table information including columns and constraints.
- * Fetches:
- * - Column definitions (name, type, constraints)
- * - Table constraints (primary keys, foreign keys, etc.)
- * - Table metadata
- */
+// ... (keep existing queries) ...
 const TABLE_INFO_QUERY = `
 WITH columns AS (
     SELECT string_agg(
@@ -84,14 +75,6 @@ FROM columns c
 LEFT JOIN constraints cs ON true
 GROUP BY c.columns`;
 
-/**
- * COLUMN_INFO_QUERY - SQL query to retrieve column information for a specific table.
- * Fetches:
- * - Column name
- * - Data type
- * - Nullability
- * - Default value
- */
 const COLUMN_INFO_QUERY = `
 SELECT column_name, data_type, is_nullable, column_default
 FROM information_schema.columns 
@@ -99,13 +82,6 @@ WHERE table_schema = $1
 AND table_name = $2 
 ORDER BY ordinal_position`;
 
-/**
- * COLUMN_WITH_PK_QUERY - SQL query to retrieve column information including primary key info.
- * Fetches:
- * - Column name
- * - Data type
- * - Primary key status
- */
 const COLUMN_WITH_PK_QUERY = `
 SELECT 
     c.column_name, 
@@ -127,42 +103,99 @@ WHERE c.table_schema = $1
 AND c.table_name = $2 
 ORDER BY c.ordinal_position`;
 
-/**
- * cmdAllTableOperations - Creates a notebook with common table operations.
- * Shows operations for:
- * - Viewing table definition
- * - Querying data
- * - Inserting data
- * - Updating data
- * - Deleting data
- * - Truncating table
- * - Dropping table
- * 
- * @param {DatabaseTreeItem} item - The selected table item from the tree view
- * @param {vscode.ExtensionContext} context - The extension context
- */
-export async function cmdTableOperations(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
+// ... (keep existing functions) ...
+
+export async function cmdScriptSelect(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
+    await createSimpleNotebook(item, 'SELECT Script', `SELECT * FROM ${item.schema}.${item.label} LIMIT 100;`);
+}
+
+export async function cmdScriptInsert(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
+    await cmdInsertTable(item, context);
+}
+
+export async function cmdScriptUpdate(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
+    await cmdUpdateTable(item, context);
+}
+
+export async function cmdScriptDelete(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
+    await createSimpleNotebook(item, 'DELETE Script',
+        `-- Delete rows
+DELETE FROM ${item.schema}.${item.label}
+WHERE condition; -- e.g., id = 1
+
+-- Delete with RETURNING
+/*
+DELETE FROM ${item.schema}.${item.label}
+WHERE condition
+RETURNING *;
+*/`);
+}
+
+export async function cmdScriptCreate(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
+    await cmdEditTable(item, context);
+}
+
+export async function cmdMaintenanceVacuum(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
+    await createSimpleNotebook(item, 'VACUUM', `VACUUM (VERBOSE, ANALYZE) ${item.schema}.${item.label};`);
+}
+
+export async function cmdMaintenanceAnalyze(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
+    await createSimpleNotebook(item, 'ANALYZE', `ANALYZE VERBOSE ${item.schema}.${item.label};`);
+}
+
+export async function cmdMaintenanceReindex(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
+    await createSimpleNotebook(item, 'REINDEX', `REINDEX TABLE ${item.schema}.${item.label};`);
+}
+
+async function createSimpleNotebook(item: DatabaseTreeItem, title: string, sql: string) {
     try {
         validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
-        const client = await createPgClient(connection, item.databaseName);
+        const connection = await getConnectionWithPassword(item.connectionId!);
+        const metadata = createMetadata(connection, item.databaseName);
+
+        const cells = [
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `# ${title}: ${item.schema}.${item.label}\n\nExecute the cell below to run the query.`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Code,
+                sql,
+                'sql'
+            )
+        ];
+
+        await createAndShowNotebook(cells, metadata);
+    } catch (err: any) {
+        vscode.window.showErrorMessage(`Failed to create ${title} notebook: ${err.message}`);
+    }
+}
+
+// ... (keep existing exports) ...
+export async function cmdTableOperations(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
+    // ... (existing implementation) ...
+    try {
+        validateItem(item);
+        const connection = await getConnectionWithPassword(item.connectionId!);
+        const client = await ConnectionManager.getInstance().getConnection({
+            id: connection.id,
+            host: connection.host,
+            port: connection.port,
+            username: connection.username,
+            database: item.databaseName,
+            name: connection.name
+        });
 
         try {
             const result = await client.query(TABLE_INFO_QUERY, [item.schema, item.label]);
-            const tableDefinition = buildTableDefinition(item.schema, item.label, result.rows[0]);
+            const tableDefinition = buildTableDefinition(item.schema!, item.label, result.rows[0]);
             const metadata = createMetadata(connection, item.databaseName);
 
             const cells = [
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Markup,
-                    `# Table Operations: ${item.schema}.${item.label}\n\nThis notebook contains common operations for the PostgreSQL table:
-- View table definition
-- Query table data
-- Insert data
-- Update data
-- Delete data
-- Truncate table
-- Drop table`,
+                    `# Table Operations: ${item.schema}.${item.label}\n\nThis notebook contains common operations for the PostgreSQL table. Run the cells below to execute the operations.\n\n## Available Operations\n- **View Definition**: Show the CREATE TABLE statement\n- **Query Data**: Select the first 100 rows\n- **Insert Data**: Template for inserting new rows\n- **Update Data**: Template for updating existing rows\n- **Delete Data**: Template for deleting rows\n- **Truncate**: Remove all data (Warning: Irreversible)\n- **Drop**: Delete the table (Warning: Irreversible)`,
                     'markdown'
                 ),
                 new vscode.NotebookCellData(
@@ -220,38 +253,35 @@ DROP TABLE ${item.schema}.${item.label};`,
 
             await createAndShowNotebook(cells, metadata);
         } finally {
-            await closeClient(client);
+            // Do not close shared client
         }
     } catch (err: any) {
         vscode.window.showErrorMessage(`Failed to create table operations notebook: ${err.message}`);
     }
 }
 
-/**
- * cmdEditTable - Creates a notebook for editing a table's structure.
- * Shows the current table definition and allows modifying:
- * - Column definitions
- * - Constraints
- * - Table properties
- * 
- * @param {DatabaseTreeItem} item - The selected table item from the tree view
- * @param {vscode.ExtensionContext} context - The extension context
- */
 export async function cmdEditTable(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
-        const client = await createPgClient(connection, item.databaseName);
+        const connection = await getConnectionWithPassword(item.connectionId!);
+        const client = await ConnectionManager.getInstance().getConnection({
+            id: connection.id,
+            host: connection.host,
+            port: connection.port,
+            username: connection.username,
+            database: item.databaseName,
+            name: connection.name
+        });
 
         try {
             const result = await client.query(TABLE_INFO_QUERY, [item.schema, item.label]);
-            const tableDefinition = buildTableDefinition(item.schema, item.label, result.rows[0]);
+            const tableDefinition = buildTableDefinition(item.schema!, item.label, result.rows[0]);
             const metadata = createMetadata(connection, item.databaseName);
 
             const cells = [
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Markup,
-                    `# Edit Table: ${item.schema}.${item.label}\n\nModify the table definition below and execute the cell to update the table structure. Note that this will create a new table - you'll need to migrate the data separately if needed.`,
+                    `# Edit Table: ${item.schema}.${item.label}\n\nModify the table definition below and execute the cell to update the table structure.\n\n> **Note:** This will create a new table. If you need to migrate data, please do so separately.`,
                     'markdown'
                 ),
                 new vscode.NotebookCellData(
@@ -263,28 +293,25 @@ export async function cmdEditTable(item: DatabaseTreeItem, context: vscode.Exten
 
             await createAndShowNotebook(cells, metadata);
         } finally {
-            await closeClient(client);
+            // Do not close shared client
         }
     } catch (err: any) {
         vscode.window.showErrorMessage(`Failed to create table edit notebook: ${err.message}`);
     }
 }
 
-/**
- * cmdInsertTable - Creates a notebook for inserting data into a table.
- * Generates insert statements with:
- * - Column names
- * - Appropriate placeholder values based on column types
- * - Examples for single and multiple row inserts
- * 
- * @param {DatabaseTreeItem} item - The selected table item from the tree view
- * @param {vscode.ExtensionContext} context - The extension context
- */
 export async function cmdInsertTable(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
-        const client = await createPgClient(connection, item.databaseName);
+        const connection = await getConnectionWithPassword(item.connectionId!);
+        const client = await ConnectionManager.getInstance().getConnection({
+            id: connection.id,
+            host: connection.host,
+            port: connection.port,
+            username: connection.username,
+            database: item.databaseName,
+            name: connection.name
+        });
 
         try {
             const result = await client.query(COLUMN_INFO_QUERY, [item.schema, item.label]);
@@ -340,41 +367,40 @@ VALUES (
 RETURNING *;
 
 -- Insert multiple rows (example)
+/*
 INSERT INTO ${item.schema}.${item.label} (
     ${columns.join(',\n    ')}
 )
 VALUES
     (${placeholders.join(', ')}),
     (${placeholders.join(', ')})
-RETURNING *;`,
+RETURNING *;
+*/`,
                     'sql'
                 )
             ];
 
             await createAndShowNotebook(cells, metadata);
         } finally {
-            await closeClient(client);
+            // Do not close shared client
         }
     } catch (err: any) {
         vscode.window.showErrorMessage(`Failed to create insert notebook: ${err.message}`);
     }
 }
 
-/**
- * cmdUpdateTable - Creates a notebook for updating data in a table.
- * Generates update statements with:
- * - Column names
- * - WHERE clause using primary key if available
- * - Example of updating multiple columns
- * 
- * @param {DatabaseTreeItem} item - The selected table item from the tree view
- * @param {vscode.ExtensionContext} context - The extension context
- */
 export async function cmdUpdateTable(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
-        const client = await createPgClient(connection, item.databaseName);
+        const connection = await getConnectionWithPassword(item.connectionId!);
+        const client = await ConnectionManager.getInstance().getConnection({
+            id: connection.id,
+            host: connection.host,
+            port: connection.port,
+            username: connection.username,
+            database: item.databaseName,
+            name: connection.name
+        });
 
         try {
             const result = await client.query(COLUMN_WITH_PK_QUERY, [item.schema, item.label]);
@@ -400,41 +426,36 @@ SET
 ${whereClause}
 RETURNING *;
 
--- Example of updating multiple columns
+-- Example of updating multiple columns with CASE
+/*
 UPDATE ${item.schema}.${item.label}
 SET
     ${result.rows.map(col => `${col.column_name} = CASE 
         WHEN ${col.data_type.toLowerCase().includes('char') || col.data_type.toLowerCase() === 'text' ?
-            `condition THEN 'new_value'` :
-            `condition THEN 0`}
+                            `condition THEN 'new_value'` :
+                            `condition THEN 0`}
         ELSE ${col.column_name}
     END`).join(',\n    ')}
 ${whereClause}
-RETURNING *;`,
+RETURNING *;
+*/`,
                     'sql'
                 )
             ];
 
             await createAndShowNotebook(cells, metadata);
         } finally {
-            await closeClient(client);
+            // Do not close shared client
         }
     } catch (err: any) {
         vscode.window.showErrorMessage(`Failed to create update notebook: ${err.message}`);
     }
 }
 
-/**
- * cmdViewTableData - Creates a notebook for viewing table data.
- * Shows a basic SELECT statement that users can modify.
- * 
- * @param {DatabaseTreeItem} item - The selected table item from the tree view
- * @param {vscode.ExtensionContext} context - The extension context
- */
 export async function cmdViewTableData(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
+        const connection = await getConnectionWithPassword(item.connectionId!);
         const metadata = createMetadata(connection, item.databaseName);
 
         const cells = [
@@ -459,23 +480,16 @@ LIMIT 100;`,
     }
 }
 
-/**
- * cmdDropTable - Creates a notebook for dropping a table.
- * Includes a warning about data loss.
- * 
- * @param {DatabaseTreeItem} item - The selected table item from the tree view
- * @param {vscode.ExtensionContext} context - The extension context
- */
 export async function cmdDropTable(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
+        const connection = await getConnectionWithPassword(item.connectionId!);
         const metadata = createMetadata(connection, item.databaseName);
 
         const cells = [
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `# Drop Table: ${item.schema}.${item.label}\n\n⚠️ **Warning:** This action will permanently delete the table and all its data. This operation cannot be undone.`,
+                `# Drop Table: ${item.schema}.${item.label}\n\n> [!WARNING]\n> **Warning:** This action will permanently delete the table and all its data. This operation cannot be undone.`,
                 'markdown'
             ),
             new vscode.NotebookCellData(
@@ -492,23 +506,16 @@ DROP TABLE IF EXISTS ${item.schema}.${item.label};`,
     }
 }
 
-/**
- * cmdTruncateTable - Creates a notebook for truncating a table.
- * Includes a warning about data loss.
- * 
- * @param {DatabaseTreeItem} item - The selected table item from the tree view
- * @param {vscode.ExtensionContext} context - The extension context
- */
 export async function cmdTruncateTable(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
+        const connection = await getConnectionWithPassword(item.connectionId!);
         const metadata = createMetadata(connection, item.databaseName);
 
         const cells = [
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `# Truncate Table: ${item.schema}.${item.label}\n\n⚠️ **Warning:** This action will remove all data from the table. This operation cannot be undone.`,
+                `# Truncate Table: ${item.schema}.${item.label}\n\n> [!WARNING]\n> **Warning:** This action will remove all data from the table. This operation cannot be undone.`,
                 'markdown'
             ),
             new vscode.NotebookCellData(
@@ -525,36 +532,29 @@ TRUNCATE TABLE ${item.schema}.${item.label};`,
     }
 }
 
-/**
- * cmdShowTableProperties - Shows the properties of a table in a panel.
- * Uses TablePropertiesPanel to display:
- * - Column definitions
- * - Constraints
- * - Table metadata
- * 
- * @param {DatabaseTreeItem} item - The selected table item from the tree view
- * @param {vscode.ExtensionContext} context - The extension context
- */
 export async function cmdShowTableProperties(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
-        let client: Client | undefined;
-        
+        const connection = await getConnectionWithPassword(item.connectionId!);
+
         try {
-            client = await createPgClient(connection, item.databaseName);
-            await TablePropertiesPanel.show(client, item.schema, item.label);
+            const client = await ConnectionManager.getInstance().getConnection({
+                id: connection.id,
+                host: connection.host,
+                port: connection.port,
+                username: connection.username,
+                database: item.databaseName,
+                name: connection.name
+            });
+            await TablePropertiesPanel.show(client, item.schema!, item.label);
         } finally {
-            await closeClient(client);
+            // Do not close shared client
         }
     } catch (err: any) {
         vscode.window.showErrorMessage(`Failed to show table properties: ${err.message}`);
     }
 }
 
-/**
- * Helper function to build a CREATE TABLE statement from query results
- */
 function buildTableDefinition(schema: string, tableName: string, result: any): string {
     const createTable = `CREATE TABLE ${schema}.${tableName} (\n    ${result.columns}`;
     const constraints = Array.isArray(result.constraints) && result.constraints[0]?.name ?
@@ -573,4 +573,8 @@ function buildTableDefinition(schema: string, tableName: string, result: any): s
         }).filter((c: string | null): c is string => c !== null).join(',\n') : '';
 
     return `${createTable}${constraints ? ',\n' + constraints : ''}\n);`;
+}
+
+export async function cmdRefreshTable(item: DatabaseTreeItem, context: vscode.ExtensionContext, databaseTreeProvider?: DatabaseTreeProvider) {
+    databaseTreeProvider?.refresh(item);
 }

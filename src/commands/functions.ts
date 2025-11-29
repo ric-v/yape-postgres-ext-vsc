@@ -1,7 +1,9 @@
+import { Client } from 'pg';
 import * as vscode from 'vscode';
-import { DatabaseTreeItem } from '../databaseTreeProvider';
+import { DatabaseTreeItem, DatabaseTreeProvider } from '../providers/DatabaseTreeProvider';
+import { createAndShowNotebook, createMetadata, getConnectionWithPassword, validateItem } from '../commands/connection';
+import { ConnectionManager } from '../services/ConnectionManager';
 import { TablePropertiesPanel } from '../tableProperties';
-import { closeClient, createAndShowNotebook, createMetadata, createPgClient, getConnectionWithPassword, validateItem } from './connection';
 
 /**
  * Queries for PostgreSQL database
@@ -77,8 +79,15 @@ AND p.pronamespace = (SELECT oid FROM pg_namespace WHERE nspname = $2)`;
 export async function cmdFunctionOperations(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
-        const client = await createPgClient(connection, item.databaseName);
+        const connection = await getConnectionWithPassword(item.connectionId!);
+        const client = await ConnectionManager.getInstance().getConnection({
+            id: connection.id,
+            host: connection.host,
+            port: connection.port,
+            username: connection.username,
+            database: item.databaseName,
+            name: connection.name
+        });
 
         try {
             const functionResult = await client.query(FUNCTION_INFO_QUERY, [item.label, item.schema]);
@@ -93,38 +102,36 @@ export async function cmdFunctionOperations(item: DatabaseTreeItem, context: vsc
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Markup,
                     `# Function Operations: ${item.schema}.${item.label}\n\n` +
-                    `${functionInfo.description ? '**Description:** ' + functionInfo.description + '\n\n' : ''}` +
-                    `This notebook contains common operations for the PostgreSQL function:\n` +
-                    `- View current function definition\n` +
-                    `- Call function\n` +
-                    `- Drop function`,
+                    `${functionInfo.description ? '> **Description:** ' + functionInfo.description + '\n\n' : ''}` +
+                    `This notebook contains common operations for the PostgreSQL function. Run the cells below to execute the operations.\n\n## Available Operations\n- **View Definition**: Show the current function code\n- **Call Function**: Template for executing the function\n- **Drop**: Delete the function (Warning: Irreversible)`,
                     'markdown'
                 ),
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Code,
-                    `-- Current function definition\n${functionInfo.definition}`,
+                    `-- Current function definition\n${functionInfo.definition} `,
                     'sql'
                 ),
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Code,
-                    `-- Call function\nSELECT ${item.schema}.${item.label}(${functionInfo.arguments ?
+                    `-- Call function\nSELECT ${item.schema}.${item.label} (${functionInfo.arguments ?
                         '\n  -- Replace with actual values:\n  ' + functionInfo.arguments.split(',').join(',\n  ')
-                        : ''});`,
+                        : ''
+                    }); `,
                     'sql'
                 ),
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Code,
-                    `-- Drop function\nDROP FUNCTION IF EXISTS ${item.schema}.${item.label}(${functionInfo.arguments});`,
+                    `-- Drop function\nDROP FUNCTION IF EXISTS ${item.schema}.${item.label} (${functionInfo.arguments}); `,
                     'sql'
                 )
             ];
 
             await createAndShowNotebook(cells, metadata);
         } finally {
-            await closeClient(client);
+            // Do not close shared client
         }
     } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to create function operations notebook: ${err.message}`);
+        vscode.window.showErrorMessage(`Failed to create function operations notebook: ${err.message} `);
     }
 }
 
@@ -139,8 +146,15 @@ export async function cmdFunctionOperations(item: DatabaseTreeItem, context: vsc
 export async function cmdEditFunction(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
-        const client = await createPgClient(connection, item.databaseName);
+        const connection = await getConnectionWithPassword(item.connectionId!);
+        const client = await ConnectionManager.getInstance().getConnection({
+            id: connection.id,
+            host: connection.host,
+            port: connection.port,
+            username: connection.username,
+            database: item.databaseName,
+            name: connection.name
+        });
 
         try {
             const functionResult = await client.query(FUNCTION_DEF_QUERY, [item.label, item.schema]);
@@ -166,10 +180,10 @@ export async function cmdEditFunction(item: DatabaseTreeItem, context: vscode.Ex
 
             await createAndShowNotebook(cells, metadata);
         } finally {
-            await closeClient(client);
+            // Do not close shared client
         }
     } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to create function edit notebook: ${err.message}`);
+        vscode.window.showErrorMessage(`Failed to create function edit notebook: ${err.message} `);
     }
 }
 
@@ -184,8 +198,15 @@ export async function cmdEditFunction(item: DatabaseTreeItem, context: vscode.Ex
 export async function cmdCallFunction(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
-        const client = await createPgClient(connection, item.databaseName);
+        const connection = await getConnectionWithPassword(item.connectionId!);
+        const client = await ConnectionManager.getInstance().getConnection({
+            id: connection.id,
+            host: connection.host,
+            port: connection.port,
+            username: connection.username,
+            database: item.databaseName,
+            name: connection.name
+        });
 
         try {
             const functionResult = await client.query(FUNCTION_SIGN_QUERY, [item.label, item.schema]);
@@ -199,27 +220,29 @@ export async function cmdCallFunction(item: DatabaseTreeItem, context: vscode.Ex
             const cells = [
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Markup,
-                    `# Call Function: ${item.schema}.${item.label}\n\n${functionInfo.description ? '**Description:** ' + functionInfo.description + '\n\n' : ''}` +
-                    `**Arguments:** ${functionInfo.arguments || 'None'}\n` +
-                    `**Returns:** ${functionInfo.result_type}\n\n` +
+                    `# Call Function: ${item.schema}.${item.label}\n\n` +
+                    `${functionInfo.description ? '> **Description:** ' + functionInfo.description + '\n\n' : ''}` +
+                    `**Arguments:** \`${functionInfo.arguments || 'None'}\`\n\n` +
+                    `**Returns:** \`${functionInfo.result_type}\`\n\n` +
                     `Edit the argument values below and execute the cell to call the function.`,
                     'markdown'
                 ),
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Code,
-                    `-- Call function\nSELECT ${item.schema}.${item.label}(${functionInfo.arguments ?
+                    `-- Call function\nSELECT ${item.schema}.${item.label} (${functionInfo.arguments ?
                         '\n  -- Replace with actual values:\n  ' + functionInfo.arguments.split(',').join(',\n  ')
-                        : ''});`,
+                        : ''
+                    }); `,
                     'sql'
                 )
             ];
 
             await createAndShowNotebook(cells, metadata);
         } finally {
-            await closeClient(client);
+            // Do not close shared client
         }
     } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to create function call notebook: ${err.message}`);
+        vscode.window.showErrorMessage(`Failed to create function call notebook: ${err.message} `);
     }
 }
 
@@ -233,8 +256,15 @@ export async function cmdCallFunction(item: DatabaseTreeItem, context: vscode.Ex
 export async function cmdDropFunction(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
-        const client = await createPgClient(connection, item.databaseName);
+        const connection = await getConnectionWithPassword(item.connectionId!);
+        const client = await ConnectionManager.getInstance().getConnection({
+            id: connection.id,
+            host: connection.host,
+            port: connection.port,
+            username: connection.username,
+            database: item.databaseName,
+            name: connection.name
+        });
 
         try {
             const functionResult = await client.query(FUNCTION_ARGS_QUERY, [item.label, item.schema]);
@@ -248,22 +278,22 @@ export async function cmdDropFunction(item: DatabaseTreeItem, context: vscode.Ex
             const cells = [
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Markup,
-                    `# Drop Function: ${item.schema}.${item.label}\n\nExecute the cell below to permanently remove this function. This action cannot be undone.`,
+                    `# Drop Function: ${item.schema}.${item.label}\n\n> [!WARNING]\n> **Warning:** This action will permanently delete the function. This operation cannot be undone.`,
                     'markdown'
                 ),
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Code,
-                    `-- Drop function\nDROP FUNCTION IF EXISTS ${item.schema}.${item.label}(${functionInfo.arguments});`,
+                    `-- Drop function\nDROP FUNCTION IF EXISTS ${item.schema}.${item.label} (${functionInfo.arguments}); `,
                     'sql'
                 )
             ];
 
             await createAndShowNotebook(cells, metadata);
         } finally {
-            await closeClient(client);
+            // Do not close shared client
         }
     } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to create drop function notebook: ${err.message}`);
+        vscode.window.showErrorMessage(`Failed to create drop function notebook: ${err.message} `);
     }
 }
 
@@ -277,15 +307,29 @@ export async function cmdDropFunction(item: DatabaseTreeItem, context: vscode.Ex
 export async function cmdShowFunctionProperties(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
-        const client = await createPgClient(connection, item.databaseName);
+        const connection = await getConnectionWithPassword(item.connectionId!);
+        const client = await ConnectionManager.getInstance().getConnection({
+            id: connection.id,
+            host: connection.host,
+            port: connection.port,
+            username: connection.username,
+            database: item.databaseName,
+            name: connection.name
+        });
 
         try {
             await TablePropertiesPanel.show(client, item.schema, item.label, false, true);
         } finally {
-            await closeClient(client);
+            // Do not close shared client
         }
     } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to show function properties: ${err.message}`);
+        vscode.window.showErrorMessage(`Failed to show function properties: ${err.message} `);
     }
+}
+
+/**
+ * cmdRefreshFunction - Refreshes the function item in the tree view.
+ */
+export async function cmdRefreshFunction(item: DatabaseTreeItem, context: vscode.ExtensionContext, databaseTreeProvider?: DatabaseTreeProvider) {
+    databaseTreeProvider?.refresh(item);
 }

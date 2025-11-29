@@ -1,0 +1,355 @@
+import { Client } from 'pg';
+import * as vscode from 'vscode';
+import { ConnectionManager } from '../services/ConnectionManager';
+
+export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseTreeItem> {
+    private _onDidChangeTreeData: vscode.EventEmitter<DatabaseTreeItem | undefined | null | void> = new vscode.EventEmitter<DatabaseTreeItem | undefined | null | void>();
+    readonly onDidChangeTreeData: vscode.Event<DatabaseTreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
+
+    constructor(private readonly extensionContext: vscode.ExtensionContext) {
+        // Initialize tree provider
+    }
+
+    refresh(element?: DatabaseTreeItem): void {
+        this._onDidChangeTreeData.fire();
+    }
+
+    collapseAll(): void {
+        // This will trigger a refresh of the tree view with all items collapsed
+        this._onDidChangeTreeData.fire();
+    }
+
+    getTreeItem(element: DatabaseTreeItem): vscode.TreeItem {
+        return element;
+    }
+
+    async getChildren(element?: DatabaseTreeItem): Promise<DatabaseTreeItem[]> {
+        const connections = vscode.workspace.getConfiguration().get<any[]>('postgresExplorer.connections') || [];
+
+        if (!element) {
+            // Root level - show connections
+            return connections.map(conn => new DatabaseTreeItem(
+                conn.name || `${conn.host}:${conn.port}`,
+                vscode.TreeItemCollapsibleState.Collapsed,
+                'connection',
+                conn.id
+            ));
+        }
+
+        const connection = connections.find(c => c.id === element.connectionId);
+        if (!connection) {
+            console.error(`Connection not found for ID: ${element.connectionId}`);
+            vscode.window.showErrorMessage('Connection configuration not found');
+            return [];
+        }
+
+        let client: Client | undefined;
+        try {
+            const dbName = element.type === 'connection' ? 'postgres' : element.databaseName;
+
+            // Use ConnectionManager to get a shared connection
+            client = await ConnectionManager.getInstance().getConnection({
+                id: connection.id,
+                host: connection.host,
+                port: connection.port,
+                username: connection.username,
+                database: dbName,
+                name: connection.name
+            });
+
+            switch (element.type) {
+                case 'connection':
+                    // At connection level, show Databases group and Users & Roles
+                    return [
+                        new DatabaseTreeItem('Databases', vscode.TreeItemCollapsibleState.Collapsed, 'databases-group', element.connectionId),
+                        new DatabaseTreeItem('Users & Roles', vscode.TreeItemCollapsibleState.Collapsed, 'category', element.connectionId)
+                    ];
+
+                case 'databases-group':
+                    // Show all databases under the Databases group
+                    const dbResult = await client.query(
+                        "SELECT datname FROM pg_database WHERE datistemplate = false AND datname != 'postgres' ORDER BY datname"
+                    );
+                    return dbResult.rows.map(row => new DatabaseTreeItem(
+                        row.datname,
+                        vscode.TreeItemCollapsibleState.Collapsed,
+                        'database',
+                        element.connectionId,
+                        row.datname
+                    ));
+
+                case 'database':
+                    // Return just the categories at database level
+                    return [
+                        new DatabaseTreeItem('Schemas', vscode.TreeItemCollapsibleState.Collapsed, 'category', element.connectionId, element.databaseName),
+                        new DatabaseTreeItem('Extensions', vscode.TreeItemCollapsibleState.Collapsed, 'category', element.connectionId, element.databaseName)
+                    ];
+
+                case 'category':
+                    switch (element.label) {
+                        case 'Users & Roles':
+                            const roleResult = await client.query(
+                                `SELECT r.rolname,
+                                        r.rolsuper,
+                                        r.rolcreatedb,
+                                        r.rolcreaterole,
+                                        r.rolcanlogin
+                                 FROM pg_roles r
+                                 ORDER BY r.rolname`
+                            );
+                            return roleResult.rows.map(row => new DatabaseTreeItem(
+                                row.rolname,
+                                vscode.TreeItemCollapsibleState.None,
+                                'role',
+                                element.connectionId,
+                                element.databaseName,
+                                undefined,
+                                undefined,
+                                undefined,
+                                undefined,
+                                undefined,
+                                undefined,
+                                {
+                                    rolsuper: row.rolsuper,
+                                    rolcreatedb: row.rolcreatedb,
+                                    rolcreaterole: row.rolcreaterole,
+                                    rolcanlogin: row.rolcanlogin
+                                }
+                            ));
+
+                        case 'Schemas':
+                            const schemaResult = await client.query(
+                                `SELECT nspname as schema_name 
+                                 FROM pg_namespace 
+                                 WHERE nspname NOT LIKE 'pg_%' 
+                                 AND nspname != 'information_schema'
+                                 ORDER BY nspname`
+                            );
+                            return schemaResult.rows.map(row => new DatabaseTreeItem(
+                                row.schema_name,
+                                vscode.TreeItemCollapsibleState.Collapsed,
+                                'schema',
+                                element.connectionId,
+                                element.databaseName,
+                                row.schema_name
+                            ));
+
+                        case 'Extensions':
+                            const extensionResult = await client.query(
+                                `SELECT e.name,
+                                        e.installed_version,
+                                        e.default_version,
+                                        e.comment,
+                                        CASE WHEN e.installed_version IS NOT NULL THEN true ELSE false END as is_installed
+                                 FROM pg_available_extensions e
+                                 ORDER BY is_installed DESC, name`
+                            );
+                            return extensionResult.rows.map(row => new DatabaseTreeItem(
+                                row.installed_version ? `${row.name} (${row.installed_version})` : `${row.name} (${row.default_version})`,
+                                vscode.TreeItemCollapsibleState.None,
+                                'extension',
+                                element.connectionId,
+                                element.databaseName,
+                                undefined,
+                                undefined,
+                                undefined,
+                                row.comment,
+                                row.is_installed,
+                                row.installed_version
+                            ));
+
+                        // Existing category cases for schema level items
+                        case 'Tables':
+                            const tableResult = await client.query(
+                                "SELECT table_name FROM information_schema.tables WHERE table_schema = $1 AND table_type = 'BASE TABLE' ORDER BY table_name",
+                                [element.schema]
+                            );
+                            return tableResult.rows.map(row => new DatabaseTreeItem(
+                                row.table_name,
+                                vscode.TreeItemCollapsibleState.Collapsed,
+                                'table',
+                                element.connectionId,
+                                element.databaseName,
+                                element.schema
+                            ));
+
+                        case 'Views':
+                            const viewResult = await client.query(
+                                "SELECT table_name FROM information_schema.views WHERE table_schema = $1 ORDER BY table_name",
+                                [element.schema]
+                            );
+                            return viewResult.rows.map(row => new DatabaseTreeItem(
+                                row.table_name,
+                                vscode.TreeItemCollapsibleState.Collapsed,
+                                'view',
+                                element.connectionId,
+                                element.databaseName,
+                                element.schema
+                            ));
+
+                        case 'Functions':
+                            const functionResult = await client.query(
+                                "SELECT routine_name FROM information_schema.routines WHERE routine_schema = $1 AND routine_type = 'FUNCTION' ORDER BY routine_name",
+                                [element.schema]
+                            );
+                            return functionResult.rows.map(row => new DatabaseTreeItem(
+                                row.routine_name,
+                                vscode.TreeItemCollapsibleState.None,
+                                'function',
+                                element.connectionId,
+                                element.databaseName,
+                                element.schema
+                            ));
+
+                        case 'Materialized Views':
+                            const materializedViewResult = await client.query(
+                                "SELECT matviewname as name FROM pg_matviews WHERE schemaname = $1 ORDER BY matviewname",
+                                [element.schema]
+                            );
+                            return materializedViewResult.rows.map(row => new DatabaseTreeItem(
+                                row.name,
+                                vscode.TreeItemCollapsibleState.None,
+                                'materialized-view',
+                                element.connectionId,
+                                element.databaseName,
+                                element.schema
+                            ));
+
+                        case 'Types':
+                            const typeResult = await client.query(
+                                `SELECT t.typname as name
+                                 FROM pg_type t
+                                 JOIN pg_namespace n ON t.typnamespace = n.oid
+                                 WHERE n.nspname = $1
+                                 AND t.typtype = 'c'
+                                 ORDER BY t.typname`,
+                                [element.schema]
+                            );
+                            return typeResult.rows.map(row => new DatabaseTreeItem(
+                                row.name,
+                                vscode.TreeItemCollapsibleState.None,
+                                'type',
+                                element.connectionId,
+                                element.databaseName,
+                                element.schema
+                            ));
+
+                        case 'Foreign Tables':
+                            const foreignTableResult = await client.query(
+                                `SELECT ft.relname as name
+                                 FROM pg_foreign_table ft
+                                 JOIN pg_class c ON ft.ftrelid = c.oid
+                                 JOIN pg_namespace n ON c.relnamespace = n.oid
+                                 WHERE n.nspname = $1
+                                 ORDER BY ft.relname`,
+                                [element.schema]
+                            );
+                            return foreignTableResult.rows.map(row => new DatabaseTreeItem(
+                                row.name,
+                                vscode.TreeItemCollapsibleState.None,
+                                'foreign-table',
+                                element.connectionId,
+                                element.databaseName,
+                                element.schema
+                            ));
+                    }
+                    break;
+
+                case 'schema':
+                    return [
+                        new DatabaseTreeItem('Tables', vscode.TreeItemCollapsibleState.Collapsed, 'category', element.connectionId, element.databaseName, element.schema),
+                        new DatabaseTreeItem('Views', vscode.TreeItemCollapsibleState.Collapsed, 'category', element.connectionId, element.databaseName, element.schema),
+                        new DatabaseTreeItem('Functions', vscode.TreeItemCollapsibleState.Collapsed, 'category', element.connectionId, element.databaseName, element.schema),
+                        new DatabaseTreeItem('Materialized Views', vscode.TreeItemCollapsibleState.Collapsed, 'category', element.connectionId, element.databaseName, element.schema),
+                        new DatabaseTreeItem('Types', vscode.TreeItemCollapsibleState.Collapsed, 'category', element.connectionId, element.databaseName, element.schema),
+                        new DatabaseTreeItem('Foreign Tables', vscode.TreeItemCollapsibleState.Collapsed, 'category', element.connectionId, element.databaseName, element.schema)
+                    ];
+
+                case 'table':
+                case 'view':
+                    const columnResult = await client.query(
+                        "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2",
+                        [element.schema, element.label]
+                    );
+                    return columnResult.rows.map(row => new DatabaseTreeItem(
+                        `${row.column_name} (${row.data_type})`,
+                        vscode.TreeItemCollapsibleState.None,
+                        'column',
+                        element.connectionId,
+                        element.databaseName,
+                        element.schema
+                    ));
+            }
+
+            return [];
+        } catch (err: any) {
+            console.error(`Error getting tree items: ${err.message}`);
+            vscode.window.showErrorMessage(`Failed to get tree items: ${err.message}`);
+            return [];
+        }
+        // Do NOT close the client here, as it is managed by ConnectionManager
+    }
+}
+
+export class DatabaseTreeItem extends vscode.TreeItem {
+    constructor(
+        public readonly label: string,
+        public readonly collapsibleState: vscode.TreeItemCollapsibleState,
+        public readonly type: 'connection' | 'database' | 'schema' | 'table' | 'view' | 'function' | 'column' | 'category' | 'materialized-view' | 'type' | 'foreign-table' | 'extension' | 'role' | 'databases-group',
+        public readonly connectionId?: string,
+        public readonly databaseName?: string,
+        public readonly schema?: string,
+        public readonly tableName?: string,
+        public readonly columnName?: string,
+        public readonly comment?: string,
+        public readonly isInstalled?: boolean,
+        public readonly installedVersion?: string,
+        public readonly roleAttributes?: { [key: string]: boolean }
+    ) {
+        super(label, collapsibleState);
+        this.contextValue = isInstalled ? `${type}-installed` : type;
+        this.tooltip = this.getTooltip(type, comment, roleAttributes);
+        this.description = this.getDescription(type, isInstalled, installedVersion, roleAttributes);
+        this.iconPath = {
+            connection: new vscode.ThemeIcon('plug', new vscode.ThemeColor('charts.blue')),
+            database: new vscode.ThemeIcon('database', new vscode.ThemeColor('charts.purple')),
+            'databases-group': new vscode.ThemeIcon('database', new vscode.ThemeColor('charts.purple')),
+            schema: new vscode.ThemeIcon('symbol-namespace', new vscode.ThemeColor('charts.yellow')),
+            table: new vscode.ThemeIcon('table', new vscode.ThemeColor('charts.blue')),
+            view: new vscode.ThemeIcon('eye', new vscode.ThemeColor('charts.green')),
+            function: new vscode.ThemeIcon('symbol-method', new vscode.ThemeColor('charts.orange')),
+            column: new vscode.ThemeIcon('symbol-field', new vscode.ThemeColor('charts.blue')),
+            category: new vscode.ThemeIcon('list-tree'),
+            'materialized-view': new vscode.ThemeIcon('symbol-structure', new vscode.ThemeColor('charts.green')),
+            type: new vscode.ThemeIcon('symbol-type-parameter', new vscode.ThemeColor('charts.red')),
+            'foreign-table': new vscode.ThemeIcon('symbol-interface', new vscode.ThemeColor('charts.blue')),
+            extension: new vscode.ThemeIcon(isInstalled ? 'extensions-installed' : 'extensions', isInstalled ? new vscode.ThemeColor('charts.green') : undefined),
+            role: new vscode.ThemeIcon('person', new vscode.ThemeColor('charts.yellow'))
+        }[type];
+    }
+
+    private getTooltip(type: string, comment?: string, roleAttributes?: { [key: string]: boolean }): string {
+        if (type === 'role' && roleAttributes) {
+            const attributes = [];
+            if (roleAttributes.rolsuper) attributes.push('Superuser');
+            if (roleAttributes.rolcreatedb) attributes.push('Create DB');
+            if (roleAttributes.rolcreaterole) attributes.push('Create Role');
+            if (roleAttributes.rolcanlogin) attributes.push('Can Login');
+            return `${this.label}\n\nAttributes:\n${attributes.join('\n')}`;
+        }
+        return comment ? `${this.label}\n\n${comment}` : this.label;
+    }
+
+    private getDescription(type: string, isInstalled?: boolean, installedVersion?: string, roleAttributes?: { [key: string]: boolean }): string | undefined {
+        if (type === 'extension' && isInstalled) {
+            return `v${installedVersion} (installed)`;
+        }
+        if (type === 'role' && roleAttributes) {
+            const tags = [];
+            if (roleAttributes.rolsuper) tags.push('superuser');
+            if (roleAttributes.rolcanlogin) tags.push('login');
+            return tags.length > 0 ? `(${tags.join(', ')})` : undefined;
+        }
+        return undefined;
+    }
+}

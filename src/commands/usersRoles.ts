@@ -1,7 +1,8 @@
 import { Client } from 'pg';
 import * as vscode from 'vscode';
-import { DatabaseTreeItem } from '../databaseTreeProvider';
-import { closeClient, createAndShowNotebook, createMetadata, createPgClient, getConnectionWithPassword, validateItem, validateRoleItem } from './connection';
+import { DatabaseTreeItem, DatabaseTreeProvider } from '../providers/DatabaseTreeProvider';
+import { createAndShowNotebook, createMetadata, getConnectionWithPassword, validateItem, validateRoleItem } from '../commands/connection';
+import { ConnectionManager } from '../services/ConnectionManager';
 
 /**
  * ROLE_DETAILS_QUERY - SQL query to retrieve role details including attributes, memberships, privileges, and accessible databases.
@@ -9,26 +10,26 @@ import { closeClient, createAndShowNotebook, createMetadata, createPgClient, get
  */
 const ROLE_DETAILS_QUERY = `
 WITH RECURSIVE
-role_memberships AS (
+role_memberships AS(
     SELECT 
         r.rolname,
-        r.rolsuper,
-        r.rolinherit,
-        r.rolcreaterole,
-        r.rolcreatedb,
-        r.rolcanlogin,
-        r.rolreplication,
-        r.rolconnlimit,
-        r.rolvaliduntil,
-        r.rolbypassrls,
-        (
-            SELECT array_agg(gr.rolname)
+    r.rolsuper,
+    r.rolinherit,
+    r.rolcreaterole,
+    r.rolcreatedb,
+    r.rolcanlogin,
+    r.rolreplication,
+    r.rolconnlimit,
+    r.rolvaliduntil,
+    r.rolbypassrls,
+    (
+        SELECT array_agg(gr.rolname)
             FROM pg_auth_members m
             JOIN pg_roles gr ON gr.oid = m.roleid
             WHERE m.member = r.oid
-        ) as member_of,
-        (
-            SELECT array_agg(gr.rolname)
+) as member_of,
+    (
+        SELECT array_agg(gr.rolname)
             FROM pg_auth_members m
             JOIN pg_roles gr ON gr.oid = m.member
             WHERE m.roleid = r.oid
@@ -36,35 +37,35 @@ role_memberships AS (
     FROM pg_roles r
     WHERE r.rolname = $1
 ),
-role_privileges AS (
-    SELECT array_agg(
-        privilege_type || ' ON ' || 
-        CASE 
+role_privileges AS(
+            SELECT array_agg(
+                privilege_type || ' ON ' ||
+                CASE 
             WHEN table_schema = 'public' THEN table_name
             ELSE table_schema || '.' || table_name
         END
-    ) as privileges
+            ) as privileges
     FROM information_schema.table_privileges
     WHERE grantee = $1
     GROUP BY grantee
-),
-database_access AS (
-    SELECT array_agg(quote_ident(d.datname)) as databases
+        ),
+    database_access AS(
+        SELECT array_agg(quote_ident(d.datname)) as databases
     FROM pg_database d
     JOIN pg_roles r ON r.rolname = $1
-    WHERE EXISTS (
-        SELECT 1 FROM aclexplode(d.datacl) acl
+    WHERE EXISTS(
+            SELECT 1 FROM aclexplode(d.datacl) acl
         WHERE acl.grantee = r.oid
         AND acl.privilege_type = 'CONNECT'
+        )
     )
-)
-SELECT 
-    rm.*,
-    COALESCE(rp.privileges, ARRAY[]::text[]) as privileges,
-    COALESCE(da.databases, ARRAY[]::text[]) as accessible_databases
+SELECT
+rm.*,
+    COALESCE(rp.privileges, ARRAY[]:: text[]) as privileges,
+    COALESCE(da.databases, ARRAY[]:: text[]) as accessible_databases
 FROM role_memberships rm
 LEFT JOIN role_privileges rp ON true
-LEFT JOIN database_access da ON true;`;
+LEFT JOIN database_access da ON true; `;
 
 
 /**
@@ -80,7 +81,7 @@ LEFT JOIN database_access da ON true;`;
 export async function cmdAddUser(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
+        const connection = await getConnectionWithPassword(item.connectionId!);
         const metadata = createMetadata(connection, item.databaseName);
 
         const cells = [
@@ -93,27 +94,27 @@ export async function cmdAddUser(item: DatabaseTreeItem, context: vscode.Extensi
                 vscode.NotebookCellKind.Code,
                 `-- Create a new user with login privileges
 CREATE USER username WITH
-    LOGIN
+LOGIN
     PASSWORD 'strong_password'
-    CREATEDB
-    -- Add more attributes as needed:
-    -- SUPERUSER
-    -- CREATEROLE
-    -- REPLICATION
-    -- CONNECTION LIMIT 5
-    -- VALID UNTIL 'timestamp'
-;
+CREATEDB
+--Add more attributes as needed:
+--SUPERUSER
+--CREATEROLE
+--REPLICATION
+--CONNECTION LIMIT 5
+--VALID UNTIL 'timestamp'
+    ;
 
--- Optional: Grant default privileges
+--Optional: Grant default privileges
 GRANT CONNECT ON DATABASE database_name TO username;
--- GRANT role_name TO username;`,
+--GRANT role_name TO username; `,
                 'sql'
             )
         ];
 
         await createAndShowNotebook(cells, metadata);
     } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to create user notebook: ${err.message}`);
+        vscode.window.showErrorMessage(`Failed to create user notebook: ${err.message} `);
     }
 }
 
@@ -130,7 +131,7 @@ GRANT CONNECT ON DATABASE database_name TO username;
 export async function cmdAddRole(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
+        const connection = await getConnectionWithPassword(item.connectionId!);
         const metadata = createMetadata(connection, item.databaseName);
 
         const cells = [
@@ -143,25 +144,25 @@ export async function cmdAddRole(item: DatabaseTreeItem, context: vscode.Extensi
                 vscode.NotebookCellKind.Code,
                 `-- Create a new role
 CREATE ROLE role_name WITH
-    NOLOGIN
-    -- Add more attributes as needed:
-    -- SUPERUSER | NOSUPERUSER
-    -- CREATEDB | NOCREATEDB
-    -- CREATEROLE | NOCREATEROLE
-    -- INHERIT | NOINHERIT
-    -- REPLICATION | NOREPLICATION
-;
+NOLOGIN
+--Add more attributes as needed:
+--SUPERUSER | NOSUPERUSER
+--CREATEDB | NOCREATEDB
+--CREATEROLE | NOCREATEROLE
+--INHERIT | NOINHERIT
+--REPLICATION | NOREPLICATION
+    ;
 
--- Optional: Grant privileges to the role
--- GRANT privilege ON object TO role_name;
--- GRANT other_role TO role_name;`,
+--Optional: Grant privileges to the role
+--GRANT privilege ON object TO role_name;
+--GRANT other_role TO role_name; `,
                 'sql'
             )
         ];
 
         await createAndShowNotebook(cells, metadata);
     } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to create role notebook: ${err.message}`);
+        vscode.window.showErrorMessage(`Failed to create role notebook: ${err.message} `);
     }
 }
 
@@ -174,7 +175,7 @@ CREATE ROLE role_name WITH
 export async function cmdEditRole(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateRoleItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
+        const connection = await getConnectionWithPassword(item.connectionId!);
         const metadata = createMetadata(connection, item.databaseName);
 
         const cells = [
@@ -223,13 +224,13 @@ ALTER ROLE ${item.label}
 export async function cmdGrantRevokeRole(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateRoleItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
+        const connection = await getConnectionWithPassword(item.connectionId!);
         const metadata = createMetadata(connection, item.databaseName);
 
         const cells = [
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `# Manage Privileges for ${item.label}\n\nGrant or revoke privileges using the commands below.`,
+                `# Manage Privileges for ${item.label}\n\nGrant or revoke privileges using the commands below. Uncomment the lines you wish to execute.`,
                 'markdown'
             ),
             new vscode.NotebookCellData(
@@ -278,13 +279,13 @@ GRANT USAGE ON ALL SEQUENCES IN SCHEMA schema_name TO ${item.label};
 export async function cmdDropRole(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateRoleItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
+        const connection = await getConnectionWithPassword(item.connectionId!);
         const metadata = createMetadata(connection, item.databaseName);
 
         const cells = [
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `# Drop Role: ${item.label}\n\n⚠️ **Warning:** This action will permanently delete the role. Make sure to reassign owned objects first if needed.`,
+                `# Drop Role: ${item.label}\n\n> [!WARNING]\n> **Warning:** This action will permanently delete the role. Make sure to reassign owned objects first if needed.`,
                 'markdown'
             ),
             new vscode.NotebookCellData(
@@ -318,13 +319,13 @@ DROP ROLE ${item.label};`,
 export async function cmdRoleOperations(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateRoleItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
+        const connection = await getConnectionWithPassword(item.connectionId!);
         const metadata = createMetadata(connection, item.databaseName);
 
         const cells = [
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `# Role Operations: ${item.label}\n\nThis notebook contains common operations for managing the role:\n- View role attributes\n- List role memberships\n- List granted privileges\n- Manage role`,
+                `# Role Operations: ${item.label}\n\nThis notebook contains common operations for managing the role. Run the cells below to execute the operations.\n\n## Available Operations\n- **View Attributes**: Show role settings\n- **List Memberships**: Roles this role belongs to\n- **List Members**: Roles that belong to this role\n- **List Privileges**: Objects this role can access`,
                 'markdown'
             ),
             new vscode.NotebookCellData(
@@ -407,11 +408,17 @@ ORDER BY table_schema, table_name, privilege_type;`,
 export async function cmdShowRoleProperties(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         validateRoleItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId, context);
-        let client: Client | undefined;
+        const connectionConfig = await getConnectionWithPassword(item.connectionId!);
+        const client = await ConnectionManager.getInstance().getConnection({
+            id: connectionConfig.id,
+            host: connectionConfig.host,
+            port: connectionConfig.port,
+            username: connectionConfig.username,
+            database: item.databaseName,
+            name: connectionConfig.name
+        });
 
         try {
-            client = await createPgClient(connection, item.databaseName);
 
             const roleResult = await client.query(ROLE_DETAILS_QUERY, [item.label]);
             if (roleResult.rows.length === 0) {
@@ -419,7 +426,7 @@ export async function cmdShowRoleProperties(item: DatabaseTreeItem, context: vsc
             }
 
             const role = roleResult.rows[0];
-            const metadata = createMetadata(connection, item.databaseName);
+            const metadata = createMetadata(connectionConfig, item.databaseName);
 
             // Format sections
             const sections = formatRoleSections(role);
@@ -431,7 +438,8 @@ export async function cmdShowRoleProperties(item: DatabaseTreeItem, context: vsc
                     `## Attributes\n\`\`\`\n${sections.attributes}\n\`\`\`\n\n` +
                     sections.membershipSection + '\n' +
                     sections.databasesSection + '\n' +
-                    sections.privilegesSection,
+                    sections.privilegesSection + '\n\n' +
+                    `Execute the cell below to query the latest role details from the database.`,
                     'markdown'
                 ),
                 new vscode.NotebookCellData(
@@ -443,7 +451,7 @@ export async function cmdShowRoleProperties(item: DatabaseTreeItem, context: vsc
 
             await createAndShowNotebook(cells, metadata);
         } finally {
-            await closeClient(client);
+            // Connection is managed by ConnectionManager, no need to close
         }
     } catch (err: any) {
         vscode.window.showErrorMessage(`Failed to show role properties: ${err.message}`);
@@ -543,4 +551,11 @@ SELECT
 FROM information_schema.table_privileges
 WHERE grantee = '${roleName}'
 ORDER BY table_schema, table_name, privilege_type;`;
+}
+
+/**
+ * cmdRefreshRole - Refreshes the role item in the tree view.
+ */
+export async function cmdRefreshRole(item: DatabaseTreeItem, context: vscode.ExtensionContext, databaseTreeProvider?: DatabaseTreeProvider) {
+    databaseTreeProvider?.refresh(item);
 }
