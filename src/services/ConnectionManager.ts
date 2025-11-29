@@ -26,16 +26,18 @@ export class ConnectionManager {
             return client;
         }
 
-        const password = await SecretStorageService.getInstance().getPassword(config.id);
-        if (!password) {
-            throw new Error(`Password not found for connection: ${config.name}`);
+        // Get password from secret storage if username is provided
+        let password: string | undefined;
+        if (config.username) {
+            password = await SecretStorageService.getInstance().getPassword(config.id);
+            // If username is provided but password is not found in storage, it might still work for some auth methods
         }
 
         const client = new Client({
             host: config.host,
             port: config.port,
-            user: config.username,
-            password: password,
+            user: config.username || undefined,
+            password: password || undefined,
             database: config.database || 'postgres',
             connectionTimeoutMillis: 5000
         });

@@ -3,7 +3,7 @@ export interface ConnectionConfig {
     name?: string;
     host: string;
     port: number;
-    username: string;
+    username?: string;
     password?: string;
     database?: string;
 }
@@ -13,7 +13,7 @@ export interface PostgresMetadata {
     databaseName: string | undefined;
     host: string;
     port: number;
-    username: string;
+    username?: string;
     password?: string;
     custom?: {
         cells: any[];
@@ -22,7 +22,7 @@ export interface PostgresMetadata {
             databaseName: string | undefined;
             host: string;
             port: number;
-            username: string;
+            username?: string;
             password?: string;
             enableScripts: boolean;
         };

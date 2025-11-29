@@ -66,9 +66,9 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseTre
                     ];
 
                 case 'databases-group':
-                    // Show all databases under the Databases group
+                    // Show all databases under the Databases group (including system databases)
                     const dbResult = await client.query(
-                        "SELECT datname FROM pg_database WHERE datistemplate = false AND datname != 'postgres' ORDER BY datname"
+                        "SELECT datname FROM pg_database ORDER BY datname"
                     );
                     return dbResult.rows.map(row => new DatabaseTreeItem(
                         row.datname,

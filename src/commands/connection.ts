@@ -93,20 +93,46 @@ export async function cmdDisconnectDatabase(item: DatabaseTreeItem, context: vsc
             const config = vscode.workspace.getConfiguration();
             const connections = config.get<any[]>('postgresExplorer.connections') || [];
 
+            // Find the connection to verify it exists
+            const connectionToDelete = connections.find(c => c.id === item.connectionId);
+            if (!connectionToDelete) {
+                vscode.window.showWarningMessage(`Connection '${item.label}' not found.`);
+                return;
+            }
+
             // Remove the connection info from settings
             const updatedConnections = connections.filter(c => c.id !== item.connectionId);
             await config.update('postgresExplorer.connections', updatedConnections, vscode.ConfigurationTarget.Global);
 
-            // Remove the password from SecretStorage
-            await SecretStorageService.getInstance().deletePassword(item.connectionId!);
+            // Remove the password from SecretStorage (if it exists)
+            try {
+                await SecretStorageService.getInstance().deletePassword(item.connectionId!);
+            } catch (err) {
+                // Password might not exist if connection was created without credentials
+                console.log(`No password to delete for connection ${item.connectionId}`);
+            }
 
-            // Close any active connections
-            // We can't easily close specific connections without more info, but they will be cleaned up eventually
-            // Ideally ConnectionManager should have a removeConnection method if we tracked by ID only
+            // Close any active connections in ConnectionManager
+            try {
+                await ConnectionManager.getInstance().closeConnection({
+                    id: connectionToDelete.id,
+                    host: connectionToDelete.host,
+                    port: connectionToDelete.port,
+                    username: connectionToDelete.username,
+                    database: connectionToDelete.database
+                });
+            } catch (err) {
+                // Connection might not be open, that's okay
+                console.log(`No active connection to close for ${item.connectionId}`);
+            }
 
+            // Refresh the tree view
             databaseTreeProvider?.refresh();
+
+            vscode.window.showInformationMessage(`Connection '${item.label}' has been deleted successfully.`);
         } catch (err: any) {
             vscode.window.showErrorMessage(`Failed to delete connection: ${err.message}`);
+            console.error('Delete connection error:', err);
         }
     }
 }
