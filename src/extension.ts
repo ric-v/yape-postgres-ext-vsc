@@ -5,22 +5,28 @@ import { DatabaseTreeItem, DatabaseTreeProvider } from './providers/DatabaseTree
 import { PostgresKernel } from './providers/NotebookKernel';
 import { PostgresNotebookProvider } from './notebookProvider';
 import { PostgresNotebookSerializer } from './postgresNotebook';
-import { cmdRefreshDatabase, cmdCreateDatabase, cmdDeleteDatabase, cmdAddObjectInDatabase, cmdDatabaseOperations, cmdDatabaseDashboard, cmdBackupDatabase, cmdRestoreDatabase, cmdGenerateCreateScript, cmdDisconnectDatabase as cmdDisconnectDatabaseLegacy, cmdMaintenanceDatabase, cmdQueryTool, cmdPsqlTool, cmdShowConfiguration } from './commands/database';
+import { cmdRefreshDatabase, cmdCreateDatabase, cmdDeleteDatabase, cmdAddObjectInDatabase, cmdDatabaseOperations, cmdDatabaseDashboard, cmdBackupDatabase, cmdRestoreDatabase, cmdGenerateCreateScript, cmdDisconnectDatabase as cmdDisconnectDatabaseLegacy, cmdMaintenanceDatabase, cmdQueryTool, cmdPsqlTool, cmdShowConfiguration, cmdScriptAlterDatabase } from './commands/database';
 import { cmdRefreshSchema, cmdCreateSchema, cmdCreateObjectInSchema, cmdSchemaOperations, cmdShowSchemaProperties } from './commands/schema';
-import { cmdRefreshTable, cmdTableOperations, cmdEditTable, cmdInsertTable, cmdUpdateTable, cmdShowTableProperties, cmdViewTableData, cmdDropTable, cmdTruncateTable, cmdScriptSelect, cmdScriptInsert, cmdScriptUpdate, cmdScriptDelete, cmdScriptCreate, cmdMaintenanceVacuum, cmdMaintenanceAnalyze, cmdMaintenanceReindex } from './commands/tables';
-import { cmdRefreshView, cmdViewOperations, cmdShowViewProperties, cmdEditView, cmdViewData, cmdDropView } from './commands/views';
-import { cmdRefreshFunction, cmdFunctionOperations, cmdShowFunctionProperties, cmdEditFunction, cmdCallFunction, cmdDropFunction } from './commands/functions';
-import { cmdRefreshMatView, cmdMatViewOperations, cmdEditMatView, cmdViewMatViewData, cmdViewMatViewProperties, cmdDropMatView } from './commands/materializedViews';
-import { cmdRefreshForeignTable, cmdForeignTableOperations, cmdEditForeignTable } from './commands/foreignTables';
+import { cmdRefreshTable, cmdTableOperations, cmdEditTable, cmdInsertTable, cmdUpdateTable, cmdShowTableProperties, cmdViewTableData, cmdDropTable, cmdTruncateTable, cmdScriptSelect, cmdScriptInsert, cmdScriptUpdate, cmdScriptDelete, cmdScriptCreate, cmdMaintenanceVacuum, cmdMaintenanceAnalyze, cmdMaintenanceReindex, cmdCreateTable } from './commands/tables';
+import { cmdRefreshView, cmdViewOperations, cmdShowViewProperties, cmdEditView, cmdViewData, cmdDropView, cmdCreateView } from './commands/views';
+import { cmdRefreshFunction, cmdFunctionOperations, cmdShowFunctionProperties, cmdEditFunction, cmdCallFunction, cmdDropFunction, cmdCreateFunction } from './commands/functions';
+import { cmdRefreshMatView, cmdMatViewOperations, cmdEditMatView, cmdViewMatViewData, cmdViewMatViewProperties, cmdDropMatView, cmdCreateMaterializedView } from './commands/materializedViews';
+import { cmdRefreshForeignTable, cmdForeignTableOperations, cmdEditForeignTable, cmdCreateForeignTable } from './commands/foreignTables';
 import { cmdRefreshExtension, cmdExtensionOperations, cmdEnableExtension, cmdDropExtension } from './commands/extensions';
-import { cmdRefreshType, cmdAllOperationsTypes, cmdEditTypes, cmdShowTypeProperties, cmdDropType } from './commands/types';
+import { cmdRefreshType, cmdAllOperationsTypes, cmdEditTypes, cmdShowTypeProperties, cmdDropType, cmdCreateType } from './commands/types';
 import { cmdRefreshRole, cmdRoleOperations, cmdAddRole, cmdShowRoleProperties, cmdAddUser, cmdEditRole, cmdGrantRevokeRole, cmdDropRole } from './commands/usersRoles';
 import { cmdNewNotebook } from './commands/notebook';
 import { cmdDisconnectConnection, cmdConnectDatabase, cmdDisconnectDatabase } from './commands/connection';
 import { SecretStorageService } from './services/SecretStorageService';
 import { ConnectionManager } from './services/ConnectionManager';
+import { cmdAiAssist } from './commands/aiAssist';
+import { AiCodeLensProvider } from './providers/AiCodeLensProvider';
+
+export let outputChannel: vscode.OutputChannel;
 
 export async function activate(context: vscode.ExtensionContext) {
+    outputChannel = vscode.window.createOutputChannel('PostgreSQL Explorer');
+    outputChannel.appendLine('postgres-explorer: Activating extension');
     console.log('postgres-explorer: Activating extension');
 
     // Initialize services
@@ -138,6 +144,18 @@ export async function activate(context: vscode.ExtensionContext) {
         {
             command: 'postgres-explorer.createInDatabase',
             callback: async (item: DatabaseTreeItem) => await cmdAddObjectInDatabase(item, context)
+        },
+        {
+            command: 'postgres-explorer.createDatabase',
+            callback: async (item: DatabaseTreeItem) => await cmdCreateDatabase(item, context)
+        },
+        {
+            command: 'postgres-explorer.dropDatabase',
+            callback: async (item: DatabaseTreeItem) => await cmdDeleteDatabase(item, context)
+        },
+        {
+            command: 'postgres-explorer.scriptAlterDatabase',
+            callback: async (item: DatabaseTreeItem) => await cmdScriptAlterDatabase(item, context)
         },
         {
             command: 'postgres-explorer.databaseOperations',
@@ -433,14 +451,71 @@ export async function activate(context: vscode.ExtensionContext) {
             callback: async (item: DatabaseTreeItem) => await cmdDisconnectDatabase(item, context, databaseTreeProvider)
         },
 
+        {
+            command: 'postgres-explorer.createTable',
+            callback: async (item: DatabaseTreeItem) => await cmdCreateTable(item, context)
+        },
+        {
+            command: 'postgres-explorer.createView',
+            callback: async (item: DatabaseTreeItem) => await cmdCreateView(item, context)
+        },
+        {
+            command: 'postgres-explorer.createFunction',
+            callback: async (item: DatabaseTreeItem) => await cmdCreateFunction(item, context)
+        },
+        {
+            command: 'postgres-explorer.createMaterializedView',
+            callback: async (item: DatabaseTreeItem) => await cmdCreateMaterializedView(item, context)
+        },
+        {
+            command: 'postgres-explorer.createType',
+            callback: async (item: DatabaseTreeItem) => await cmdCreateType(item, context)
+        },
+        {
+            command: 'postgres-explorer.createForeignTable',
+            callback: async (item: DatabaseTreeItem) => await cmdCreateForeignTable(item, context)
+        },
+        {
+            command: 'postgres-explorer.createRole',
+            callback: async (item: DatabaseTreeItem) => await cmdAddRole(item, context)
+        },
+        {
+            command: 'postgres-explorer.enableExtension',
+            callback: async (item: DatabaseTreeItem) => await cmdEnableExtension(item, context)
+        },
+
+        {
+            command: 'postgres-explorer.aiAssist',
+            callback: async (cell: vscode.NotebookCell) => await cmdAiAssist(cell, context, outputChannel)
+        },
     ];
 
     // Register all commands
+    console.log('Starting command registration...');
+    outputChannel.appendLine('Starting command registration...');
+
     commands.forEach(({ command, callback }) => {
-        context.subscriptions.push(
-            vscode.commands.registerCommand(command, callback)
-        );
+        try {
+            console.log(`Registering command: ${command}`);
+            context.subscriptions.push(
+                vscode.commands.registerCommand(command, callback)
+            );
+        } catch (e) {
+            console.error(`Failed to register command ${command}:`, e);
+            outputChannel.appendLine(`Failed to register command ${command}: ${e}`);
+        }
     });
+
+    outputChannel.appendLine('All commands registered successfully.');
+
+    // Register CodeLens Provider
+    context.subscriptions.push(
+        vscode.languages.registerCodeLensProvider(
+            { language: 'postgres', scheme: 'vscode-notebook-cell' },
+            new AiCodeLensProvider()
+        )
+    );
+    outputChannel.appendLine('AiCodeLensProvider registered.');
 }
 
 export async function deactivate() {

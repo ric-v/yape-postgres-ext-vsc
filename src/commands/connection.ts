@@ -61,6 +61,15 @@ export function validateItem(item: DatabaseTreeItem): asserts item is DatabaseTr
 }
 
 /**
+ * validateCategoryItem - Validates the selected category item in the database tree.
+ */
+export function validateCategoryItem(item: DatabaseTreeItem): asserts item is DatabaseTreeItem & { connectionId: string } {
+    if (!item?.connectionId) {
+        throw new Error('Invalid category selection');
+    }
+}
+
+/**
  * getConnectionWithPassword - Retrieves the connection details and password for the specified connection ID.
  */
 export async function getConnectionWithPassword(connectionId: string): Promise<any> {

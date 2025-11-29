@@ -41,7 +41,16 @@ export async function cmdRefreshMatView(item: DatabaseTreeItem, context: vscode.
         const cells = [
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `# Refresh Materialized View: ${item.schema}.${item.label}\n\nExecute the cell below to refresh the materialized view data.`,
+                `### Refresh Materialized View: \`${item.schema}.${item.label}\`
+
+<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>ℹ️ Note:</strong> Execute the cell below to refresh the materialized view data.
+</div>`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### 🔄 Refresh Command`,
                 'markdown'
             ),
             new vscode.NotebookCellData(
@@ -82,7 +91,20 @@ export async function cmdEditMatView(item: DatabaseTreeItem, context: vscode.Ext
             const cells = [
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Markup,
-                    `# Edit Materialized View: ${item.schema}.${item.label}\n\nModify the materialized view definition below and execute the cell to update it.\n\n> **Note:** This will drop and recreate the materialized view.`,
+                    `### Edit Materialized View: \`${item.schema}.${item.label}\`
+
+<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>ℹ️ Note:</strong> Modify the materialized view definition below and execute the cell to update it.
+</div>
+
+<div style="font-size: 12px; background-color: #3e2d2d; border-left: 3px solid #e74c3c; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>⚠️ Warning:</strong> This will drop and recreate the materialized view.
+</div>`,
+                    'markdown'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 📝 View Definition`,
                     'markdown'
                 ),
                 new vscode.NotebookCellData(
@@ -110,7 +132,16 @@ export async function cmdViewMatViewData(item: DatabaseTreeItem, context: vscode
         const cells = [
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `# View Data: ${item.schema}.${item.label}\n\nModify the query below to filter or transform the data as needed.`,
+                `### View Data: \`${item.schema}.${item.label}\`
+
+<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>ℹ️ Note:</strong> Modify the query below to filter or transform the data as needed.
+</div>`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### 📖 Query Data`,
                 'markdown'
             ),
             new vscode.NotebookCellData(
@@ -190,7 +221,16 @@ export async function cmdDropMatView(item: DatabaseTreeItem, context: vscode.Ext
         const cells = [
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `# Drop Materialized View: ${item.schema}.${item.label}\n\n> [!WARNING]\n> **Warning:** This action will permanently delete the materialized view. This operation cannot be undone.`,
+                `### Drop Materialized View: \`${item.schema}.${item.label}\`
+
+<div style="font-size: 12px; background-color: #3e2d2d; border-left: 3px solid #e74c3c; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>🛑 Caution:</strong> This action will permanently delete the materialized view. This operation cannot be undone.
+</div>`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### ❌ Drop Command`,
                 'markdown'
             ),
             new vscode.NotebookCellData(
@@ -232,15 +272,31 @@ export async function cmdMatViewOperations(item: DatabaseTreeItem, context: vsco
             const cells = [
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Markup,
-                    `# Materialized View Operations: ${item.schema}.${item.label}\n\n**Properties:**\n- Owner: ${matview.matviewowner}\n- Size: ${matview.size}\n- Has Indexes: ${matview.hasindexes ? 'Yes' : 'No'}\n- Is Populated: ${matview.ispopulated ? 'Yes' : 'No'}\n${matview.tablespace ? `- Tablespace: ${matview.tablespace}` : ''}\n\nThis notebook contains common operations for this materialized view. Run the cells below to execute the operations.\n\n## Available Operations\n- **View Definition**: Show the CREATE MATERIALIZED VIEW statement\n- **Query Data**: Select the first 100 rows\n- **Refresh Data**: Update the view data\n- **Drop**: Delete the view (Warning: Irreversible)`,
+                    `### Materialized View Properties: \`${item.schema}.${item.label}\`
+
+<table style="font-size: 11px; width: 100%; border-collapse: collapse; margin-bottom: 15px;">
+    <tr><td style="font-weight: bold; width: 120px;">Owner:</td><td>${matview.matviewowner}</td></tr>
+    <tr><td style="font-weight: bold;">Size:</td><td>${matview.size}</td></tr>
+    <tr><td style="font-weight: bold;">Has Indexes:</td><td>${matview.hasindexes ? 'Yes' : 'No'}</td></tr>
+    <tr><td style="font-weight: bold;">Is Populated:</td><td>${matview.ispopulated ? 'Yes' : 'No'}</td></tr>
+    ${matview.tablespace ? `<tr><td style="font-weight: bold;">Tablespace:</td><td>${matview.tablespace}</td></tr>` : ''}
+</table>`,
+                    'markdown'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 📝 Definition`,
                     'markdown'
                 ),
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Code,
-                    `-- Current materialized view definition
-CREATE MATERIALIZED VIEW ${item.schema}.${item.label} AS
-${matview.definition};`,
+                    matview.definition,
                     'sql'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 📖 Query Data`,
+                    'markdown'
                 ),
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Code,
@@ -251,10 +307,20 @@ LIMIT 100;`,
                     'sql'
                 ),
                 new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 🔄 Refresh Data`,
+                    'markdown'
+                ),
+                new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Code,
                     `-- Refresh materialized view data
 REFRESH MATERIALIZED VIEW ${item.schema}.${item.label};`,
                     'sql'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### ❌ Drop View`,
+                    'markdown'
                 ),
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Code,
@@ -270,5 +336,57 @@ DROP MATERIALIZED VIEW IF EXISTS ${item.schema}.${item.label};`,
         }
     } catch (err: any) {
         vscode.window.showErrorMessage(`Failed to create materialized view operations notebook: ${err.message}`);
+    }
+}
+
+/**
+ * cmdCreateMaterializedView - Command to create a new materialized view in the database.
+ */
+export async function cmdCreateMaterializedView(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
+    try {
+        validateItem(item);
+        const connection = await getConnectionWithPassword(item.connectionId!);
+        const metadata = createMetadata(connection, item.databaseName);
+
+        const cells = [
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `### Create New Materialized View in Schema: \`${item.schema}\`
+
+<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>ℹ️ Note:</strong> Modify the definition below and execute the cell to create the materialized view.
+</div>`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### 📝 Materialized View Definition`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Code,
+                `-- Create new materialized view
+CREATE MATERIALIZED VIEW ${item.schema}.matview_name AS
+SELECT 
+    column1, 
+    column2
+FROM 
+    source_table
+WHERE 
+    condition
+WITH DATA;
+
+-- Add index (recommended for materialized views)
+CREATE INDEX idx_matview_name_column1 ON ${item.schema}.matview_name(column1);
+
+-- Add comment
+COMMENT ON MATERIALIZED VIEW ${item.schema}.matview_name IS 'Materialized view description';`,
+                'sql'
+            )
+        ];
+
+        await createAndShowNotebook(cells, metadata);
+    } catch (err: any) {
+        vscode.window.showErrorMessage(`Failed to create materialized view notebook: ${err.message}`);
     }
 }

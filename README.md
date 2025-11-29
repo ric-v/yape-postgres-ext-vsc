@@ -545,6 +545,12 @@ DROP TABLE report_data;
 > [!NOTE]
 > The notebook interface seamlessly integrates with GitHub Copilot and other agentic AI tools for intelligent SQL assistance.
 
+**New in v0.2.3: Enhanced AI Integration**
+- ✨ **"Ask AI" CodeLens**: Click the link directly above any SQL query to get instant help.
+- 🔘 **Inline Toolbar Button**: Access AI assistance from the cell toolbar.
+- 🧠 **Multiple Providers**: Support for **Google Gemini**, **OpenAI**, **Anthropic**, and **GitHub Copilot**.
+- ⚡ **Pre-defined Tasks**: Quickly **Explain**, **Fix**, **Optimize**, or **Format** your queries.
+
 **Copilot Features Available:**
 - 💡 **Intelligent Code Completion**: Auto-complete SQL queries as you type
 - 🔍 **Context-Aware Suggestions**: Get relevant table/column suggestions
@@ -554,6 +560,10 @@ DROP TABLE report_data;
 - 💬 **Natural Language to SQL**: Convert plain English to SQL queries
 
 **Example AI-Assisted Workflow:**
+1. Click **"✨ Ask AI"** above your query.
+2. Select a task (e.g., "Optimize Query") or type a custom instruction.
+3. Watch as the AI transforms your SQL in real-time!
+
 ```sql
 -- Cell 1: Ask AI to generate a query
 -- Create a query to find top 10 customers by total purchase amount in the last month

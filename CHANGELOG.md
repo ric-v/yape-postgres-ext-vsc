@@ -5,6 +5,18 @@ All notable changes to the PostgreSQL Explorer extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] - 2025-11-29
+
+### Added
+- **AI Assist CodeLens**: Added "✨ Ask AI" link directly above notebook cells for quick access to AI features
+- **Multiple AI Providers**: Added native support for Google Gemini, OpenAI, and Anthropic APIs
+- **Pre-defined AI Tasks**: Added quick actions for "Explain", "Fix Syntax", "Optimize", and "Format"
+- **Inline Toolbar Button**: Added "Ask AI to Modify" button to the cell toolbar
+- **Configuration**: Added settings for AI provider, API key, model, and custom endpoint
+
+### Fixed
+- **CodeLens Visibility**: Fixed issue where CodeLens was not appearing by correctly registering the `postgres` language ID
+
 ## [0.2.2] - 2025-11-29
 
 ### Fixed

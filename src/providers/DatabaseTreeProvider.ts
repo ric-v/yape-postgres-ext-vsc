@@ -307,7 +307,13 @@ export class DatabaseTreeItem extends vscode.TreeItem {
         public readonly roleAttributes?: { [key: string]: boolean }
     ) {
         super(label, collapsibleState);
-        this.contextValue = isInstalled ? `${type}-installed` : type;
+        if (type === 'category') {
+            // Create specific context value for categories (e.g., category-tables, category-views)
+            const suffix = label.toLowerCase().replace(/\s+&\s+/g, '-').replace(/\s+/g, '-');
+            this.contextValue = `category-${suffix}`;
+        } else {
+            this.contextValue = isInstalled ? `${type}-installed` : type;
+        }
         this.tooltip = this.getTooltip(type, comment, roleAttributes);
         this.description = this.getDescription(type, isInstalled, installedVersion, roleAttributes);
         this.iconPath = {
