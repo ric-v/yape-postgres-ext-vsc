@@ -1,7 +1,7 @@
 {
   "name": "postgres-explorer",
   "displayName": "PostgreSQL Explorer",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "PostgreSQL database explorer for VS Code with notebook support",
   "publisher": "ric-v",
   "private": false,
@@ -1122,7 +1122,9 @@
   "activationEvents": [
     "onNotebook:postgres-notebook",
     "onNotebook:postgres-query",
-    "onCommand:postgres-explorer.createSchema"
+    "onCommand:postgres-explorer.createSchema",
+    "onCommand:postgres-explorer.addConnection",
+    "onView:postgresExplorer"
   ],
   "main": "./out/extension.js",
   "scripts": {
