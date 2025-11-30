@@ -6,88 +6,6 @@ import { ConnectionManager } from '../services/ConnectionManager';
 import { DashboardPanel } from '../dashboard/DashboardPanel';
 
 /**
- * SQL Queries for database dashboard
- */
-
-/**
- * DATABASE_STATS_QUERY - Query to get overall database statistics.
- * Fetches:
- * - Database size
- * - Active connections count
- * - User tables count
- * - Total indexes count
- */
-const DATABASE_STATS_QUERY = `
-SELECT
-    pg_size_pretty(pg_database_size(current_database())) as "Database Size",
-    (SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()) as "Active Connections",
-    (SELECT count(*) FROM pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema')) as "User Tables",
-    (SELECT count(*) FROM pg_indexes WHERE schemaname NOT IN ('pg_catalog', 'information_schema')) as "Indexes";`;
-
-/**
- * TABLE_STATS_QUERY - Query to get table size and usage statistics.
- * Shows top 10 tables by total size.
- * Fetches:
- * - Schema name
- * - Table name
- * - Total size (table + indexes)
- * - Table size
- * - Index size
- * - Live row count
- */
-const TABLE_STATS_QUERY = `
-SELECT 
-    schemaname as "Schema",
-    relname as "Table",
-    pg_size_pretty(pg_total_relation_size(schemaname || '.' || relname)) as "Total Size",
-    pg_size_pretty(pg_table_size(schemaname || '.' || relname)) as "Table Size",
-    pg_size_pretty(pg_indexes_size(schemaname || '.' || relname)) as "Index Size",
-    n_live_tup as "Live Rows"
-FROM pg_stat_user_tables
-ORDER BY pg_total_relation_size(schemaname || '.' || relname) DESC
-LIMIT 10;`;
-
-/**
- * INDEX_STATS_QUERY - Query to get index usage statistics.
- * Shows top 10 indexes by scan count.
- * Fetches:
- * - Schema name
- * - Table name
- * - Index name
- * - Number of index scans
- * - Number of tuples read
- * - Number of tuples fetched
- */
-const INDEX_STATS_QUERY = `
-SELECT 
-    schemaname as "Schema",
-    relname as "Table",
-    indexrelname as "Index",
-    idx_scan as "Index Scans",
-    idx_tup_read as "Tuples Read",
-    idx_tup_fetch as "Tuples Fetched"
-FROM pg_stat_user_indexes
-ORDER BY idx_scan DESC
-LIMIT 10;`;
-
-/**
- * CACHE_STATS_QUERY - Query to get cache hit ratios.
- * Fetches:
- * - Index cache hit rate
- * - Table cache hit rate
- */
-const CACHE_STATS_QUERY = `
-SELECT 
-    'Index Hit Rate' as "Metric",
-    round(100 * sum(idx_blks_hit) / nullif(sum(idx_blks_hit + idx_blks_read), 0), 2) as "Ratio %"
-FROM pg_statio_user_indexes
-UNION ALL
-SELECT 
-    'Table Hit Rate',
-    round(100 * sum(heap_blks_hit) / nullif(sum(heap_blks_hit + heap_blks_read), 0), 2)
-FROM pg_statio_user_tables;`;
-
-/**
  * cmdShowDatabaseDashboard - Creates a notebook with database statistics and performance metrics.
  * Shows:
  * - Database size and general statistics
@@ -103,7 +21,7 @@ FROM pg_statio_user_tables;`;
  * await cmdShowDatabaseDashboard(databaseItem, context);
  * // Dashboard notebook is now displayed
  */
-export async function cmdDatabaseDashboard(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
+export async function cmdDatabaseDashboard(item: DatabaseTreeItem, context: vscode.ExtensionContext): Promise<void> {
     try {
         if (!item) {
             throw new Error('No database selected');
@@ -156,14 +74,6 @@ export async function cmdAddObjectInDatabase(item: DatabaseTreeItem, context: vs
         // Remove validateItem() call since it requires schema which isn't needed for database operations
 
         const connectionConfig = await getConnectionWithPassword(item.connectionId!);
-        const connection = await ConnectionManager.getInstance().getConnection({
-            id: connectionConfig.id,
-            host: connectionConfig.host,
-            port: connectionConfig.port,
-            username: connectionConfig.username,
-            database: item.databaseName,
-            name: connectionConfig.name
-        });
         const metadata = createMetadata(connectionConfig, item.databaseName);
 
         const schemaTemplate = {
@@ -174,19 +84,38 @@ export async function cmdAddObjectInDatabase(item: DatabaseTreeItem, context: vs
                     cell_type: "markdown",
                     metadata: { language: "markdown" },
                     value: [
-                        "# Create New Schema",
+                        "### 📂 Create New Schema",
                         "",
-                        "This notebook guides you through creating a new schema and setting up appropriate permissions. Each cell focuses on a specific aspect of schema creation and management.",
+                        "<div style=\"font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;\">",
+                        "    <strong>ℹ️ Note:</strong> This notebook guides you through creating a new PostgreSQL schema and configuring permissions. Schemas help organize database objects and control access.",
+                        "</div>",
                         "",
-                        "Execute the cells in order as needed for your use case."
+                        "#### 🎯 What is a Schema?",
+                        "",
+                        "A schema is a named collection of database objects (tables, views, functions) that:",
+                        "- 📦 Organizes objects logically",
+                        "- 🔐 Controls access at the schema level",
+                        "- 🏗️ Prevents naming conflicts",
+                        "- 👥 Supports multi-tenant applications",
+                        "",
+                        "<div style=\"font-size: 12px; background-color: #2d3e30; border-left: 3px solid #2ecc71; padding: 6px 10px; margin-top: 15px; border-radius: 3px;\">",
+                        "    <strong>💡 Tip:</strong> Execute cells in order. Skip optional sections if not needed for your use case.",
+                        "</div>"
                     ].join('\n')
                 },
                 {
                     cell_type: "markdown",
                     metadata: { language: "markdown" },
                     value: [
-                        "## 1. Create Schema",
+                        "#### 1. Create Schema",
                         "Create a new schema with optional ownership settings."
+                    ].join('\n')
+                },
+                {
+                    cell_type: "markdown",
+                    metadata: { language: "markdown" },
+                    value: [
+                        "##### 📝 Schema Definition"
                     ].join('\n')
                 },
                 {
@@ -204,8 +133,15 @@ export async function cmdAddObjectInDatabase(item: DatabaseTreeItem, context: vs
                     cell_type: "markdown",
                     metadata: { language: "markdown" },
                     value: [
-                        "## 2. Basic Permissions",
+                        "#### 2. Basic Permissions",
                         "Grant basic usage permissions to roles that need to access the schema."
+                    ].join('\n')
+                },
+                {
+                    cell_type: "markdown",
+                    metadata: { language: "markdown" },
+                    value: [
+                        "##### 🛡️ Grant Usage"
                     ].join('\n')
                 },
                 {
@@ -220,8 +156,15 @@ export async function cmdAddObjectInDatabase(item: DatabaseTreeItem, context: vs
                     cell_type: "markdown",
                     metadata: { language: "markdown" },
                     value: [
-                        "## 3. Object Permissions",
+                        "#### 3. Object Permissions",
                         "Grant permissions for existing tables and sequences in the schema."
+                    ].join('\n')
+                },
+                {
+                    cell_type: "markdown",
+                    metadata: { language: "markdown" },
+                    value: [
+                        "##### 🔐 Object Privileges"
                     ].join('\n')
                 },
                 {
@@ -239,8 +182,15 @@ export async function cmdAddObjectInDatabase(item: DatabaseTreeItem, context: vs
                     cell_type: "markdown",
                     metadata: { language: "markdown" },
                     value: [
-                        "## 4. Default Privileges",
+                        "#### 4. Default Privileges",
                         "Set up default privileges for objects that will be created in the future."
+                    ].join('\n')
+                },
+                {
+                    cell_type: "markdown",
+                    metadata: { language: "markdown" },
+                    value: [
+                        "##### 🔮 Future Objects"
                     ].join('\n')
                 },
                 {
@@ -260,8 +210,15 @@ export async function cmdAddObjectInDatabase(item: DatabaseTreeItem, context: vs
                     cell_type: "markdown",
                     metadata: { language: "markdown" },
                     value: [
-                        "## Example: Complete Schema Setup",
+                        "#### Example: Complete Schema Setup",
                         "Here's a practical example of creating an application schema with specific privileges."
+                    ].join('\n')
+                },
+                {
+                    cell_type: "markdown",
+                    metadata: { language: "markdown" },
+                    value: [
+                        "##### 🚀 Full Example"
                     ].join('\n')
                 },
                 {
@@ -291,18 +248,40 @@ export async function cmdAddObjectInDatabase(item: DatabaseTreeItem, context: vs
                     cell_type: "markdown",
                     metadata: { language: "markdown" },
                     value: [
-                        "# Create New Database User",
+                        "### 👤 Create New Database User",
                         "",
-                        "This notebook guides you through creating a new PostgreSQL user and setting up appropriate privileges.",
-                        "Execute the cells as needed for your specific use case."
+                        "<div style=\"font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;\">",
+                        "    <strong>ℹ️ Note:</strong> Create a new PostgreSQL user with login capabilities and configure appropriate privileges.",
+                        "</div>",
+                        "",
+                        "#### 🔑 User vs Role",
+                        "",
+                        "<table style=\"font-size: 11px; width: 100%; border-collapse: collapse;\">",
+                        "    <tr><th style=\"text-align: left;\">Aspect</th><th style=\"text-align: left;\">User</th><th style=\"text-align: left;\">Role</th></tr>",
+                        "    <tr><td><strong>Login</strong></td><td>✅ Can login</td><td>❌ Cannot login (by default)</td></tr>",
+                        "    <tr><td><strong>Purpose</strong></td><td>Individual database access</td><td>Group permissions</td></tr>",
+                        "    <tr><td><strong>Password</strong></td><td>Required</td><td>Not required</td></tr>",
+                        "    <tr><td><strong>Inheritance</strong></td><td>Inherits from roles</td><td>Can be granted to users</td></tr>",
+                        "</table>",
+                        "",
+                        "<div style=\"font-size: 12px; background-color: #3e2d2d; border-left: 3px solid #e74c3c; padding: 6px 10px; margin-top: 15px; border-radius: 3px;\">",
+                        "    <strong>⚠️ Important:</strong> Always use strong passwords and follow the principle of least privilege—grant only necessary permissions.",
+                        "</div>"
                     ].join('\n')
                 },
                 {
                     cell_type: "markdown",
                     metadata: { language: "markdown" },
                     value: [
-                        "## 1. Create User",
+                        "#### 1. Create User",
                         "Create a new user with basic attributes. Uncomment and modify additional attributes as needed."
+                    ].join('\n')
+                },
+                {
+                    cell_type: "markdown",
+                    metadata: { language: "markdown" },
+                    value: [
+                        "##### 👤 User Definition"
                     ].join('\n')
                 },
                 {
@@ -327,8 +306,15 @@ export async function cmdAddObjectInDatabase(item: DatabaseTreeItem, context: vs
                     cell_type: "markdown",
                     metadata: { language: "markdown" },
                     value: [
-                        "## 2. Database Privileges",
+                        "#### 2. Database Privileges",
                         "Grant database-level privileges to the new user."
+                    ].join('\n')
+                },
+                {
+                    cell_type: "markdown",
+                    metadata: { language: "markdown" },
+                    value: [
+                        "##### 🗄️ Database Access"
                     ].join('\n')
                 },
                 {
@@ -346,8 +332,15 @@ export async function cmdAddObjectInDatabase(item: DatabaseTreeItem, context: vs
                     cell_type: "markdown",
                     metadata: { language: "markdown" },
                     value: [
-                        "## 3. Schema Privileges",
+                        "#### 3. Schema Privileges",
                         "Grant schema-level privileges. Repeat for each schema as needed."
+                    ].join('\n')
+                },
+                {
+                    cell_type: "markdown",
+                    metadata: { language: "markdown" },
+                    value: [
+                        "##### 📂 Schema Access"
                     ].join('\n')
                 },
                 {
@@ -365,8 +358,15 @@ export async function cmdAddObjectInDatabase(item: DatabaseTreeItem, context: vs
                     cell_type: "markdown",
                     metadata: { language: "markdown" },
                     value: [
-                        "## 4. Table Privileges",
+                        "#### 4. Table Privileges",
                         "Grant table-level privileges within schemas."
+                    ].join('\n')
+                },
+                {
+                    cell_type: "markdown",
+                    metadata: { language: "markdown" },
+                    value: [
+                        "##### 📊 Table Access"
                     ].join('\n')
                 },
                 {
@@ -383,8 +383,15 @@ export async function cmdAddObjectInDatabase(item: DatabaseTreeItem, context: vs
                     cell_type: "markdown",
                     metadata: { language: "markdown" },
                     value: [
-                        "## 5. Default Privileges",
+                        "#### 5. Default Privileges",
                         "Set up default privileges for future objects."
+                    ].join('\n')
+                },
+                {
+                    cell_type: "markdown",
+                    metadata: { language: "markdown" },
+                    value: [
+                        "##### 🔮 Future Objects"
                     ].join('\n')
                 },
                 {
@@ -401,8 +408,15 @@ export async function cmdAddObjectInDatabase(item: DatabaseTreeItem, context: vs
                     cell_type: "markdown",
                     metadata: { language: "markdown" },
                     value: [
-                        "## Example: Read-only User",
+                        "#### Example: Read-only User",
                         "Here's a practical example of creating a read-only user."
+                    ].join('\n')
+                },
+                {
+                    cell_type: "markdown",
+                    metadata: { language: "markdown" },
+                    value: [
+                        "##### 👓 Read-Only Example"
                     ].join('\n')
                 },
                 {
@@ -436,18 +450,40 @@ export async function cmdAddObjectInDatabase(item: DatabaseTreeItem, context: vs
                     cell_type: "markdown",
                     metadata: { language: "markdown" },
                     value: [
-                        "# Create New Role",
+                        "### 👥 Create New Role",
                         "",
-                        "This notebook guides you through creating a new PostgreSQL role and configuring its privileges.",
-                        "Execute the cells you need for your specific use case."
+                        "<div style=\"font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;\">",
+                        "    <strong>ℹ️ Note:</strong> Roles are used to group permissions. Users can be added to roles to inherit their privileges.",
+                        "</div>",
+                        "",
+                        "#### 🎯 Common Role Patterns",
+                        "",
+                        "<table style=\"font-size: 11px; width: 100%; border-collapse: collapse;\">",
+                        "    <tr><th style=\"text-align: left;\">Role Type</th><th style=\"text-align: left;\">Use Case</th><th style=\"text-align: left;\">Permissions</th></tr>",
+                        "    <tr><td><strong>Readonly</strong></td><td>Reporting, analytics</td><td>SELECT only</td></tr>",
+                        "    <tr><td><strong>Read-Write</strong></td><td>Application access</td><td>SELECT, INSERT, UPDATE, DELETE</td></tr>",
+                        "    <tr><td><strong>Admin</strong></td><td>Database administration</td><td>ALL PRIVILEGES</td></tr>",
+                        "    <tr><td><strong>App Role</strong></td><td>Service accounts</td><td>Custom based on needs</td></tr>",
+                        "</table>",
+                        "",
+                        "<div style=\"font-size: 12px; background-color: #2d3e30; border-left: 3px solid #2ecc71; padding: 6px 10px; margin-top: 15px; border-radius: 3px;\">",
+                        "    <strong>💡 Tip:</strong> Create roles for job functions, not individuals. Grant roles to users for easier permission management.",
+                        "</div>"
                     ].join('\n')
                 },
                 {
                     cell_type: "markdown",
                     metadata: { language: "markdown" },
                     value: [
-                        "## 1. Create Role",
+                        "#### 1. Create Role",
                         "Create a new role with basic attributes. Uncomment and modify additional attributes as needed."
+                    ].join('\n')
+                },
+                {
+                    cell_type: "markdown",
+                    metadata: { language: "markdown" },
+                    value: [
+                        "##### 🎭 Role Definition"
                     ].join('\n')
                 },
                 {
@@ -472,8 +508,15 @@ export async function cmdAddObjectInDatabase(item: DatabaseTreeItem, context: vs
                     cell_type: "markdown",
                     metadata: { language: "markdown" },
                     value: [
-                        "## 2. Database Privileges",
+                        "#### 2. Database Privileges",
                         "Grant database-level privileges to the role."
+                    ].join('\n')
+                },
+                {
+                    cell_type: "markdown",
+                    metadata: { language: "markdown" },
+                    value: [
+                        "##### 🗄️ Database Access"
                     ].join('\n')
                 },
                 {
@@ -489,8 +532,15 @@ export async function cmdAddObjectInDatabase(item: DatabaseTreeItem, context: vs
                     cell_type: "markdown",
                     metadata: { language: "markdown" },
                     value: [
-                        "## 3. Schema Privileges",
+                        "#### 3. Schema Privileges",
                         "Grant schema-level privileges to the role."
+                    ].join('\n')
+                },
+                {
+                    cell_type: "markdown",
+                    metadata: { language: "markdown" },
+                    value: [
+                        "##### 📂 Schema Access"
                     ].join('\n')
                 },
                 {
@@ -506,8 +556,15 @@ export async function cmdAddObjectInDatabase(item: DatabaseTreeItem, context: vs
                     cell_type: "markdown",
                     metadata: { language: "markdown" },
                     value: [
-                        "## 4. Object Privileges",
+                        "#### 4. Object Privileges",
                         "Grant privileges on tables, functions, and sequences."
+                    ].join('\n')
+                },
+                {
+                    cell_type: "markdown",
+                    metadata: { language: "markdown" },
+                    value: [
+                        "##### 🔐 Object Access"
                     ].join('\n')
                 },
                 {
@@ -528,8 +585,15 @@ export async function cmdAddObjectInDatabase(item: DatabaseTreeItem, context: vs
                     cell_type: "markdown",
                     metadata: { language: "markdown" },
                     value: [
-                        "## 5. Default Privileges",
+                        "#### 5. Default Privileges",
                         "Set up default privileges for future objects."
+                    ].join('\n')
+                },
+                {
+                    cell_type: "markdown",
+                    metadata: { language: "markdown" },
+                    value: [
+                        "##### 🔮 Future Objects"
                     ].join('\n')
                 },
                 {
@@ -551,8 +615,15 @@ export async function cmdAddObjectInDatabase(item: DatabaseTreeItem, context: vs
                     cell_type: "markdown",
                     metadata: { language: "markdown" },
                     value: [
-                        "## Example: Application Role",
+                        "#### Example: Application Role",
                         "Here's a practical example of creating an application role with read-only access."
+                    ].join('\n')
+                },
+                {
+                    cell_type: "markdown",
+                    metadata: { language: "markdown" },
+                    value: [
+                        "##### 🚀 App Role Example"
                     ].join('\n')
                 },
                 {
@@ -586,18 +657,42 @@ export async function cmdAddObjectInDatabase(item: DatabaseTreeItem, context: vs
                     cell_type: "markdown",
                     metadata: { language: "markdown" },
                     value: [
-                        "# Enable PostgreSQL Extension",
+                        "### 🧩 Enable PostgreSQL Extension",
                         "",
-                        "This notebook helps you enable and manage PostgreSQL extensions.",
-                        "Choose the cells you need based on your requirements."
+                        "<div style=\"font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;\">",
+                        "    <strong>ℹ️ Note:</strong> PostgreSQL extensions add functionality to your database. Enable only the extensions you need.",
+                        "</div>",
+                        "",
+                        "#### 📦 Popular Extensions",
+                        "",
+                        "<table style=\"font-size: 11px; width: 100%; border-collapse: collapse;\">",
+                        "    <tr><th style=\"text-align: left;\">Extension</th><th style=\"text-align: left;\">Purpose</th><th style=\"text-align: left;\">Use Case</th></tr>",
+                        "    <tr><td><strong>uuid-ossp</strong></td><td>UUID generation</td><td>Unique identifiers</td></tr>",
+                        "    <tr><td><strong>pgcrypto</strong></td><td>Cryptographic functions</td><td>Encryption, hashing</td></tr>",
+                        "    <tr><td><strong>hstore</strong></td><td>Key-value storage</td><td>Semi-structured data</td></tr>",
+                        "    <tr><td><strong>postgis</strong></td><td>Geospatial data</td><td>Maps, location data</td></tr>",
+                        "    <tr><td><strong>pg_stat_statements</strong></td><td>Query statistics</td><td>Performance monitoring</td></tr>",
+                        "    <tr><td><strong>pg_trgm</strong></td><td>Fuzzy text search</td><td>Similarity matching</td></tr>",
+                        "</table>",
+                        "",
+                        "<div style=\"font-size: 12px; background-color: #2d3e30; border-left: 3px solid #2ecc71; padding: 6px 10px; margin-top: 15px; border-radius: 3px;\">",
+                        "    <strong>💡 Tip:</strong> Check if the extension is already installed before enabling it to avoid errors.",
+                        "</div>"
                     ].join('\n')
                 },
                 {
                     cell_type: "markdown",
                     metadata: { language: "markdown" },
                     value: [
-                        "## 1. View Available Extensions",
+                        "#### 1. View Available Extensions",
                         "List extensions that can be installed but aren't yet enabled."
+                    ].join('\n')
+                },
+                {
+                    cell_type: "markdown",
+                    metadata: { language: "markdown" },
+                    value: [
+                        "##### 🔍 Available Extensions"
                     ].join('\n')
                 },
                 {
@@ -618,8 +713,15 @@ export async function cmdAddObjectInDatabase(item: DatabaseTreeItem, context: vs
                     cell_type: "markdown",
                     metadata: { language: "markdown" },
                     value: [
-                        "## 2. Enable Extension",
+                        "#### 2. Enable Extension",
                         "Enable a specific extension. Uncomment the extension you want to enable."
+                    ].join('\n')
+                },
+                {
+                    cell_type: "markdown",
+                    metadata: { language: "markdown" },
+                    value: [
+                        "##### 🔌 Enable Command"
                     ].join('\n')
                 },
                 {
@@ -646,8 +748,15 @@ export async function cmdAddObjectInDatabase(item: DatabaseTreeItem, context: vs
                     cell_type: "markdown",
                     metadata: { language: "markdown" },
                     value: [
-                        "## 3. Verify Installation",
+                        "#### 3. Verify Installation",
                         "Check if the extension was successfully installed."
+                    ].join('\n')
+                },
+                {
+                    cell_type: "markdown",
+                    metadata: { language: "markdown" },
+                    value: [
+                        "##### ✅ Verification"
                     ].join('\n')
                 },
                 {
@@ -662,8 +771,15 @@ export async function cmdAddObjectInDatabase(item: DatabaseTreeItem, context: vs
                     cell_type: "markdown",
                     metadata: { language: "markdown" },
                     value: [
-                        "## 4. List Installed Extensions",
+                        "#### 4. List Installed Extensions",
                         "View all currently installed extensions in the database."
+                    ].join('\n')
+                },
+                {
+                    cell_type: "markdown",
+                    metadata: { language: "markdown" },
+                    value: [
+                        "##### 📋 Installed Extensions"
                     ].join('\n')
                 },
                 {
@@ -769,20 +885,81 @@ export async function cmdDatabaseOperations(item: DatabaseTreeItem, context: vsc
             const dbInfo = await client.query(dbInfoQuery);
             const info = dbInfo.rows[0];
 
+            // Get schema sizes for visualization
+            const schemaSizeQuery = `
+                SELECT 
+                    pg_tables.schemaname as schema_name,
+                    pg_total_relation_size(pg_tables.schemaname || '.' || tablename) as table_size
+                FROM pg_tables
+                WHERE pg_tables.schemaname NOT IN ('pg_catalog', 'information_schema')
+            `;
+            const schemaSizes = await client.query(schemaSizeQuery);
+
+            // Process schema sizes for visualization
+            const schemaMap = new Map<string, number>();
+            let totalSize = 0;
+            schemaSizes.rows.forEach(row => {
+                const size = Number(row.table_size);
+                const current = schemaMap.get(row.schema_name) || 0;
+                schemaMap.set(row.schema_name, current + size);
+                totalSize += size;
+            });
+
+            // Generate ASCII Bar Chart in HTML Table
+            let schemaDistribution = '<table style="font-size: 11px; width: 100%; border-collapse: collapse;"><tr><th style="text-align: left;">Schema</th><th style="text-align: left;">Size</th><th style="text-align: left;">Distribution</th></tr>';
+            schemaMap.forEach((size, schema) => {
+                if (size > 0) {
+                    const percentage = (size / totalSize) * 100;
+                    const barLength = Math.floor(percentage / 5); // 20 chars max
+                    const bar = '█'.repeat(barLength) + '░'.repeat(20 - barLength);
+                    schemaDistribution += `<tr><td><strong>${schema}</strong></td><td>${(size / 1024 / 1024).toFixed(2)} MB</td><td><code>${bar}</code> ${percentage.toFixed(1)}%</td></tr>`;
+                }
+            });
+            schemaDistribution += '</table>';
+
             const cells = [
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Markup,
-                    `# Database Operations: ${item.label}
+                    `### 📊 Database Operations: \`${item.label}\`
 
-## Database Information
-- **Size**: ${info.Size}
-- **Owner**: ${info.Owner}
-- **Active Connections**: ${info["Active Connections"]}
-- **Schemas**: ${info.Schemas}
-- **Tables**: ${info.Tables}
-- **Roles**: ${info.Roles}
+<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>ℹ️ Note:</strong> Comprehensive database management notebook with statistics, monitoring queries, and administrative operations.
+</div>
 
-This notebook contains operations for managing the database. Execute the cells below to perform operations.`,
+#### 📈 Database Overview
+
+##### 📊 Schema Size Distribution
+${schemaDistribution}
+
+##### 🏥 Health Metrics
+<table style="font-size: 11px; width: 100%; border-collapse: collapse;">
+    <tr><th style="text-align: left;">Metric</th><th style="text-align: left;">Value</th><th style="text-align: left;">Description</th></tr>
+    <tr><td>🗄️ <strong>Database Size</strong></td><td><code>${info.Size}</code></td><td>Total storage used</td></tr>
+    <tr><td>👤 <strong>Owner</strong></td><td><code>${info.Owner}</code></td><td>Database owner</td></tr>
+    <tr><td>🔗 <strong>Active Connections</strong></td><td><code>${info["Active Connections"]}</code></td><td>Current connections</td></tr>
+    <tr><td>📂 <strong>Schemas</strong></td><td><code>${info.Schemas}</code></td><td>User schemas</td></tr>
+    <tr><td>📊 <strong>Tables</strong></td><td><code>${info.Tables}</code></td><td>User tables</td></tr>
+    <tr><td>👥 <strong>Roles</strong></td><td><code>${info.Roles}</code></td><td>Total roles/users</td></tr>
+</table>
+
+#### 🎯 Available Operations
+
+Execute the cells below to:
+- 📦 **View schema sizes** - Analyze storage by schema
+- 👥 **List users/roles** - Review permissions and access
+- 🔍 **Monitor connections** - Track active sessions
+- 🧩 **Check extensions** - See installed features
+
+<div style="font-size: 12px; background-color: #2d3e30; border-left: 3px solid #2ecc71; padding: 6px 10px; margin-top: 15px; border-radius: 3px;">
+    <strong>💡 Tip:</strong> Use these queries for monitoring, reporting, and database administration. Modify as needed for your specific use case.
+</div>
+
+---`,
+                    'markdown'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 📦 Schema Sizes`,
                     'markdown'
                 ),
                 new vscode.NotebookCellData(
@@ -802,6 +979,11 @@ ORDER BY sum(table_size) DESC;`,
                     'sql'
                 ),
                 new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 👥 User Roles & Privileges`,
+                    'markdown'
+                ),
+                new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Code,
                     `-- List users and roles
 SELECT r.rolname as "Role",
@@ -814,6 +996,11 @@ SELECT r.rolname as "Role",
 FROM pg_roles r
 ORDER BY r.rolname;`,
                     'sql'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 🔗 Active Connections`,
+                    'markdown'
                 ),
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Code,
@@ -830,6 +1017,11 @@ FROM pg_stat_activity
 WHERE datname = current_database()
 ORDER BY backend_start;`,
                     'sql'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 🧩 Installed Extensions`,
+                    'markdown'
                 ),
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Code,
@@ -916,7 +1108,16 @@ export async function cmdCreateDatabase(item: DatabaseTreeItem, context: vscode.
         const cells = [
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `# Create New Database\n\nExecute the cell below to create a new database.`,
+                `### 🆕 Create New Database
+
+<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>ℹ️ Note:</strong> Execute the cell below to create a new database.
+</div>`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### 📝 Create Command`,
                 'markdown'
             ),
             new vscode.NotebookCellData(
@@ -953,7 +1154,16 @@ export async function cmdDeleteDatabase(item: DatabaseTreeItem, context: vscode.
         const cells = [
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `# Delete Database: ${item.label}\n\n⚠️ **Warning:** This action will permanently delete the database '${item.label}' and all its data. This operation cannot be undone.`,
+                `### ❌ Delete Database: \`${item.label}\`
+
+<div style="font-size: 12px; background-color: #3e2d2d; border-left: 3px solid #e74c3c; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>🛑 Caution:</strong> This action will <strong>PERMANENTLY DELETE</strong> the database and <strong>ALL DATA</strong>. This cannot be undone!
+</div>`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### ❌ Drop Command`,
                 'markdown'
             ),
             new vscode.NotebookCellData(
@@ -973,50 +1183,135 @@ DROP DATABASE IF EXISTS "${item.label}";`,
 export async function cmdBackupDatabase(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         const connectionConfig = await getConnectionWithPassword(item.connectionId!);
-        const metadata = createMetadata(connectionConfig, item.databaseName);
 
-        const cells = [
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Markup,
-                `# Backup Database: ${item.label}\n\nUse \`pg_dump\` to backup your database. Run the command below in your terminal.`,
-                'markdown'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Code,
-                `# Run in terminal
-pg_dump -h ${connectionConfig.host} -p ${connectionConfig.port} -U ${connectionConfig.username} -F c -b -v -f "${item.label}_backup.dump" "${item.label}"`,
-                'sql' // Using SQL highlighting for shell command for now, or could use 'shellscript' if supported
-            )
-        ];
+        // 1. Prompt for save location
+        const uri = await vscode.window.showSaveDialog({
+            defaultUri: vscode.Uri.file(`${item.label}_backup.dump`),
+            filters: { 'PostgreSQL Dump': ['dump', 'sql', 'tar'] },
+            title: 'Select Backup Location'
+        });
 
-        await createAndShowNotebook(cells, metadata);
+        if (!uri) {
+            return; // User cancelled
+        }
+
+        const filePath = uri.fsPath;
+
+        // 2. Construct pg_dump command
+        // Use quotes for paths to handle spaces
+        const command = `pg_dump -h ${connectionConfig.host} -p ${connectionConfig.port} -U ${connectionConfig.username} -F c -b -v -f "${filePath}" "${item.label}"`;
+
+        // 3. Create Help HTML
+        const htmlContent = `
+            <h1>📦 Database Backup Guide</h1>
+            <p>You are about to backup database: <strong>${item.label}</strong></p>
+
+            <h2>Command Details</h2>
+            <p>The following command has been prepared in your terminal:</p>
+            <pre>${command}</pre>
+
+            <h3>🚩 Flags Explanation:</h3>
+            <ul>
+                <li><code>-h, -p, -U</code>: Connection details (Host, Port, User)</li>
+                <li><code>-F c</code>: Custom format (compressed, allows reordering)</li>
+                <li><code>-b</code>: Include large objects (blobs)</li>
+                <li><code>-v</code>: Verbose mode (show progress)</li>
+                <li><code>-f</code>: Output file path</li>
+            </ul>
+
+            <h2>🚀 Next Steps</h2>
+            <ol>
+                <li>Go to the <strong>Terminal</strong> panel below.</li>
+                <li>Review the command.</li>
+                <li>Press <strong>Enter</strong> to execute.</li>
+                <li>Enter your password if prompted.</li>
+            </ol>
+
+            <div class="alert info">
+                <strong>ℹ️ Note:</strong> Ensure <code>pg_dump</code> is installed and in your system PATH.
+            </div>
+        `;
+
+        // 4. Show Help Webview
+        createHelpPanel(context, 'Backup Guide', htmlContent);
+
+        // 5. Open Terminal and Send Command
+        const terminal = vscode.window.createTerminal(`PG Backup: ${item.label}`);
+        terminal.show(true); // Preserve focus on editor if possible, but usually terminal takes focus
+        terminal.sendText(command, false); // false = do not execute immediately
+
     } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to create backup notebook: ${err.message}`);
+        vscode.window.showErrorMessage(`Failed to initiate backup: ${err.message}`);
     }
 }
 
 export async function cmdRestoreDatabase(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
         const connectionConfig = await getConnectionWithPassword(item.connectionId!);
-        const metadata = createMetadata(connectionConfig, item.databaseName);
 
-        const cells = [
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Markup,
-                `# Restore Database: ${item.label}\n\nUse \`pg_restore\` to restore your database. Run the command below in your terminal.`,
-                'markdown'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Code,
-                `# Run in terminal
-pg_restore -h ${connectionConfig.host} -p ${connectionConfig.port} -U ${connectionConfig.username} -d "${item.label}" -v "path/to/backup.dump"`,
-                'sql'
-            )
-        ];
+        // 1. Prompt for source file
+        const uris = await vscode.window.showOpenDialog({
+            canSelectFiles: true,
+            canSelectFolders: false,
+            canSelectMany: false,
+            filters: { 'PostgreSQL Dump': ['dump', 'sql', 'tar', 'backup'] },
+            title: 'Select Backup File to Restore'
+        });
 
-        await createAndShowNotebook(cells, metadata);
+        if (!uris || uris.length === 0) {
+            return; // User cancelled
+        }
+
+        const filePath = uris[0].fsPath;
+
+        // 2. Construct pg_restore command
+        // Note: -d is target database
+        const command = `pg_restore -h ${connectionConfig.host} -p ${connectionConfig.port} -U ${connectionConfig.username} -d "${item.label}" -v "${filePath}"`;
+
+        // 3. Create Help HTML
+        const htmlContent = `
+            <h1>♻️ Database Restore Guide</h1>
+            <p>You are about to restore database: <strong>${item.label}</strong></p>
+
+            <h2>Command Details</h2>
+            <p>The following command has been prepared in your terminal:</p>
+            <pre>${command}</pre>
+
+            <h3>🚩 Flags Explanation:</h3>
+            <ul>
+                <li><code>-h, -p, -U</code>: Connection details</li>
+                <li><code>-d</code>: Target database name</li>
+                <li><code>-v</code>: Verbose mode</li>
+                <li><code>"${filePath}"</code>: Source backup file</li>
+            </ul>
+
+            <div class="alert warning">
+                <strong>⚠️ Warning:</strong> Restoring will modify the existing database. Ensure you are restoring to the correct target!
+            </div>
+
+            <h2>🚀 Next Steps</h2>
+            <ol>
+                <li>Go to the <strong>Terminal</strong> panel below.</li>
+                <li>Review the command.</li>
+                <li>Press <strong>Enter</strong> to execute.</li>
+                <li>Enter your password if prompted.</li>
+            </ol>
+
+            <div class="alert info">
+                <strong>ℹ️ Note:</strong> Ensure <code>pg_restore</code> is installed and in your system PATH.
+            </div>
+        `;
+
+        // 4. Show Help Webview
+        createHelpPanel(context, 'Restore Guide', htmlContent);
+
+        // 5. Open Terminal and Send Command
+        const terminal = vscode.window.createTerminal(`PG Restore: ${item.label}`);
+        terminal.show(true);
+        terminal.sendText(command, false); // false = do not execute immediately
+
     } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to create restore notebook: ${err.message}`);
+        vscode.window.showErrorMessage(`Failed to initiate restore: ${err.message}`);
     }
 }
 
@@ -1046,7 +1341,16 @@ export async function cmdGenerateCreateScript(item: DatabaseTreeItem, context: v
         const cells = [
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `# CREATE Script for ${item.label}`,
+                `### 📝 CREATE Script: \`${item.label}\`
+
+<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>ℹ️ Note:</strong> This is the SQL script to recreate the database definition.
+</div>`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### 📄 Database Definition`,
                 'markdown'
             ),
             new vscode.NotebookCellData(
@@ -1083,7 +1387,25 @@ export async function cmdMaintenanceDatabase(item: DatabaseTreeItem, context: vs
         const cells = [
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `# Database Maintenance: ${item.label}`,
+                `### 🛠️ Database Maintenance: \`${item.label}\`
+
+<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>ℹ️ Note:</strong> Perform standard maintenance operations to optimize database performance.
+</div>
+
+#### 🎯 Operations
+
+<table style="font-size: 11px; width: 100%; border-collapse: collapse;">
+    <tr><th style="text-align: left;">Operation</th><th style="text-align: left;">Description</th></tr>
+    <tr><td><strong>VACUUM</strong></td><td>Reclaims storage and updates visibility map</td></tr>
+    <tr><td><strong>ANALYZE</strong></td><td>Updates optimizer statistics</td></tr>
+    <tr><td><strong>REINDEX</strong></td><td>Rebuilds indexes (commented out by default)</td></tr>
+</table>`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### 🧹 Maintenance Commands`,
                 'markdown'
             ),
             new vscode.NotebookCellData(
@@ -1150,7 +1472,16 @@ export async function cmdShowConfiguration(item: DatabaseTreeItem, context: vsco
         const cells = [
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `# Database Configuration: ${item.label}\n\nRun the query below to view the current configuration settings for this database.`,
+                `### ⚙️ Database Configuration: \`${item.label}\`
+
+<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>ℹ️ Note:</strong> View current configuration settings for this database.
+</div>`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### 📋 Configuration Settings`,
                 'markdown'
             ),
             new vscode.NotebookCellData(
@@ -1163,5 +1494,145 @@ export async function cmdShowConfiguration(item: DatabaseTreeItem, context: vsco
         await createAndShowNotebook(cells, metadata);
     } catch (err: any) {
         vscode.window.showErrorMessage(`Failed to show configuration: ${err.message}`);
+    }
+}
+
+/**
+ * Helper function to create a styled Webview panel for help guides.
+ */
+function createHelpPanel(context: vscode.ExtensionContext, title: string, content: string) {
+    const panel = vscode.window.createWebviewPanel(
+        'pgHelp',
+        title,
+        vscode.ViewColumn.One,
+        {
+            enableScripts: false,
+            localResourceRoots: []
+        }
+    );
+
+    panel.webview.html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${title}</title>
+    <style>
+        body { 
+            font-family: var(--vscode-font-family); 
+            color: var(--vscode-editor-foreground); 
+            background-color: var(--vscode-editor-background); 
+            padding: 20px; 
+            line-height: 1.6;
+        }
+        h1, h2, h3 { color: var(--vscode-textLink-foreground); }
+        h1 { border-bottom: 1px solid var(--vscode-widget-border); padding-bottom: 10px; }
+        code { 
+            background-color: var(--vscode-textBlockQuote-background); 
+            padding: 2px 4px; 
+            border-radius: 3px; 
+            font-family: var(--vscode-editor-font-family);
+        }
+        pre { 
+            background-color: var(--vscode-textBlockQuote-background); 
+            padding: 15px; 
+            border-radius: 5px; 
+            overflow-x: auto; 
+            border: 1px solid var(--vscode-widget-border);
+        }
+        .alert { 
+            padding: 15px; 
+            border-left: 5px solid; 
+            margin: 20px 0; 
+            border-radius: 3px; 
+        }
+        .info { 
+            background-color: rgba(52, 152, 219, 0.1); 
+            border-color: #3498db; 
+        }
+        .warning { 
+            background-color: rgba(231, 76, 60, 0.1); 
+            border-color: #e74c3c; 
+        }
+        ul, ol { padding-left: 25px; }
+        li { margin-bottom: 5px; }
+    </style>
+</head>
+<body>
+    ${content}
+</body>
+</html>`;
+}
+
+/**
+ * cmdScriptAlterDatabase - Command to generate ALTER DATABASE script.
+ */
+export async function cmdScriptAlterDatabase(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
+    try {
+        const connectionConfig = await getConnectionWithPassword(item.connectionId!);
+        const metadata = createMetadata(connectionConfig, item.databaseName);
+
+        const cells = [
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `### 📝 ALTER Database: \`${item.label}\`
+
+<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>ℹ️ Note:</strong> Use these commands to modify database attributes. Uncomment the operations you want to perform.
+</div>`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### 🔄 Rename Database`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Code,
+                `-- Rename database
+-- ALTER DATABASE "${item.label}" RENAME TO new_name;`,
+                'sql'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### 👤 Change Owner`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Code,
+                `-- Change owner
+-- ALTER DATABASE "${item.label}" OWNER TO new_owner;`,
+                'sql'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### ⚙️ Set Configuration`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Code,
+                `-- Set configuration parameter for this database
+-- ALTER DATABASE "${item.label}" SET configuration_parameter TO value;
+
+-- Example: Set search path
+-- ALTER DATABASE "${item.label}" SET search_path TO schema_name, public;`,
+                'sql'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### 🔌 Connection Limit`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Code,
+                `-- Set connection limit
+-- ALTER DATABASE "${item.label}" WITH CONNECTION LIMIT 50;`,
+                'sql'
+            )
+        ];
+
+        await createAndShowNotebook(cells, metadata);
+    } catch (err: any) {
+        vscode.window.showErrorMessage(`Failed to generate alter script: ${err.message}`);
     }
 }

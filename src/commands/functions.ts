@@ -101,15 +101,38 @@ export async function cmdFunctionOperations(item: DatabaseTreeItem, context: vsc
             const cells = [
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Markup,
-                    `# Function Operations: ${item.schema}.${item.label}\n\n` +
-                    `${functionInfo.description ? '> **Description:** ' + functionInfo.description + '\n\n' : ''}` +
-                    `This notebook contains common operations for the PostgreSQL function. Run the cells below to execute the operations.\n\n## Available Operations\n- **View Definition**: Show the current function code\n- **Call Function**: Template for executing the function\n- **Drop**: Delete the function (Warning: Irreversible)`,
+                    `### Function Operations: \`${item.schema}.${item.label}\`
+
+${functionInfo.description ? `<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;"><strong>ℹ️ Description:</strong> ${functionInfo.description}</div>` : ''}
+
+<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>ℹ️ Note:</strong> This notebook contains common operations for the PostgreSQL function. Run the cells below to execute the operations.
+</div>
+
+#### 🎯 Available Operations
+
+<table style="font-size: 11px; width: 100%; border-collapse: collapse;">
+    <tr><th style="text-align: left;">Operation</th><th style="text-align: left;">Description</th></tr>
+    <tr><td><strong>View Definition</strong></td><td>Show the current function code</td></tr>
+    <tr><td><strong>Call Function</strong></td><td>Template for executing the function</td></tr>
+    <tr><td><strong>Drop</strong></td><td>Delete the function (Warning: Irreversible)</td></tr>
+</table>`,
+                    'markdown'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 📝 Function Definition`,
                     'markdown'
                 ),
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Code,
                     `-- Current function definition\n${functionInfo.definition} `,
                     'sql'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 📞 Call Function`,
+                    'markdown'
                 ),
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Code,
@@ -120,10 +143,10 @@ export async function cmdFunctionOperations(item: DatabaseTreeItem, context: vsc
                     'sql'
                 ),
                 new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Code,
-                    `-- Drop function\nDROP FUNCTION IF EXISTS ${item.schema}.${item.label} (${functionInfo.arguments}); `,
-                    'sql'
-                )
+                    vscode.NotebookCellKind.Markup,
+                    `##### ❌ Drop Function`,
+                    'markdown'
+                ),
             ];
 
             await createAndShowNotebook(cells, metadata);
@@ -168,7 +191,16 @@ export async function cmdEditFunction(item: DatabaseTreeItem, context: vscode.Ex
             const cells = [
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Markup,
-                    `# Edit Function: ${item.schema}.${item.label}\n\nModify the function definition below and execute the cell to update the function.`,
+                    `### Edit Function: \`${item.schema}.${item.label}\`
+
+<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>ℹ️ Note:</strong> Modify the function definition below and execute the cell to update the function.
+</div>`,
+                    'markdown'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 📝 Function Definition`,
                     'markdown'
                 ),
                 new vscode.NotebookCellData(
@@ -220,11 +252,23 @@ export async function cmdCallFunction(item: DatabaseTreeItem, context: vscode.Ex
             const cells = [
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Markup,
-                    `# Call Function: ${item.schema}.${item.label}\n\n` +
-                    `${functionInfo.description ? '> **Description:** ' + functionInfo.description + '\n\n' : ''}` +
-                    `**Arguments:** \`${functionInfo.arguments || 'None'}\`\n\n` +
-                    `**Returns:** \`${functionInfo.result_type}\`\n\n` +
-                    `Edit the argument values below and execute the cell to call the function.`,
+                    `### Call Function: \`${item.schema}.${item.label}\`
+
+${functionInfo.description ? `<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;"><strong>ℹ️ Description:</strong> ${functionInfo.description}</div>` : ''}
+
+<table style="font-size: 11px; width: 100%; border-collapse: collapse; margin-bottom: 15px;">
+    <tr><td style="font-weight: bold; width: 100px;">Arguments:</td><td><code>${functionInfo.arguments || 'None'}</code></td></tr>
+    <tr><td style="font-weight: bold;">Returns:</td><td><code>${functionInfo.result_type}</code></td></tr>
+</table>
+
+<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>ℹ️ Note:</strong> Edit the argument values below and execute the cell to call the function.
+</div>`,
+                    'markdown'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 📞 Execution`,
                     'markdown'
                 ),
                 new vscode.NotebookCellData(
@@ -278,7 +322,16 @@ export async function cmdDropFunction(item: DatabaseTreeItem, context: vscode.Ex
             const cells = [
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Markup,
-                    `# Drop Function: ${item.schema}.${item.label}\n\n> [!WARNING]\n> **Warning:** This action will permanently delete the function. This operation cannot be undone.`,
+                    `### Drop Function: \`${item.schema}.${item.label}\`
+
+<div style="font-size: 12px; background-color: #3e2d2d; border-left: 3px solid #e74c3c; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>🛑 Caution:</strong> This action will permanently delete the function. This operation cannot be undone.
+</div>`,
+                    'markdown'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### ❌ Drop Command`,
                     'markdown'
                 ),
                 new vscode.NotebookCellData(
@@ -332,4 +385,51 @@ export async function cmdShowFunctionProperties(item: DatabaseTreeItem, context:
  */
 export async function cmdRefreshFunction(item: DatabaseTreeItem, context: vscode.ExtensionContext, databaseTreeProvider?: DatabaseTreeProvider) {
     databaseTreeProvider?.refresh(item);
+}
+
+/**
+ * cmdCreateFunction - Command to create a new function in the database.
+ */
+export async function cmdCreateFunction(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
+    try {
+        validateItem(item);
+        const connection = await getConnectionWithPassword(item.connectionId!);
+        const metadata = createMetadata(connection, item.databaseName);
+
+        const cells = [
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `### Create New Function in Schema: \`${item.schema}\`
+
+<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>ℹ️ Note:</strong> Modify the function definition below and execute the cell to create the function.
+</div>`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### 📝 Function Definition`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Code,
+                `-- Create new function
+CREATE OR REPLACE FUNCTION ${item.schema}.function_name(param1 integer, param2 text)
+RETURNS text AS $$
+BEGIN
+    -- Function logic here
+    RETURN 'Result: ' || param2;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Add comment
+COMMENT ON FUNCTION ${item.schema}.function_name(integer, text) IS 'Function description';`,
+                'sql'
+            )
+        ];
+
+        await createAndShowNotebook(cells, metadata);
+    } catch (err: any) {
+        vscode.window.showErrorMessage(`Failed to create function notebook: ${err.message}`);
+    }
 }

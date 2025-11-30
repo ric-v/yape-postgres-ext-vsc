@@ -87,7 +87,16 @@ export async function cmdAddUser(item: DatabaseTreeItem, context: vscode.Extensi
         const cells = [
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `# Create New User\n\nExecute the cell below to create a new user. Modify the user attributes as needed.`,
+                `### Create New User
+
+<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>ℹ️ Note:</strong> Execute the cell below to create a new user. Modify the user attributes as needed.
+</div>`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### 👤 User Definition`,
                 'markdown'
             ),
             new vscode.NotebookCellData(
@@ -137,7 +146,16 @@ export async function cmdAddRole(item: DatabaseTreeItem, context: vscode.Extensi
         const cells = [
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `# Create New Role\n\nExecute the cell below to create a new role. Modify the role attributes as needed.`,
+                `### Create New Role
+
+<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>ℹ️ Note:</strong> Execute the cell below to create a new role. Modify the role attributes as needed.
+</div>`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### 🎭 Role Definition`,
                 'markdown'
             ),
             new vscode.NotebookCellData(
@@ -181,7 +199,16 @@ export async function cmdEditRole(item: DatabaseTreeItem, context: vscode.Extens
         const cells = [
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `# Edit Role: ${item.label}\n\nModify the role's attributes using the ALTER ROLE command below.`,
+                `### Edit Role: \`${item.label}\`
+
+<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>ℹ️ Note:</strong> Modify the role's attributes using the ALTER ROLE command below.
+</div>`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### ✏️ Modify Attributes`,
                 'markdown'
             ),
             new vscode.NotebookCellData(
@@ -230,7 +257,16 @@ export async function cmdGrantRevokeRole(item: DatabaseTreeItem, context: vscode
         const cells = [
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `# Manage Privileges for ${item.label}\n\nGrant or revoke privileges using the commands below. Uncomment the lines you wish to execute.`,
+                `### Manage Privileges for \`${item.label}\`
+
+<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>ℹ️ Note:</strong> Grant or revoke privileges using the commands below. Uncomment the lines you wish to execute.
+</div>`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### 🛡️ Grant/Revoke Commands`,
                 'markdown'
             ),
             new vscode.NotebookCellData(
@@ -285,7 +321,16 @@ export async function cmdDropRole(item: DatabaseTreeItem, context: vscode.Extens
         const cells = [
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `# Drop Role: ${item.label}\n\n> [!WARNING]\n> **Warning:** This action will permanently delete the role. Make sure to reassign owned objects first if needed.`,
+                `### Drop Role: \`${item.label}\`
+
+<div style="font-size: 12px; background-color: #3e2d2d; border-left: 3px solid #e74c3c; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>🛑 Caution:</strong> This action will permanently delete the role. Make sure to reassign owned objects first if needed.
+</div>`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### ❌ Drop Command`,
                 'markdown'
             ),
             new vscode.NotebookCellData(
@@ -325,7 +370,26 @@ export async function cmdRoleOperations(item: DatabaseTreeItem, context: vscode.
         const cells = [
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `# Role Operations: ${item.label}\n\nThis notebook contains common operations for managing the role. Run the cells below to execute the operations.\n\n## Available Operations\n- **View Attributes**: Show role settings\n- **List Memberships**: Roles this role belongs to\n- **List Members**: Roles that belong to this role\n- **List Privileges**: Objects this role can access`,
+                `### Role Operations: \`${item.label}\`
+
+<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>ℹ️ Note:</strong> This notebook contains common operations for managing the role. Run the cells below to execute the operations.
+</div>
+
+#### 🎯 Available Operations
+
+<table style="font-size: 11px; width: 100%; border-collapse: collapse;">
+    <tr><th style="text-align: left;">Operation</th><th style="text-align: left;">Description</th></tr>
+    <tr><td><strong>View Attributes</strong></td><td>Show role settings</td></tr>
+    <tr><td><strong>List Memberships</strong></td><td>Roles this role belongs to</td></tr>
+    <tr><td><strong>List Members</strong></td><td>Roles that belong to this role</td></tr>
+    <tr><td><strong>List Privileges</strong></td><td>Objects this role can access</td></tr>
+</table>`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### 📋 Role Attributes`,
                 'markdown'
             ),
             new vscode.NotebookCellData(
@@ -345,6 +409,11 @@ WHERE r.rolname = '${item.label}';`,
                 'sql'
             ),
             new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### 🔗 Role Memberships`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Code,
                 `-- List role memberships (roles this role belongs to)
 SELECT r.rolname as "Role",
@@ -357,6 +426,11 @@ JOIN pg_roles m ON m.oid = am.roleid
 JOIN pg_roles g ON g.oid = am.grantor
 WHERE r.rolname = '${item.label}';`,
                 'sql'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### 👥 Role Members`,
+                'markdown'
             ),
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Code,
@@ -434,12 +508,27 @@ export async function cmdShowRoleProperties(item: DatabaseTreeItem, context: vsc
             const cells = [
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Markup,
-                    `# Role Properties: ${item.label}\n\n` +
-                    `## Attributes\n\`\`\`\n${sections.attributes}\n\`\`\`\n\n` +
-                    sections.membershipSection + '\n' +
-                    sections.databasesSection + '\n' +
-                    sections.privilegesSection + '\n\n' +
-                    `Execute the cell below to query the latest role details from the database.`,
+                    `### Role Properties: \`${item.label}\`
+
+<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>ℹ️ Note:</strong> Execute the cell below to query the latest role details from the database.
+</div>
+
+#### 📋 Attributes
+\`\`\`
+${sections.attributes}
+\`\`\`
+
+${sections.membershipSection}
+
+${sections.databasesSection}
+
+${sections.privilegesSection}`,
+                    'markdown'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 🔍 Role Details Query`,
                     'markdown'
                 ),
                 new vscode.NotebookCellData(

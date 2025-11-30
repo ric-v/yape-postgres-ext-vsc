@@ -76,13 +76,36 @@ export async function cmdAllOperationsTypes(item: DatabaseTreeItem, context: vsc
             const cells = [
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Markup,
-                    `# Type Operations: ${item.schema}.${item.label}\n\nThis notebook contains operations for managing the PostgreSQL type. Run the cells below to execute the operations.\n\n## Available Operations\n- **View Definition**: Show the CREATE TYPE statement\n- **Edit Type**: Template for modifying the type (requires recreation)\n- **Drop Type**: Delete the type (Warning: Irreversible)`,
+                    `### Type Operations: \`${item.schema}.${item.label}\`
+
+<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>ℹ️ Note:</strong> This notebook contains operations for managing the PostgreSQL type. Run the cells below to execute the operations.
+</div>
+
+#### 🎯 Available Operations
+
+<table style="font-size: 11px; width: 100%; border-collapse: collapse;">
+    <tr><th style="text-align: left;">Operation</th><th style="text-align: left;">Description</th></tr>
+    <tr><td><strong>View Definition</strong></td><td>Show the CREATE TYPE statement</td></tr>
+    <tr><td><strong>Edit Type</strong></td><td>Template for modifying the type (requires recreation)</td></tr>
+    <tr><td><strong>Drop Type</strong></td><td>Delete the type (Warning: Irreversible)</td></tr>
+</table>`,
+                    'markdown'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 📝 Type Definition`,
                     'markdown'
                 ),
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Code,
                     `-- Current type definition\n${typeDefinition}`,
                     'sql'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### ✏️ Edit Type`,
+                    'markdown'
                 ),
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Code,
@@ -95,6 +118,11 @@ CREATE TYPE ${item.schema}.${item.label} AS (
     field2 data_type
 );`,
                     'sql'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### ❌ Drop Type`,
+                    'markdown'
                 ),
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Code,
@@ -138,7 +166,16 @@ export async function cmdEditTypes(item: DatabaseTreeItem, context: vscode.Exten
             const cells = [
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Markup,
-                    `# Edit Type: ${item.schema}.${item.label}\n\nModify the type definition below and execute the cells to update it.`,
+                    `### Edit Type: \`${item.schema}.${item.label}\`
+
+<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>ℹ️ Note:</strong> Modify the type definition below and execute the cells to update it.
+</div>`,
+                    'markdown'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 📝 Type Definition`,
                     'markdown'
                 ),
                 new vscode.NotebookCellData(
@@ -368,7 +405,16 @@ export async function cmdDropType(item: DatabaseTreeItem, context: vscode.Extens
         const cells = [
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `# Drop Type: ${item.schema}.${item.label}\n\n> [!WARNING]\n> **Warning:** This action will permanently delete the type. This operation cannot be undone.`,
+                `### Drop Type: \`${item.schema}.${item.label}\`
+
+<div style="font-size: 12px; background-color: #3e2d2d; border-left: 3px solid #e74c3c; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>🛑 Caution:</strong> This action will permanently delete the type. This operation cannot be undone.
+</div>`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### ❌ Drop Command`,
                 'markdown'
             ),
             new vscode.NotebookCellData(
@@ -390,4 +436,57 @@ DROP TYPE IF EXISTS ${item.schema}.${item.label} CASCADE;`,
  */
 export async function cmdRefreshType(item: DatabaseTreeItem, context: vscode.ExtensionContext, databaseTreeProvider?: DatabaseTreeProvider) {
     databaseTreeProvider?.refresh(item);
+}
+
+/**
+ * cmdCreateType - Command to create a new type in the database.
+ */
+export async function cmdCreateType(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
+    try {
+        validateItem(item);
+        const connection = await getConnectionWithPassword(item.connectionId!);
+        const metadata = createMetadata(connection, item.databaseName);
+
+        const cells = [
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `### Create New Type in Schema: \`${item.schema}\`
+
+<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>ℹ️ Note:</strong> Modify the type definition below and execute the cell to create the type.
+</div>`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### 📝 Type Definition`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Code,
+                `-- Create new composite type
+CREATE TYPE ${item.schema}.type_name AS (
+    field1 text,
+    field2 integer
+);
+
+-- Or create an enum type
+/*
+CREATE TYPE ${item.schema}.status_enum AS ENUM (
+    'active',
+    'inactive',
+    'pending'
+);
+*/
+
+-- Add comment
+COMMENT ON TYPE ${item.schema}.type_name IS 'Type description';`,
+                'sql'
+            )
+        ];
+
+        await createAndShowNotebook(cells, metadata);
+    } catch (err: any) {
+        vscode.window.showErrorMessage(`Failed to create type notebook: ${err.message}`);
+    }
 }

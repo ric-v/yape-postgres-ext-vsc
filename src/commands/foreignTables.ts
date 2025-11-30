@@ -88,7 +88,26 @@ export async function cmdForeignTableOperations(item: DatabaseTreeItem, context:
             const cells = [
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Markup,
-                    `# Foreign Table Operations: ${item.schema}.${item.label}\n\nThis notebook contains operations for managing the PostgreSQL foreign table. Run the cells below to execute the operations.\n\n## Available Operations\n- **View Definition**: Show the CREATE FOREIGN TABLE statement\n- **Query Data**: Select the first 100 rows\n- **Edit Table**: Template for modifying the table (requires recreation)\n- **Drop Table**: Delete the table (Warning: Irreversible)`,
+                    `### Foreign Table Operations: \`${item.schema}.${item.label}\`
+
+<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>ℹ️ Note:</strong> This notebook contains operations for managing the PostgreSQL foreign table. Run the cells below to execute the operations.
+</div>
+
+#### 🎯 Available Operations
+
+<table style="font-size: 11px; width: 100%; border-collapse: collapse;">
+    <tr><th style="text-align: left;">Operation</th><th style="text-align: left;">Description</th></tr>
+    <tr><td><strong>View Definition</strong></td><td>Show the CREATE FOREIGN TABLE statement</td></tr>
+    <tr><td><strong>Query Data</strong></td><td>Select the first 100 rows</td></tr>
+    <tr><td><strong>Edit Table</strong></td><td>Template for modifying the table (requires recreation)</td></tr>
+    <tr><td><strong>Drop Table</strong></td><td>Delete the table (Warning: Irreversible)</td></tr>
+</table>`,
+                    'markdown'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 📝 Table Definition`,
                     'markdown'
                 ),
                 new vscode.NotebookCellData(
@@ -97,12 +116,22 @@ export async function cmdForeignTableOperations(item: DatabaseTreeItem, context:
                     'sql'
                 ),
                 new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 📖 Query Data`,
+                    'markdown'
+                ),
+                new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Code,
                     `-- Query data
 SELECT *
 FROM ${item.schema}.${item.label}
 LIMIT 100;`,
                     'sql'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### ✏️ Edit Table`,
+                    'markdown'
                 ),
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Code,
@@ -167,7 +196,16 @@ export async function cmdEditForeignTable(item: DatabaseTreeItem, context: vscod
             const cells = [
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Markup,
-                    `# Edit Foreign Table: ${item.schema}.${item.label}\n\nModify the foreign table definition below and execute the cells to update it.`,
+                    `### Edit Foreign Table: \`${item.schema}.${item.label}\`
+
+<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>ℹ️ Note:</strong> Modify the foreign table definition below and execute the cells to update it.
+</div>`,
+                    'markdown'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 📝 Table Definition`,
                     'markdown'
                 ),
                 new vscode.NotebookCellData(
@@ -195,4 +233,50 @@ ${createStatement}`,
  */
 export async function cmdRefreshForeignTable(item: DatabaseTreeItem, context: vscode.ExtensionContext, databaseTreeProvider?: DatabaseTreeProvider) {
     databaseTreeProvider?.refresh(item);
+}
+
+/**
+ * cmdCreateForeignTable - Command to create a new foreign table in the database.
+ */
+export async function cmdCreateForeignTable(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
+    try {
+        validateItem(item);
+        const connection = await getConnectionWithPassword(item.connectionId!);
+        const metadata = createMetadata(connection, item.databaseName);
+
+        const cells = [
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `### Create New Foreign Table in Schema: \`${item.schema}\`
+
+<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>ℹ️ Note:</strong> Modify the foreign table definition below and execute the cell to create the foreign table.
+</div>`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### 📝 Foreign Table Definition`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Code,
+                `-- Create new foreign table
+CREATE FOREIGN TABLE ${item.schema}.foreign_table_name (
+    column1 integer,
+    column2 text
+)
+SERVER foreign_server_name
+OPTIONS (schema_name 'remote_schema', table_name 'remote_table');
+
+-- Add comment
+COMMENT ON FOREIGN TABLE ${item.schema}.foreign_table_name IS 'Foreign table description';`,
+                'sql'
+            )
+        ];
+
+        await createAndShowNotebook(cells, metadata);
+    } catch (err: any) {
+        vscode.window.showErrorMessage(`Failed to create foreign table notebook: ${err.message}`);
+    }
 }

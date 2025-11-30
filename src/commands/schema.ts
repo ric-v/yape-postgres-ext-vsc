@@ -1,7 +1,7 @@
 import { Client } from 'pg';
 import * as vscode from 'vscode';
 import { DatabaseTreeItem, DatabaseTreeProvider } from '../providers/DatabaseTreeProvider';
-import { createAndShowNotebook, createMetadata, getConnectionWithPassword, validateItem } from '../commands/connection';
+import { createAndShowNotebook, createMetadata, getConnectionWithPassword, validateItem, validateCategoryItem } from '../commands/connection';
 import { ConnectionManager } from '../services/ConnectionManager';
 import { TablePropertiesPanel } from '../tableProperties';
 
@@ -38,7 +38,7 @@ GROUP BY n.nspname, n.nspowner`;
  */
 export async function cmdCreateSchema(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
-        validateItem(item);
+        validateCategoryItem(item);
         const connectionConfig = await getConnectionWithPassword(item.connectionId!);
         const connection = await ConnectionManager.getInstance().getConnection({
             id: connectionConfig.id,
@@ -53,7 +53,16 @@ export async function cmdCreateSchema(item: DatabaseTreeItem, context: vscode.Ex
         const cells = [
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `# Create New Schema in Database: ${item.label}\n\nExecute the cell below to create a new schema. Modify the schema name and permissions as needed.`,
+                `### Create New Schema in Database: \`${item.label}\`
+
+<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>ℹ️ Note:</strong> Execute the cell below to create a new schema. Modify the schema name and permissions as needed.
+</div>`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### 📝 Schema Definition`,
                 'markdown'
             ),
             new vscode.NotebookCellData(
@@ -112,7 +121,16 @@ export async function cmdCreateObjectInSchema(item: DatabaseTreeItem, context: v
             const cells = [
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Markup,
-                    `# Create New ${selection.label} in Schema: ${item.schema}\n\nModify the definition below and execute the cell to create the ${selection.label.toLowerCase()}.`,
+                    `### Create New ${selection.label} in Schema: \`${item.schema}\`
+
+<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>ℹ️ Note:</strong> Modify the definition below and execute the cell to create the ${selection.label.toLowerCase()}.
+</div>`,
+                    'markdown'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 📝 Object Definition`,
                     'markdown'
                 ),
                 new vscode.NotebookCellData(
@@ -162,7 +180,25 @@ export async function cmdSchemaOperations(item: DatabaseTreeItem, context: vscod
             const cells = [
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Markup,
-                    `# Schema: ${item.schema}\n\n## Schema Information\n- **Owner**: ${info.owner}\n- **Total Size**: ${info.total_size}\n- **Objects**: ${info.tables_count} tables, ${info.views_count} views, ${info.functions_count} functions\n- **Privileges**: ${privilegesText}\n\nThis notebook contains operations for managing the schema. Execute the cells below to perform operations.`,
+                    `### Schema: \`${item.schema}\`
+
+<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>ℹ️ Note:</strong> This notebook contains operations for managing the schema. Execute the cells below to perform operations.
+</div>
+
+#### 📊 Schema Information
+
+<table style="font-size: 11px; width: 100%; border-collapse: collapse;">
+    <tr><td style="font-weight: bold; width: 100px;">Owner:</td><td>${info.owner}</td></tr>
+    <tr><td style="font-weight: bold;">Total Size:</td><td>${info.total_size}</td></tr>
+    <tr><td style="font-weight: bold;">Objects:</td><td>${info.tables_count} tables, ${info.views_count} views, ${info.functions_count} functions</td></tr>
+    <tr><td style="font-weight: bold;">Privileges:</td><td>${privilegesText}</td></tr>
+</table>`,
+                    'markdown'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 📦 Schema Objects`,
                     'markdown'
                 ),
                 new vscode.NotebookCellData(
@@ -192,6 +228,11 @@ ORDER BY c.relkind, pg_total_relation_size(c.oid) DESC; `,
                     'sql'
                 ),
                 new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 🔐 Schema Privileges`,
+                    'markdown'
+                ),
+                new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Code,
                     `-- List schema privileges
 SELECT grantee, string_agg(privilege_type, ', ') as privileges
@@ -213,6 +254,11 @@ ORDER BY grantee; `,
                     'sql'
                 ),
                 new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 🛡️ Grant Privileges`,
+                    'markdown'
+                ),
+                new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Code,
                     `-- Grant privileges(modify as needed)
 GRANT USAGE ON SCHEMA ${item.schema} TO role_name;
@@ -228,6 +274,11 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA ${item.schema}
 ALTER DEFAULT PRIVILEGES IN SCHEMA ${item.schema}
     GRANT SELECT, USAGE ON SEQUENCES TO role_name; `,
                     'sql'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 🧹 Maintenance`,
+                    'markdown'
                 ),
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Code,
@@ -257,6 +308,11 @@ ORDER BY tablename;
 --To execute VACUUM on a specific table, uncomment and modify:
 --VACUUM ANALYZE ${item.schema}.table_name; `,
                     'sql'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### ❌ Drop Schema`,
+                    'markdown'
                 ),
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Code,
