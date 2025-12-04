@@ -204,10 +204,16 @@ export function getWebviewHtml(webview: vscode.Webview): string {
             border: none;
             color: var(--vscode-descriptionForeground);
             cursor: pointer;
-            padding: 2px;
+            padding: 4px;
             border-radius: 4px;
             opacity: 0;
             transition: all var(--transition-fast);
+            z-index: 10;
+        }
+
+        .history-item-delete svg {
+            pointer-events: none;
+            display: block;
         }
 
         .history-item:hover .history-item-delete {
@@ -218,6 +224,18 @@ export function getWebviewHtml(webview: vscode.Webview): string {
             opacity: 1 !important;
             background: var(--vscode-toolbar-hoverBackground);
             color: var(--vscode-errorForeground);
+        }
+
+        .history-item-delete.confirm-delete {
+            opacity: 1 !important;
+            background: var(--vscode-inputValidation-errorBackground, #5a1d1d);
+            color: var(--vscode-errorForeground, #f48771);
+            animation: pulse-delete 0.5s ease-in-out infinite alternate;
+        }
+
+        @keyframes pulse-delete {
+            from { transform: scale(1); }
+            to { transform: scale(1.1); }
         }
 
         .history-empty {
@@ -1367,11 +1385,51 @@ export function getWebviewHtml(webview: vscode.Webview): string {
             historyOverlay.classList.remove('visible');
         }
 
+        let pendingDeleteId = null;
+        
         function deleteSession(sessionId, event) {
-            event.stopPropagation();
-            if (confirm('Delete this chat?')) {
-                vscode.postMessage({ type: 'deleteSession', sessionId });
+            console.log('[WebView] deleteSession called with sessionId:', sessionId, 'event:', event);
+            if (event) {
+                event.stopPropagation();
+                event.preventDefault();
             }
+            
+            // If already pending for this session, confirm delete
+            if (pendingDeleteId === sessionId) {
+                console.log('[WebView] Confirmed delete for:', sessionId);
+                vscode.postMessage({ type: 'deleteSession', sessionId });
+                pendingDeleteId = null;
+                return;
+            }
+            
+            // First click - show confirmation state
+            console.log('[WebView] First click, setting pending delete for:', sessionId);
+            if (pendingDeleteId) {
+                // Reset any other pending delete
+                const prevBtn = document.querySelector(\`[data-pending-delete="\${pendingDeleteId}"]\`);
+                if (prevBtn) {
+                    prevBtn.removeAttribute('data-pending-delete');
+                    prevBtn.classList.remove('confirm-delete');
+                }
+            }
+            
+            pendingDeleteId = sessionId;
+            const btn = event.currentTarget || event.target.closest('.history-item-delete');
+            if (btn) {
+                btn.setAttribute('data-pending-delete', sessionId);
+                btn.classList.add('confirm-delete');
+            }
+            
+            // Auto-reset after 3 seconds
+            setTimeout(() => {
+                if (pendingDeleteId === sessionId) {
+                    pendingDeleteId = null;
+                    if (btn) {
+                        btn.removeAttribute('data-pending-delete');
+                        btn.classList.remove('confirm-delete');
+                    }
+                }
+            }, 3000);
         }
 
         function newChat() {
@@ -1396,6 +1454,7 @@ export function getWebviewHtml(webview: vscode.Webview): string {
         }
 
         function renderHistory(sessions) {
+            console.log('[WebView] renderHistory called with', sessions?.length, 'sessions');
             chatHistory = sessions;
             filterHistory(historySearch.value);
         }

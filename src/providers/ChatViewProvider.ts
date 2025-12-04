@@ -81,6 +81,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     await this._loadSession(data.sessionId);
                     break;
                 case 'deleteSession':
+                    console.log('[ChatView] Received deleteSession request for:', data.sessionId);
                     await this._deleteSession(data.sessionId);
                     break;
                 case 'getHistory':
@@ -370,13 +371,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
 
     private async _deleteSession(sessionId: string): Promise<void> {
+        console.log('[ChatView] _deleteSession called with:', sessionId);
         const wasCurrentSession = await this._sessionService.deleteSession(sessionId);
+        console.log('[ChatView] Session deleted, wasCurrentSession:', wasCurrentSession);
         
         if (wasCurrentSession) {
             this._messages = [];
             this._updateChatHistory();
         }
         
+        console.log('[ChatView] Sending updated history to webview...');
         this._sendHistoryToWebview();
     }
 
