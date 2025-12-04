@@ -1,7 +1,6 @@
-import { Client } from 'pg';
 import * as vscode from 'vscode';
-import { DatabaseTreeItem, DatabaseTreeProvider } from '../providers/DatabaseTreeProvider';
 import { createAndShowNotebook, createMetadata, getConnectionWithPassword, validateItem } from '../commands/connection';
+import { DatabaseTreeItem, DatabaseTreeProvider } from '../providers/DatabaseTreeProvider';
 import { ConnectionManager } from '../services/ConnectionManager';
 import { TablePropertiesPanel } from '../tableProperties';
 
@@ -371,12 +370,219 @@ export async function cmdShowFunctionProperties(item: DatabaseTreeItem, context:
         });
 
         try {
-            await TablePropertiesPanel.show(client, item.schema, item.label, false, true);
+            // Gather comprehensive function information
+            const [functionInfo, dependenciesInfo] = await Promise.all([
+                // Detailed function info
+                client.query(`
+                    SELECT 
+                        p.proname as function_name,
+                        n.nspname as schema_name,
+                        pg_get_userbyid(p.proowner) as owner,
+                        l.lanname as language,
+                        pg_get_function_arguments(p.oid) as arguments,
+                        pg_get_function_result(p.oid) as return_type,
+                        pg_get_functiondef(p.oid) as definition,
+                        obj_description(p.oid, 'pg_proc') as comment,
+                        CASE p.provolatile
+                            WHEN 'i' THEN 'IMMUTABLE'
+                            WHEN 's' THEN 'STABLE'
+                            WHEN 'v' THEN 'VOLATILE'
+                        END as volatility,
+                        CASE p.proparallel
+                            WHEN 's' THEN 'SAFE'
+                            WHEN 'r' THEN 'RESTRICTED'
+                            WHEN 'u' THEN 'UNSAFE'
+                        END as parallel,
+                        p.prosecdef as security_definer,
+                        p.proisstrict as strict,
+                        p.proretset as returns_set,
+                        pg_size_pretty(pg_relation_size(p.oid)) as size
+                    FROM pg_proc p
+                    JOIN pg_namespace n ON n.oid = p.pronamespace
+                    LEFT JOIN pg_language l ON l.oid = p.prolang
+                    WHERE n.nspname = $1 AND p.proname = $2
+                `, [item.schema, item.label]),
+                
+                // Get objects that depend on this function
+                client.query(`
+                    SELECT DISTINCT
+                        dependent_ns.nspname as schema,
+                        dependent_view.relname as name,
+                        dependent_view.relkind as kind
+                    FROM pg_depend dep
+                    JOIN pg_rewrite rew ON dep.objid = rew.oid
+                    JOIN pg_class dependent_view ON rew.ev_class = dependent_view.oid
+                    JOIN pg_namespace dependent_ns ON dependent_ns.oid = dependent_view.relnamespace
+                    WHERE dep.refobjid = (
+                        SELECT p.oid FROM pg_proc p
+                        JOIN pg_namespace n ON n.oid = p.pronamespace
+                        WHERE n.nspname = $1 AND p.proname = $2
+                    )
+                    ORDER BY schema, name
+                `, [item.schema, item.label])
+            ]);
+
+            if (functionInfo.rows.length === 0) {
+                throw new Error('Function not found');
+            }
+
+            const func = functionInfo.rows[0];
+            const dependents = dependenciesInfo.rows;
+            const metadata = createMetadata(connection, item.databaseName);
+
+            const getKindLabel = (kind: string) => {
+                switch (kind) {
+                    case 'r': return '📊 Table';
+                    case 'v': return '👁️ View';
+                    case 'm': return '💾 Materialized View';
+                    default: return kind;
+                }
+            };
+
+            // Parse arguments for display
+            const argsList = func.arguments ? func.arguments.split(',').map((arg: string, idx: number) => {
+                const trimmed = arg.trim();
+                return `    <tr>
+        <td>${idx + 1}</td>
+        <td><code>${trimmed || '(no arguments)'}</code></td>
+    </tr>`;
+            }).join('\n') : '    <tr><td colspan="2" style="text-align: center;">No arguments</td></tr>';
+
+            // Build dependencies table HTML
+            const dependencyRows = dependents.map(dep => {
+                return `    <tr>
+        <td>${getKindLabel(dep.kind)}</td>
+        <td><code>${dep.schema}.${dep.name}</code></td>
+    </tr>`;
+            }).join('\n');
+
+            const markdown = `### ⚡ Function Properties: \`${item.schema}.${item.label}\`
+
+<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>ℹ️ Owner:</strong> ${func.owner} | <strong>Language:</strong> ${func.language} ${func.comment ? `| <strong>Comment:</strong> ${func.comment}` : ''}
+</div>
+
+#### 📊 General Information
+
+<table style="font-size: 11px; width: 100%; border-collapse: collapse;">
+    <tr><th style="text-align: left; width: 30%;">Property</th><th style="text-align: left;">Value</th></tr>
+    <tr><td><strong>Schema</strong></td><td>${func.schema_name}</td></tr>
+    <tr><td><strong>Function Name</strong></td><td>${func.function_name}</td></tr>
+    <tr><td><strong>Owner</strong></td><td>${func.owner}</td></tr>
+    <tr><td><strong>Language</strong></td><td>${func.language}</td></tr>
+    <tr><td><strong>Return Type</strong></td><td><code>${func.return_type}</code></td></tr>
+    <tr><td><strong>Returns Set</strong></td><td>${func.returns_set ? '✅ Yes' : '🚫 No'}</td></tr>
+    <tr><td><strong>Volatility</strong></td><td>${func.volatility}</td></tr>
+    <tr><td><strong>Parallel Safety</strong></td><td>${func.parallel}</td></tr>
+    <tr><td><strong>Security</strong></td><td>${func.security_definer ? '🔒 SECURITY DEFINER' : '👤 SECURITY INVOKER'}</td></tr>
+    <tr><td><strong>Strict (NULL handling)</strong></td><td>${func.strict ? '✅ Returns NULL on NULL input' : '🚫 Processes NULL inputs'}</td></tr>
+</table>
+
+#### 📥 Arguments${func.arguments ? ' (' + func.arguments.split(',').length + ')' : ' (0)'}
+
+<table style="font-size: 11px; width: 100%; border-collapse: collapse;">
+    <tr>
+        <th style="text-align: left; width: 10%;">#</th>
+        <th style="text-align: left;">Argument</th>
+    </tr>
+${argsList}
+</table>
+
+${dependents.length > 0 ? `#### 🔄 Dependent Objects (${dependents.length})
+
+<div style="font-size: 11px; background-color: #3a2d42; border-left: 3px solid #e67e22; padding: 6px 10px; margin-bottom: 10px; border-radius: 3px;">
+    Objects that depend on this function:
+</div>
+
+<table style="font-size: 11px; width: 100%; border-collapse: collapse;">
+    <tr>
+        <th style="text-align: left; width: 20%;">Type</th>
+        <th style="text-align: left;">Object</th>
+    </tr>
+${dependencyRows}
+</table>
+
+` : ''}---`;
+
+            const cells = [
+                new vscode.NotebookCellData(vscode.NotebookCellKind.Markup, markdown, 'markdown'),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 📝 Function Definition`,
+                    'markdown'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Code,
+                    func.definition,
+                    'sql'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### ⚡ Call Function`,
+                    'markdown'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Code,
+                    `-- Call function\nSELECT ${item.schema}.${item.label}(${func.arguments ? func.arguments.split(',').map((arg: string, idx: number) => {
+                        const parts = arg.trim().split(' ');
+                        const type = parts[parts.length - 1];
+                        if (type.includes('int')) return `${idx + 1}`;
+                        if (type.includes('text') || type.includes('char') || type.includes('varchar')) return `'value${idx + 1}'`;
+                        if (type.includes('bool')) return 'true';
+                        if (type.includes('date')) return `'2024-01-01'`;
+                        if (type.includes('timestamp')) return `'2024-01-01 00:00:00'`;
+                        return `'value${idx + 1}'`;
+                    }).join(', ') : ''});`,
+                    'sql'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 🗑️ DROP Function Script`,
+                    'markdown'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Code,
+                    `-- Drop function (with dependencies)
+DROP FUNCTION IF EXISTS ${item.schema}.${item.label}(${func.arguments}) CASCADE;
+
+-- Drop function (without dependencies - will fail if referenced)
+-- DROP FUNCTION IF EXISTS ${item.schema}.${item.label}(${func.arguments}) RESTRICT;`,
+                    'sql'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 📊 Function Statistics`,
+                    'markdown'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Code,
+                    `-- Get function details and metadata
+SELECT 
+    p.proname as function_name,
+    pg_get_function_arguments(p.oid) as arguments,
+    pg_get_function_result(p.oid) as return_type,
+    l.lanname as language,
+    CASE p.provolatile
+        WHEN 'i' THEN 'IMMUTABLE'
+        WHEN 's' THEN 'STABLE'
+        WHEN 'v' THEN 'VOLATILE'
+    END as volatility,
+    p.prosecdef as security_definer,
+    p.proisstrict as strict
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+LEFT JOIN pg_language l ON l.oid = p.prolang
+WHERE n.nspname = '${item.schema}' AND p.proname = '${item.label}';`,
+                    'sql'
+                )
+            ];
+
+            await createAndShowNotebook(cells, metadata);
         } finally {
             // Do not close shared client
         }
     } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to show function properties: ${err.message} `);
+        vscode.window.showErrorMessage(`Failed to show function properties: ${err.message}`);
     }
 }
 

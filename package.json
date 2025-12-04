@@ -165,6 +165,26 @@
         "icon": "$(notebook)"
       },
       {
+        "command": "postgres-explorer.viewScriptSelect",
+        "title": "Script as SELECT",
+        "icon": "$(file-code)"
+      },
+      {
+        "command": "postgres-explorer.viewScriptCreate",
+        "title": "Script as CREATE",
+        "icon": "$(file-code)"
+      },
+      {
+        "command": "postgres-explorer.viewMaintenanceVacuum",
+        "title": "VACUUM",
+        "icon": "$(tools)"
+      },
+      {
+        "command": "postgres-explorer.viewMaintenanceAnalyze",
+        "title": "ANALYZE",
+        "icon": "$(graph)"
+      },
+      {
         "command": "postgres-explorer.truncateTable",
         "title": "Truncate Table",
         "icon": "$(clear-all)"
@@ -504,6 +524,161 @@
         "command": "postgres-explorer.aiAssist",
         "title": "Put AI to work",
         "icon": "$(sparkle)"
+      },
+      {
+        "command": "postgres-explorer.showColumnProperties",
+        "title": "Show Column Properties",
+        "icon": "$(info)"
+      },
+      {
+        "command": "postgres-explorer.copyColumnName",
+        "title": "Copy Column Name",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "postgres-explorer.copyColumnNameQuoted",
+        "title": "Copy Column Name (Quoted)",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "postgres-explorer.generateSelectStatement",
+        "title": "SELECT Statement",
+        "icon": "$(code)"
+      },
+      {
+        "command": "postgres-explorer.generateWhereClause",
+        "title": "WHERE Clause",
+        "icon": "$(code)"
+      },
+      {
+        "command": "postgres-explorer.generateAlterColumnScript",
+        "title": "ALTER COLUMN Script",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "postgres-explorer.generateDropColumnScript",
+        "title": "DROP COLUMN Script",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "postgres-explorer.generateRenameColumnScript",
+        "title": "RENAME COLUMN Script",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "postgres-explorer.addColumnComment",
+        "title": "Add/Edit Column Comment",
+        "icon": "$(comment)"
+      },
+      {
+        "command": "postgres-explorer.generateIndexOnColumn",
+        "title": "CREATE INDEX Script",
+        "icon": "$(add)"
+      },
+      {
+        "command": "postgres-explorer.viewColumnStatistics",
+        "title": "View Column Statistics",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "postgres-explorer.showConstraintProperties",
+        "title": "Properties",
+        "icon": "$(info)"
+      },
+      {
+        "command": "postgres-explorer.copyConstraintName",
+        "title": "Copy Constraint Name",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "postgres-explorer.generateDropConstraintScript",
+        "title": "DROP CONSTRAINT Script",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "postgres-explorer.generateAlterConstraintScript",
+        "title": "ALTER CONSTRAINT Script",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "postgres-explorer.validateConstraint",
+        "title": "Validate Constraint",
+        "icon": "$(check)"
+      },
+      {
+        "command": "postgres-explorer.generateAddConstraintScript",
+        "title": "ADD CONSTRAINT Templates",
+        "icon": "$(add)"
+      },
+      {
+        "command": "postgres-explorer.viewConstraintDependencies",
+        "title": "View Dependencies",
+        "icon": "$(references)"
+      },
+      {
+        "command": "postgres-explorer.showIndexProperties",
+        "title": "Properties",
+        "icon": "$(info)"
+      },
+      {
+        "command": "postgres-explorer.copyIndexName",
+        "title": "Copy Index Name",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "postgres-explorer.generateDropIndexScript",
+        "title": "DROP INDEX Script",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "postgres-explorer.generateReindexScript",
+        "title": "REINDEX Script",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "postgres-explorer.generateScriptCreate",
+        "title": "CREATE Script",
+        "category": "PostgreSQL Explorer"
+      },
+      {
+        "command": "postgres-explorer.analyzeIndexUsage",
+        "title": "Analyze Index Usage",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "postgres-explorer.generateAlterIndexScript",
+        "title": "ALTER INDEX Script",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "postgres-explorer.addIndexComment",
+        "title": "Add Comment",
+        "icon": "$(comment)"
+      },
+      {
+        "command": "postgres-explorer.constraintOperations",
+        "title": "Constraint Operations",
+        "icon": "$(notebook)"
+      },
+      {
+        "command": "postgres-explorer.indexOperations",
+        "title": "Index Operations",
+        "icon": "$(notebook)"
+      },
+      {
+        "command": "postgres-explorer.addColumn",
+        "title": "Add Column",
+        "icon": "$(add)"
+      },
+      {
+        "command": "postgres-explorer.addConstraint",
+        "title": "Add Constraint",
+        "icon": "$(add)"
+      },
+      {
+        "command": "postgres-explorer.addIndex",
+        "title": "Add Index",
+        "icon": "$(add)"
       }
     ],
     "submenus": [
@@ -518,9 +693,27 @@
         "icon": "$(tools)"
       },
       {
+        "id": "postgres-explorer.viewScriptsMenu",
+        "label": "Scripts",
+        "icon": "$(code)"
+      },
+      {
         "id": "postgres-explorer.databaseScriptsMenu",
         "label": "Scripts",
         "icon": "$(code)"
+      },
+      {
+        "id": "postgres-explorer.columnScriptsMenu",
+        "label": "Scripts",
+        "icon": "$(code)"
+      },
+      {
+        "id": "postgres-explorer.constraintScriptsMenu",
+        "label": "Scripts"
+      },
+      {
+        "id": "postgres-explorer.indexScriptsMenu",
+        "label": "Scripts"
       }
     ],
     "viewsContainers": {
@@ -538,6 +731,12 @@
           "id": "postgresExplorer",
           "name": "Connections",
           "contextualTitle": "PostgreSQL Explorer"
+        },
+        {
+          "id": "postgresExplorer.chatView",
+          "name": "SQL Chat",
+          "type": "webview",
+          "contextualTitle": "SQL Chat Assistant"
         }
       ]
     },
@@ -569,10 +768,11 @@
       {
         "id": "postgres-query-renderer",
         "displayName": "Postgres Query Renderer",
-        "entrypoint": "./out/renderer.js",
+        "entrypoint": "./dist/renderer_v2.js",
         "mimeTypes": [
           "application/x-postgres-result"
-        ]
+        ],
+        "requiresMessaging": "always"
       }
     ],
     "configuration": {
@@ -781,6 +981,11 @@
           "group": "1_actions@0"
         },
         {
+          "submenu": "postgres-explorer.viewScriptsMenu",
+          "when": "view == postgresExplorer && viewItem == view",
+          "group": "1_actions@1"
+        },
+        {
           "command": "postgres-explorer.truncateTable",
           "when": "view == postgresExplorer && viewItem == table",
           "group": "2_operations@1"
@@ -886,6 +1091,21 @@
         {
           "command": "postgres-explorer.createForeignTable",
           "when": "view == postgresExplorer && viewItem == category-foreign-tables",
+          "group": "inline"
+        },
+        {
+          "command": "postgres-explorer.addColumn",
+          "when": "view == postgresExplorer && viewItem == category-columns",
+          "group": "inline"
+        },
+        {
+          "command": "postgres-explorer.addConstraint",
+          "when": "view == postgresExplorer && viewItem == category-constraints",
+          "group": "inline"
+        },
+        {
+          "command": "postgres-explorer.addIndex",
+          "when": "view == postgresExplorer && viewItem == category-indexes",
           "group": "inline"
         },
         {
@@ -1058,6 +1278,152 @@
           "command": "postgres-explorer.showConfiguration",
           "when": "viewItem == database",
           "group": "postgres-explorer-database@8"
+        },
+        {
+          "command": "postgres-explorer.showColumnProperties",
+          "when": "view == postgresExplorer && viewItem == column",
+          "group": "inline@1"
+        },
+        {
+          "command": "postgres-explorer.copyColumnName",
+          "when": "view == postgresExplorer && viewItem == column",
+          "group": "1_copy@1"
+        },
+        {
+          "command": "postgres-explorer.copyColumnNameQuoted",
+          "when": "view == postgresExplorer && viewItem == column",
+          "group": "1_copy@2"
+        },
+        {
+          "submenu": "postgres-explorer.columnScriptsMenu",
+          "when": "view == postgresExplorer && viewItem == column",
+          "group": "2_scripts"
+        },
+        {
+          "command": "postgres-explorer.addColumnComment",
+          "when": "view == postgresExplorer && viewItem == column",
+          "group": "3_edit@1"
+        },
+        {
+          "command": "postgres-explorer.generateIndexOnColumn",
+          "when": "view == postgresExplorer && viewItem == column",
+          "group": "3_edit@2"
+        },
+        {
+          "command": "postgres-explorer.viewColumnStatistics",
+          "when": "view == postgresExplorer && viewItem == column",
+          "group": "4_info"
+        },
+        {
+          "command": "postgres-explorer.showConstraintProperties",
+          "when": "view == postgresExplorer && viewItem == constraint",
+          "group": "inline@1"
+        },
+        {
+          "command": "postgres-explorer.copyConstraintName",
+          "when": "view == postgresExplorer && viewItem == constraint",
+          "group": "1_copy@1"
+        },
+        {
+          "submenu": "postgres-explorer.constraintScriptsMenu",
+          "when": "view == postgresExplorer && viewItem == constraint",
+          "group": "2_scripts"
+        },
+        {
+          "command": "postgres-explorer.validateConstraint",
+          "when": "view == postgresExplorer && viewItem == constraint",
+          "group": "3_operations@1"
+        },
+        {
+          "command": "postgres-explorer.constraintOperations",
+          "when": "view == postgresExplorer && viewItem == constraint",
+          "group": "1_actions@0"
+        },
+        {
+          "command": "postgres-explorer.viewConstraintDependencies",
+          "when": "view == postgresExplorer && viewItem == constraint",
+          "group": "4_info"
+        },
+        {
+          "command": "postgres-explorer.showIndexProperties",
+          "when": "view == postgresExplorer && viewItem == index",
+          "group": "inline@1"
+        },
+        {
+          "command": "postgres-explorer.copyIndexName",
+          "when": "view == postgresExplorer && viewItem == index",
+          "group": "1_copy@1"
+        },
+        {
+          "submenu": "postgres-explorer.indexScriptsMenu",
+          "when": "view == postgresExplorer && viewItem == index",
+          "group": "2_scripts"
+        },
+        {
+          "command": "postgres-explorer.generateReindexScript",
+          "when": "view == postgresExplorer && viewItem == index",
+          "group": "3_operations@1"
+        },
+        {
+          "command": "postgres-explorer.analyzeIndexUsage",
+          "when": "view == postgresExplorer && viewItem == index",
+          "group": "4_info@1"
+        },
+        {
+          "command": "postgres-explorer.addIndexComment",
+          "when": "view == postgresExplorer && viewItem == index",
+          "group": "3_operations@2"
+        },
+        {
+          "command": "postgres-explorer.indexOperations",
+          "when": "view == postgresExplorer && viewItem == index",
+          "group": "1_actions@0"
+        }
+      ],
+      "postgres-explorer.columnScriptsMenu": [
+        {
+          "command": "postgres-explorer.generateSelectStatement",
+          "group": "1_query"
+        },
+        {
+          "command": "postgres-explorer.generateWhereClause",
+          "group": "1_query"
+        },
+        {
+          "command": "postgres-explorer.generateAlterColumnScript",
+          "group": "2_modify"
+        },
+        {
+          "command": "postgres-explorer.generateRenameColumnScript",
+          "group": "2_modify"
+        },
+        {
+          "command": "postgres-explorer.generateDropColumnScript",
+          "group": "3_delete"
+        }
+      ],
+      "postgres-explorer.constraintScriptsMenu": [
+        {
+          "command": "postgres-explorer.generateAlterConstraintScript",
+          "group": "2_modify"
+        },
+        {
+          "command": "postgres-explorer.generateDropConstraintScript",
+          "group": "3_delete"
+        }
+      ],
+      "postgres-explorer.indexScriptsMenu": [
+        {
+          "command": "postgres-explorer.generateScriptCreate",
+          "group": "1_create"
+        },
+        {
+          "command": "postgres-explorer.generateAlterIndexScript",
+          "group": "2_modify"
+        },
+        {
+          "command": "postgres-explorer.generateDropIndexScript",
+          "group": "3_delete"
         }
       ],
       "postgres-explorer.scriptsMenu": [
@@ -1096,10 +1462,20 @@
           "group": "1_maintenance"
         }
       ],
+      "postgres-explorer.viewScriptsMenu": [
+        {
+          "command": "postgres-explorer.viewScriptSelect",
+          "group": "1_read"
+        },
+        {
+          "command": "postgres-explorer.viewScriptCreate",
+          "group": "2_ddl"
+        }
+      ],
       "postgres-explorer.databaseScriptsMenu": [
         {
           "command": "postgres-explorer.generateCreateScript",
-          "group": "1_read"
+          "group": "1_create"
         },
         {
           "command": "postgres-explorer.scriptAlterDatabase",
@@ -1121,31 +1497,43 @@
   },
   "activationEvents": [
     "onNotebook:postgres-notebook",
-    "onNotebook:postgres-query",
-    "onCommand:postgres-explorer.createSchema",
-    "onCommand:postgres-explorer.addConnection",
-    "onView:postgresExplorer"
+    "onNotebook:postgres-query"
   ],
-  "main": "./dist/extension.js",
+  "main": "./out/extension.js",
   "scripts": {
-    "vscode:prepublish": "npm run esbuild-base --minify",
+    "vscode:prepublish": "npm run esbuild-base --minify && npm run esbuild-renderer --minify",
     "esbuild-base": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node",
-    "compile": "tsc -p ./",
+    "esbuild-renderer": "esbuild ./src/renderer_v2.ts --bundle --outfile=dist/renderer_v2.js --format=esm --platform=browser",
+    "compile": "tsc -p ./ && npm run esbuild-renderer",
     "watch": "tsc -watch -p ./",
-    "esbuild": "npm run esbuild-base --sourcemap",
-    "esbuild-watch": "npm run esbuild-base --sourcemap --watch"
+    "esbuild": "npm run esbuild-base --sourcemap && npm run esbuild-renderer --sourcemap",
+    "esbuild-watch": "npm run esbuild-base --sourcemap --watch & npm run esbuild-renderer --sourcemap --watch",
+    "test": "ts-mocha -r src/test/setup.ts 'src/test/unit/**/*.test.ts'",
+    "coverage": "nyc npm run test"
   },
   "dependencies": {
     "esbuild": ">=0.25.0",
     "pg": "^8.11.3"
   },
   "devDependencies": {
+    "@types/chai": "^5.2.3",
+    "@types/mocha": "^10.0.10",
+    "@types/module-alias": "^2.0.4",
     "@types/node": "^16.18.126",
     "@types/pg": "^8.11.11",
+    "@types/sinon": "^21.0.0",
     "@types/vscode": "^1.80.0",
     "@types/vscode-notebook-renderer": "^1.72.4",
+    "chai": "^6.2.1",
     "esbuild": ">=0.25.0",
+    "mocha": "^11.7.5",
+    "module-alias": "^2.2.3",
+    "nyc": "^17.1.0",
     "ovsx": "^0.10.2",
+    "sinon": "^21.0.0",
+    "ts-mocha": "^11.1.0",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
     "typescript": "^4.5.5"
   },
   "resolutions": {

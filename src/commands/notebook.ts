@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
+import { getConnectionWithPassword } from '../commands/connection';
 import { DatabaseTreeItem } from '../providers/DatabaseTreeProvider';
-import { createAndShowNotebook, createMetadata, getConnectionWithPassword, validateItem } from '../commands/connection';
-import { ConnectionManager } from '../services/ConnectionManager';
 
 export async function cmdNewNotebook(item: DatabaseTreeItem) {
     if (!item) {

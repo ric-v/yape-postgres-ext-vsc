@@ -86,6 +86,76 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseTre
                     ];
 
                 case 'category':
+                    // Handle table sub-categories
+                    if (element.tableName) {
+                        switch (element.label) {
+                            case 'Columns':
+                                const columnResult = await client.query(
+                                    "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2 ORDER BY ordinal_position",
+                                    [element.schema, element.tableName]
+                                );
+                                return columnResult.rows.map(row => new DatabaseTreeItem(
+                                    `${row.column_name} (${row.data_type})`,
+                                    vscode.TreeItemCollapsibleState.None,
+                                    'column',
+                                    element.connectionId,
+                                    element.databaseName,
+                                    element.schema,
+                                    element.tableName,
+                                    row.column_name
+                                ));
+
+                            case 'Constraints':
+                                const constraintResult = await client.query(
+                                    `SELECT 
+                                        tc.constraint_name,
+                                        tc.constraint_type
+                                    FROM information_schema.table_constraints tc
+                                    WHERE tc.table_schema = $1 AND tc.table_name = $2
+                                    ORDER BY tc.constraint_type, tc.constraint_name`,
+                                    [element.schema, element.tableName]
+                                );
+                                return constraintResult.rows.map(row => {
+                                    return new DatabaseTreeItem(
+                                        row.constraint_name,
+                                        vscode.TreeItemCollapsibleState.None,
+                                        'constraint',
+                                        element.connectionId,
+                                        element.databaseName,
+                                        element.schema,
+                                        element.tableName
+                                    );
+                                });
+
+                            case 'Indexes':
+                                const indexResult = await client.query(
+                                    `SELECT 
+                                        i.relname as index_name,
+                                        ix.indisunique as is_unique,
+                                        ix.indisprimary as is_primary
+                                    FROM pg_index ix
+                                    JOIN pg_class i ON i.oid = ix.indexrelid
+                                    JOIN pg_class t ON t.oid = ix.indrelid
+                                    JOIN pg_namespace n ON n.oid = t.relnamespace
+                                    WHERE n.nspname = $1 AND t.relname = $2
+                                    ORDER BY i.relname`,
+                                    [element.schema, element.tableName]
+                                );
+                                return indexResult.rows.map(row => {
+                                    return new DatabaseTreeItem(
+                                        row.index_name,
+                                        vscode.TreeItemCollapsibleState.None,
+                                        'index',
+                                        element.connectionId,
+                                        element.databaseName,
+                                        element.schema,
+                                        element.tableName
+                                    );
+                                });
+                        }
+                    }
+
+                    // Schema-level categories
                     switch (element.label) {
                         case 'Users & Roles':
                             const roleResult = await client.query(
@@ -122,8 +192,13 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseTre
                                 `SELECT nspname as schema_name 
                                  FROM pg_namespace 
                                  WHERE nspname NOT LIKE 'pg_%' 
-                                 AND nspname != 'information_schema'
-                                 ORDER BY nspname`
+                                   AND nspname != 'information_schema'
+                                 ORDER BY 
+                                    CASE 
+                                        WHEN nspname = 'public' THEN 0
+                                        ELSE 1
+                                    END,
+                                    nspname`
                             );
                             return schemaResult.rows.map(row => new DatabaseTreeItem(
                                 row.schema_name,
@@ -253,7 +328,7 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseTre
                                 element.schema
                             ));
                     }
-                    break;
+                    return [];
 
                 case 'schema':
                     return [
@@ -266,25 +341,108 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseTre
                     ];
 
                 case 'table':
+                    // Show hierarchical structure for tables
+                    return [
+                        new DatabaseTreeItem('Columns', vscode.TreeItemCollapsibleState.Collapsed, 'category', element.connectionId, element.databaseName, element.schema, element.label),
+                        new DatabaseTreeItem('Constraints', vscode.TreeItemCollapsibleState.Collapsed, 'category', element.connectionId, element.databaseName, element.schema, element.label),
+                        new DatabaseTreeItem('Indexes', vscode.TreeItemCollapsibleState.Collapsed, 'category', element.connectionId, element.databaseName, element.schema, element.label)
+                    ];
+
                 case 'view':
-                    const columnResult = await client.query(
-                        "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2",
-                        [element.schema, element.label]
-                    );
-                    return columnResult.rows.map(row => new DatabaseTreeItem(
-                        `${row.column_name} (${row.data_type})`,
-                        vscode.TreeItemCollapsibleState.None,
-                        'column',
-                        element.connectionId,
-                        element.databaseName,
-                        element.schema
-                    ));
+                    // Views only have columns
+                    return [
+                        new DatabaseTreeItem('Columns', vscode.TreeItemCollapsibleState.Collapsed, 'category', element.connectionId, element.databaseName, element.schema, element.label)
+                    ];
+
+                case 'category':
+                    // Handle table sub-categories
+                    if (element.tableName) {
+                        switch (element.label) {
+                            case 'Columns':
+                                const columnResult = await client.query(
+                                    "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2 ORDER BY ordinal_position",
+                                    [element.schema, element.tableName]
+                                );
+                                return columnResult.rows.map(row => new DatabaseTreeItem(
+                                    `${row.column_name} (${row.data_type})`,
+                                    vscode.TreeItemCollapsibleState.None,
+                                    'column',
+                                    element.connectionId,
+                                    element.databaseName,
+                                    element.schema,
+                                    element.tableName,
+                                    row.column_name
+                                ));
+
+                            case 'Constraints':
+                                const constraintResult = await client.query(
+                                    `SELECT 
+                                        tc.constraint_name,
+                                        tc.constraint_type
+                                    FROM information_schema.table_constraints tc
+                                    WHERE tc.table_schema = $1 AND tc.table_name = $2
+                                    ORDER BY tc.constraint_type, tc.constraint_name`,
+                                    [element.schema, element.tableName]
+                                );
+                                return constraintResult.rows.map(row => {
+                                    return new DatabaseTreeItem(
+                                        row.constraint_name,
+                                        vscode.TreeItemCollapsibleState.None,
+                                        'constraint',
+                                        element.connectionId,
+                                        element.databaseName,
+                                        element.schema,
+                                        element.tableName
+                                    );
+                                });
+
+                            case 'Indexes':
+                                const indexResult2 = await client.query(
+                                    `SELECT 
+                                        i.relname as index_name,
+                                        ix.indisunique as is_unique,
+                                        ix.indisprimary as is_primary
+                                    FROM pg_index ix
+                                    JOIN pg_class i ON i.oid = ix.indexrelid
+                                    JOIN pg_class t ON t.oid = ix.indrelid
+                                    JOIN pg_namespace n ON n.oid = t.relnamespace
+                                    WHERE n.nspname = $1 AND t.relname = $2
+                                    ORDER BY i.relname`,
+                                    [element.schema, element.tableName]
+                                );
+                                return indexResult2.rows.map(row => {
+                                    return new DatabaseTreeItem(
+                                        row.index_name,
+                                        vscode.TreeItemCollapsibleState.None,
+                                        'index',
+                                        element.connectionId,
+                                        element.databaseName,
+                                        element.schema,
+                                        element.tableName
+                                    );
+                                });
+                        }
+                    }
+
+                    // Schema-level categories
+                    return [];
+
+                default:
+                    return [];
+            }
+        } catch (err: any) {
+            const errorMessage = err.message || err.toString() || 'Unknown error';
+            const errorCode = err.code || 'NO_CODE';
+            const errorDetails = `Error getting tree items for ${element?.type || 'root'}: [${errorCode}] ${errorMessage}`;
+
+            console.error(errorDetails);
+            console.error('Full error:', err);
+
+            // Only show error message to user if it's not a connection initialization issue
+            if (element && element.type !== 'connection') {
+                vscode.window.showErrorMessage(`Failed to get tree items: ${errorMessage}`);
             }
 
-            return [];
-        } catch (err: any) {
-            console.error(`Error getting tree items: ${err.message}`);
-            vscode.window.showErrorMessage(`Failed to get tree items: ${err.message}`);
             return [];
         }
         // Do NOT close the client here, as it is managed by ConnectionManager
@@ -295,7 +453,7 @@ export class DatabaseTreeItem extends vscode.TreeItem {
     constructor(
         public readonly label: string,
         public readonly collapsibleState: vscode.TreeItemCollapsibleState,
-        public readonly type: 'connection' | 'database' | 'schema' | 'table' | 'view' | 'function' | 'column' | 'category' | 'materialized-view' | 'type' | 'foreign-table' | 'extension' | 'role' | 'databases-group',
+        public readonly type: 'connection' | 'database' | 'schema' | 'table' | 'view' | 'function' | 'column' | 'category' | 'materialized-view' | 'type' | 'foreign-table' | 'extension' | 'role' | 'databases-group' | 'constraint' | 'index',
         public readonly connectionId?: string,
         public readonly databaseName?: string,
         public readonly schema?: string,
@@ -330,7 +488,9 @@ export class DatabaseTreeItem extends vscode.TreeItem {
             type: new vscode.ThemeIcon('symbol-type-parameter', new vscode.ThemeColor('charts.red')),
             'foreign-table': new vscode.ThemeIcon('symbol-interface', new vscode.ThemeColor('charts.blue')),
             extension: new vscode.ThemeIcon(isInstalled ? 'extensions-installed' : 'extensions', isInstalled ? new vscode.ThemeColor('charts.green') : undefined),
-            role: new vscode.ThemeIcon('person', new vscode.ThemeColor('charts.yellow'))
+            role: new vscode.ThemeIcon('person', new vscode.ThemeColor('charts.yellow')),
+            constraint: new vscode.ThemeIcon('lock', new vscode.ThemeColor('charts.orange')),
+            index: new vscode.ThemeIcon('search', new vscode.ThemeColor('charts.purple'))
         }[type];
     }
 

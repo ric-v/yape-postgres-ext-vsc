@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
-import { DatabaseTreeItem, DatabaseTreeProvider } from '../providers/DatabaseTreeProvider';
 import { createAndShowNotebook, createMetadata, getConnectionWithPassword, validateItem } from '../commands/connection';
+import { DatabaseTreeItem, DatabaseTreeProvider } from '../providers/DatabaseTreeProvider';
 import { ConnectionManager } from '../services/ConnectionManager';
 import { TablePropertiesPanel } from '../tableProperties';
 
@@ -13,6 +13,65 @@ import { TablePropertiesPanel } from '../tableProperties';
  * fetches - the view definition from the database.
  */
 const VIEW_DEFINITION_QUERY = `SELECT pg_get_viewdef($1:: regclass, true) as definition`;
+
+/**
+ * COLUMN_INFO_QUERY - SQL query to get column information for a view
+ */
+const COLUMN_INFO_QUERY = `
+SELECT column_name, data_type, is_nullable, column_default
+FROM information_schema.columns
+WHERE table_schema = $1
+AND table_name = $2
+ORDER BY ordinal_position`;
+
+/**
+ * createSimpleNotebook - Helper function to create a simple notebook with markdown and SQL cells
+ */
+async function createSimpleNotebook(item: DatabaseTreeItem, title: string, sql: string, markdownContent?: string) {
+    try {
+        validateItem(item);
+        const connection = await getConnectionWithPassword(item.connectionId!);
+        const metadata = createMetadata(connection, item.databaseName);
+
+        const defaultMarkdown = `# ${title}: \`${item.schema}.${item.label}\`\n\nExecute the cell below to run the query.`;
+
+        const cells = [
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                markdownContent || defaultMarkdown,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Code,
+                sql,
+                'sql'
+            )
+        ];
+
+        await createAndShowNotebook(cells, metadata);
+    } catch (err: any) {
+        vscode.window.showErrorMessage(`Failed to create ${title} notebook: ${err.message}`);
+    }
+}
+
+/**
+ * cmdScriptSelect - Command to generate a SELECT script for a view
+ */
+export async function cmdScriptSelect(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
+    const markdown = `### 📖 SELECT Script: \`${item.schema}.${item.label}\`
+
+<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>ℹ️ Note:</strong> Execute the query below to retrieve data from the view.
+</div>`;
+    await createSimpleNotebook(item, 'SELECT Script', `SELECT * FROM ${item.schema}.${item.label} LIMIT 100;`, markdown);
+}
+
+/**
+ * cmdScriptCreate - Command to generate a CREATE script for a view
+ */
+export async function cmdScriptCreate(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
+    await cmdEditView(item, context);
+}
 
 /**
  * viewEditCmd - Command to edit a PostgreSQL view in a notebook.
@@ -182,6 +241,10 @@ export async function cmdViewOperations(item: DatabaseTreeItem, context: vscode.
                 throw new Error('View definition not found');
             }
 
+            // Get column information
+            const columnsResult = await client.query(COLUMN_INFO_QUERY, [item.schema, item.label]);
+            const columns = columnsResult.rows;
+
             const viewDefinition = `CREATE OR REPLACE VIEW ${item.schema}.${item.label} AS\n${viewResult.rows[0].definition} `;
             const metadata = createMetadata(connection, item.databaseName);
 
@@ -194,16 +257,38 @@ export async function cmdViewOperations(item: DatabaseTreeItem, context: vscode.
     <strong>ℹ️ Note:</strong> This notebook contains common operations for the PostgreSQL view. Run the cells below to execute the operations.
 </div>
 
+#### 📋 View Information
+
+<table style="font-size: 11px; width: 100%; border-collapse: collapse;">
+    <tr><th style="text-align: left;">Property</th><th style="text-align: left;">Value</th></tr>
+    <tr><td><strong>Schema</strong></td><td>${item.schema}</td></tr>
+    <tr><td><strong>View Name</strong></td><td>${item.label}</td></tr>
+    <tr><td><strong>Column Count</strong></td><td>${columns.length}</td></tr>
+</table>
+
 #### 🎯 Available Operations
 
 <table style="font-size: 11px; width: 100%; border-collapse: collapse;">
     <tr><th style="text-align: left;">Operation</th><th style="text-align: left;">Description</th></tr>
+    <tr><td><strong>View Columns</strong></td><td>Display column definitions</td></tr>
     <tr><td><strong>View Definition</strong></td><td>Show the CREATE VIEW statement</td></tr>
     <tr><td><strong>Query Data</strong></td><td>Select the first 100 rows</td></tr>
+    <tr><td><strong>Query with Filters</strong></td><td>Advanced SELECT with WHERE clause</td></tr>
+    <tr><td><strong>Query with Aggregation</strong></td><td>Group and aggregate data</td></tr>
     <tr><td><strong>Modify Definition</strong></td><td>Template for updating the view</td></tr>
     <tr><td><strong>Drop</strong></td><td>Delete the view (Warning: Irreversible)</td></tr>
 </table>`,
                     'markdown'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 📋 View Columns`,
+                    'markdown'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Code,
+                    `-- View columns\nSELECT \n    column_name,\n    data_type,\n    is_nullable,\n    column_default\nFROM information_schema.columns\nWHERE table_schema = '${item.schema}'\n  AND table_name = '${item.label}'\nORDER BY ordinal_position;`,
+                    'sql'
                 ),
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Markup,
@@ -224,8 +309,40 @@ export async function cmdViewOperations(item: DatabaseTreeItem, context: vscode.
                     vscode.NotebookCellKind.Code,
                     `-- Query view data
 SELECT *
-    FROM ${item.schema}.${item.label}
-LIMIT 100; `,
+FROM ${item.schema}.${item.label}
+LIMIT 100;`,
+                    'sql'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 🔍 Query with Filters`,
+                    'markdown'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Code,
+                    `-- Query with filters
+SELECT *
+FROM ${item.schema}.${item.label}
+WHERE condition = value
+ORDER BY column_name
+LIMIT 100;`,
+                    'sql'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 📊 Query with Aggregation`,
+                    'markdown'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Code,
+                    `-- Query with aggregation
+SELECT 
+    column_name,
+    COUNT(*) as count,
+    AVG(numeric_column) as average
+FROM ${item.schema}.${item.label}
+GROUP BY column_name
+ORDER BY count DESC;`,
                     'sql'
                 ),
                 new vscode.NotebookCellData(
@@ -238,7 +355,7 @@ LIMIT 100; `,
                     `-- Modify view definition
 CREATE OR REPLACE VIEW ${item.schema}.${item.label} AS
 SELECT * FROM source_table
-WHERE condition; `,
+WHERE condition;`,
                     'sql'
                 ),
                 new vscode.NotebookCellData(
@@ -249,7 +366,7 @@ WHERE condition; `,
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Code,
                     `-- Drop view
-DROP VIEW ${item.schema}.${item.label}; `,
+DROP VIEW IF EXISTS ${item.schema}.${item.label};`,
                     'sql'
                 )
             ];
@@ -283,12 +400,275 @@ export async function cmdShowViewProperties(item: DatabaseTreeItem, context: vsc
         });
 
         try {
-            await TablePropertiesPanel.show(client, item.schema, item.label, true);
+            // Gather comprehensive view information
+            const [viewInfo, columnInfo, dependenciesInfo, referencedInfo, sizeInfo] = await Promise.all([
+                // Basic view info
+                client.query(`
+                    SELECT 
+                        c.relname as view_name,
+                        n.nspname as schema_name,
+                        pg_get_userbyid(c.relowner) as owner,
+                        obj_description(c.oid) as comment,
+                        c.reltuples::bigint as row_estimate
+                    FROM pg_class c
+                    JOIN pg_namespace n ON n.oid = c.relnamespace
+                    WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'v'
+                `, [item.schema, item.label]),
+                
+                // Column details
+                client.query(`
+                    SELECT 
+                        column_name,
+                        data_type,
+                        character_maximum_length,
+                        numeric_precision,
+                        numeric_scale,
+                        is_nullable,
+                        column_default,
+                        ordinal_position,
+                        col_description((table_schema||'.'||table_name)::regclass::oid, ordinal_position) as description
+                    FROM information_schema.columns
+                    WHERE table_schema = $1 AND table_name = $2
+                    ORDER BY ordinal_position
+                `, [item.schema, item.label]),
+                
+                // Dependent objects (views/tables that depend on this view)
+                client.query(`
+                    SELECT DISTINCT
+                        dependent_ns.nspname as schema,
+                        dependent_view.relname as name,
+                        dependent_view.relkind as kind
+                    FROM pg_depend 
+                    JOIN pg_rewrite ON pg_depend.objid = pg_rewrite.oid 
+                    JOIN pg_class as dependent_view ON pg_rewrite.ev_class = dependent_view.oid 
+                    JOIN pg_namespace dependent_ns ON dependent_ns.oid = dependent_view.relnamespace
+                    WHERE pg_depend.refobjid = $1::regclass
+                    AND dependent_view.relname != $2
+                    ORDER BY schema, name
+                `, [`${item.schema}.${item.label}`, item.label]),
+                
+                // Referenced objects (tables/views this view depends on)
+                client.query(`
+                    SELECT DISTINCT
+                        ref_nsp.nspname as schema,
+                        ref_class.relname as name,
+                        ref_class.relkind as kind
+                    FROM pg_depend dep
+                    JOIN pg_rewrite rew ON dep.objid = rew.oid
+                    JOIN pg_class ref_class ON dep.refobjid = ref_class.oid
+                    JOIN pg_namespace ref_nsp ON ref_nsp.oid = ref_class.relnamespace
+                    WHERE rew.ev_class = $1::regclass
+                    AND ref_class.relname != $2
+                    AND ref_class.relkind IN ('r', 'v', 'm')
+                    ORDER BY schema, name
+                `, [`${item.schema}.${item.label}`, item.label]),
+                
+                // Size information
+                client.query(`
+                    SELECT 
+                        pg_size_pretty(pg_relation_size($1::regclass)) as view_size
+                `, [`${item.schema}.${item.label}`])
+            ]);
+
+            const view = viewInfo.rows[0];
+            const columns = columnInfo.rows;
+            const dependents = dependenciesInfo.rows;
+            const references = referencedInfo.rows;
+            const sizes = sizeInfo.rows[0];
+
+            // Get view definition
+            const viewDefResult = await client.query(`SELECT pg_get_viewdef($1::regclass, true) as definition`, [`${item.schema}.${item.label}`]);
+            const viewDefinition = viewDefResult.rows[0]?.definition || '';
+
+            const metadata = createMetadata(connection, item.databaseName);
+
+            const getKindLabel = (kind: string) => {
+                switch (kind) {
+                    case 'r': return '📊 Table';
+                    case 'v': return '👁️ View';
+                    case 'm': return '💾 Materialized View';
+                    case 'f': return '🌐 Foreign Table';
+                    default: return kind;
+                }
+            };
+
+            // Build column table HTML
+            const columnRows = columns.map(col => {
+                const dataType = col.character_maximum_length 
+                    ? `${col.data_type}(${col.character_maximum_length})`
+                    : col.numeric_precision 
+                        ? `${col.data_type}(${col.numeric_precision}${col.numeric_scale ? ',' + col.numeric_scale : ''})`
+                        : col.data_type;
+                return `    <tr>
+        <td>${col.ordinal_position}</td>
+        <td><strong>${col.column_name}</strong></td>
+        <td><code>${dataType}</code></td>
+        <td>${col.is_nullable === 'YES' ? '✅' : '🚫'}</td>
+        <td>${col.default_value ? `<code>${col.default_value}</code>` : '—'}</td>
+        <td>${col.description || '—'}</td>
+    </tr>`;
+            }).join('\n');
+
+            // Build dependencies table HTML
+            const dependencyRows = dependents.map(dep => {
+                return `    <tr>
+        <td>${getKindLabel(dep.kind)}</td>
+        <td><code>${dep.schema}.${dep.name}</code></td>
+    </tr>`;
+            }).join('\n');
+
+            // Build references table HTML
+            const referenceRows = references.map(ref => {
+                return `    <tr>
+        <td>${getKindLabel(ref.kind)}</td>
+        <td><code>${ref.schema}.${ref.name}</code></td>
+    </tr>`;
+            }).join('\n');
+
+            // Build CREATE VIEW script
+            const createViewScript = `-- DROP VIEW IF EXISTS ${item.schema}.${item.label};
+
+CREATE OR REPLACE VIEW ${item.schema}.${item.label} AS
+${viewDefinition};
+
+-- View comment
+${view.comment ? `COMMENT ON VIEW ${item.schema}.${item.label} IS '${view.comment.replace(/'/g, "''")}';` : `-- COMMENT ON VIEW ${item.schema}.${item.label} IS 'view description';`}`;
+
+            const markdown = `### 👁️ View Properties: \`${item.schema}.${item.label}\`
+
+<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>ℹ️ Owner:</strong> ${view.owner} ${view.comment ? `| <strong>Comment:</strong> ${view.comment}` : ''}
+</div>
+
+#### 📊 General Information
+
+<table style="font-size: 11px; width: 100%; border-collapse: collapse;">
+    <tr><th style="text-align: left; width: 30%;">Property</th><th style="text-align: left;">Value</th></tr>
+    <tr><td><strong>Schema</strong></td><td>${view.schema_name}</td></tr>
+    <tr><td><strong>View Name</strong></td><td>${view.view_name}</td></tr>
+    <tr><td><strong>Owner</strong></td><td>${view.owner}</td></tr>
+    <tr><td><strong>Size</strong></td><td>${sizes.view_size}</td></tr>
+    <tr><td><strong>Row Estimate</strong></td><td>${view.row_estimate?.toLocaleString() || 'N/A'}</td></tr>
+    <tr><td><strong>Column Count</strong></td><td>${columns.length}</td></tr>
+</table>
+
+#### 📋 Columns (${columns.length})
+
+<table style="font-size: 11px; width: 100%; border-collapse: collapse;">
+    <tr>
+        <th style="text-align: left; width: 5%;">#</th>
+        <th style="text-align: left; width: 20%;">Name</th>
+        <th style="text-align: left; width: 20%;">Data Type</th>
+        <th style="text-align: left; width: 10%;">Nullable</th>
+        <th style="text-align: left; width: 20%;">Default</th>
+        <th style="text-align: left;">Description</th>
+    </tr>
+${columnRows}
+</table>
+
+${references.length > 0 ? `#### 🔗 Referenced Objects (${references.length})
+
+<div style="font-size: 11px; background-color: #2d3a42; border-left: 3px solid #9b59b6; padding: 6px 10px; margin-bottom: 10px; border-radius: 3px;">
+    Objects that this view depends on (base tables and views):
+</div>
+
+<table style="font-size: 11px; width: 100%; border-collapse: collapse;">
+    <tr>
+        <th style="text-align: left; width: 20%;">Type</th>
+        <th style="text-align: left;">Object</th>
+    </tr>
+${referenceRows}
+</table>
+
+` : ''}${dependents.length > 0 ? `#### 🔄 Dependent Objects (${dependents.length})
+
+<div style="font-size: 11px; background-color: #3a2d42; border-left: 3px solid #e67e22; padding: 6px 10px; margin-bottom: 10px; border-radius: 3px;">
+    Objects that depend on this view (other views that reference this one):
+</div>
+
+<table style="font-size: 11px; width: 100%; border-collapse: collapse;">
+    <tr>
+        <th style="text-align: left; width: 20%;">Type</th>
+        <th style="text-align: left;">Object</th>
+    </tr>
+${dependencyRows}
+</table>
+
+` : ''}---`;
+
+            const cells = [
+                new vscode.NotebookCellData(vscode.NotebookCellKind.Markup, markdown, 'markdown'),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 📝 CREATE VIEW Script`,
+                    'markdown'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Code,
+                    createViewScript,
+                    'sql'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 🗑️ DROP VIEW Script`,
+                    'markdown'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Code,
+                    `-- Drop view (with dependencies)
+DROP VIEW IF EXISTS ${item.schema}.${item.label} CASCADE;
+
+-- Drop view (without dependencies - will fail if referenced)
+-- DROP VIEW IF EXISTS ${item.schema}.${item.label} RESTRICT;`,
+                    'sql'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 🔍 Query View Data`,
+                    'markdown'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Code,
+                    `-- Select all data from view
+SELECT * FROM ${item.schema}.${item.label}
+LIMIT 100;`,
+                    'sql'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 📊 View Definition Details`,
+                    'markdown'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Code,
+                    `-- Get detailed view information
+SELECT 
+    schemaname,
+    viewname,
+    viewowner,
+    definition
+FROM pg_views
+WHERE schemaname = '${item.schema}' AND viewname = '${item.label}';
+
+-- Check view dependencies
+SELECT DISTINCT
+    v.table_schema,
+    v.table_name,
+    v.column_name
+FROM information_schema.view_column_usage v
+WHERE v.view_schema = '${item.schema}' 
+AND v.view_name = '${item.label}'
+ORDER BY v.table_schema, v.table_name, v.column_name;`,
+                    'sql'
+                )
+            ];
+
+            await createAndShowNotebook(cells, metadata);
         } finally {
             // Do not close shared client
         }
     } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to show view properties: ${err.message} `);
+        vscode.window.showErrorMessage(`Failed to show view properties: ${err.message}`);
     }
 }
 

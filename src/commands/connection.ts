@@ -1,9 +1,10 @@
 import { Client } from 'pg';
 import * as vscode from 'vscode';
-import { DatabaseTreeItem, DatabaseTreeProvider } from '../providers/DatabaseTreeProvider';
 import { PostgresMetadata } from '../common/types';
-import { SecretStorageService } from '../services/SecretStorageService';
+import { DatabaseTreeItem, DatabaseTreeProvider } from '../providers/DatabaseTreeProvider';
 import { ConnectionManager } from '../services/ConnectionManager';
+import { SecretStorageService } from '../services/SecretStorageService';
+import { ErrorHandlers } from './helper';
 
 /**
  * createMetadata - Creates metadata for the PostgreSQL connection.
@@ -140,7 +141,7 @@ export async function cmdDisconnectDatabase(item: DatabaseTreeItem, context: vsc
 
             vscode.window.showInformationMessage(`Connection '${item.label}' has been deleted successfully.`);
         } catch (err: any) {
-            vscode.window.showErrorMessage(`Failed to delete connection: ${err.message}`);
+            await ErrorHandlers.handleCommandError(err, 'delete connection');
             console.error('Delete connection error:', err);
         }
     }
@@ -156,7 +157,7 @@ export async function cmdDisconnectConnection(item: DatabaseTreeItem, context: v
         databaseTreeProvider?.refresh();
         vscode.window.showInformationMessage(`Disconnected from '${item.label}'`);
     } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to disconnect: ${err.message}`);
+        await ErrorHandlers.handleCommandError(err, 'disconnect');
     }
 }
 
@@ -177,7 +178,6 @@ export async function cmdConnectDatabase(item: DatabaseTreeItem, context: vscode
         databaseTreeProvider?.refresh();
         await client.end();
     } catch (err: any) {
-        const errorMessage = err?.message || 'Unknown error occurred';
-        vscode.window.showErrorMessage(`Failed to connect: ${errorMessage}`);
+        await ErrorHandlers.handleCommandError(err, 'connect');
     }
 }

@@ -1,9 +1,26 @@
 import { Client } from 'pg';
 import * as vscode from 'vscode';
-import { DatabaseTreeItem, DatabaseTreeProvider } from '../providers/DatabaseTreeProvider';
-import { createAndShowNotebook, createMetadata, getConnectionWithPassword, validateItem } from '../commands/connection';
-import { ConnectionManager } from '../services/ConnectionManager';
+import { createAndShowNotebook, createMetadata, getConnectionWithPassword } from '../commands/connection';
 import { DashboardPanel } from '../dashboard/DashboardPanel';
+import { DatabaseTreeItem, DatabaseTreeProvider } from '../providers/DatabaseTreeProvider';
+import { ConnectionManager } from '../services/ConnectionManager';
+import { 
+    MarkdownUtils, 
+    ErrorHandlers
+} from './helper';
+
+/**
+ * Validates that a database item has the required properties.
+ * @throws Error if validation fails
+ */
+function validateDatabaseItem(item: DatabaseTreeItem): void {
+    if (!item) {
+        throw new Error('No database selected');
+    }
+    if (!item.connectionId || !item.databaseName) {
+        throw new Error('Invalid database selection - missing connection or database name');
+    }
+}
 
 /**
  * cmdShowDatabaseDashboard - Creates a notebook with database statistics and performance metrics.
@@ -23,13 +40,7 @@ import { DashboardPanel } from '../dashboard/DashboardPanel';
  */
 export async function cmdDatabaseDashboard(item: DatabaseTreeItem, context: vscode.ExtensionContext): Promise<void> {
     try {
-        if (!item) {
-            throw new Error('No database selected');
-        }
-        if (!item.connectionId || !item.databaseName) {
-            throw new Error('Invalid database selection - missing connection or database name');
-        }
-        // Remove validateItem() call since it requires schema which isn't needed for database operations
+        validateDatabaseItem(item);
 
         const connectionConfig = await getConnectionWithPassword(item.connectionId!);
         const connection = await ConnectionManager.getInstance().getConnection({
@@ -45,13 +56,9 @@ export async function cmdDatabaseDashboard(item: DatabaseTreeItem, context: vsco
             throw new Error('Failed to get database connection');
         }
 
-        await DashboardPanel.show(connection, item.databaseName);
+        await DashboardPanel.show(connection, item.databaseName!);
     } catch (err: any) {
-        let errorMessage = 'Failed to show dashboard';
-        if (err instanceof Error) {
-            errorMessage += `: ${err.message}`;
-        }
-        vscode.window.showErrorMessage(errorMessage);
+        await ErrorHandlers.handleCommandError(err, 'show dashboard');
     }
 }
 
@@ -65,13 +72,7 @@ export async function cmdDatabaseDashboard(item: DatabaseTreeItem, context: vsco
  */
 export async function cmdAddObjectInDatabase(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
-        if (!item) {
-            throw new Error('No database selected');
-        }
-        if (!item.connectionId || !item.databaseName) {
-            throw new Error('Invalid database selection - missing connection or database name');
-        }
-        // Remove validateItem() call since it requires schema which isn't needed for database operations
+        validateDatabaseItem(item);
 
         const connectionConfig = await getConnectionWithPassword(item.connectionId!);
         const metadata = createMetadata(connectionConfig, item.databaseName);
@@ -83,33 +84,20 @@ export async function cmdAddObjectInDatabase(item: DatabaseTreeItem, context: vs
                 {
                     cell_type: "markdown",
                     metadata: { language: "markdown" },
-                    value: [
-                        "### 📂 Create New Schema",
-                        "",
-                        "<div style=\"font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;\">",
-                        "    <strong>ℹ️ Note:</strong> This notebook guides you through creating a new PostgreSQL schema and configuring permissions. Schemas help organize database objects and control access.",
-                        "</div>",
-                        "",
-                        "#### 🎯 What is a Schema?",
-                        "",
-                        "A schema is a named collection of database objects (tables, views, functions) that:",
-                        "- 📦 Organizes objects logically",
-                        "- 🔐 Controls access at the schema level",
-                        "- 🏗️ Prevents naming conflicts",
-                        "- 👥 Supports multi-tenant applications",
-                        "",
-                        "<div style=\"font-size: 12px; background-color: #2d3e30; border-left: 3px solid #2ecc71; padding: 6px 10px; margin-top: 15px; border-radius: 3px;\">",
-                        "    <strong>💡 Tip:</strong> Execute cells in order. Skip optional sections if not needed for your use case.",
-                        "</div>"
-                    ].join('\n')
+                    value: MarkdownUtils.header('📂 Create New Schema') +
+                        MarkdownUtils.infoBox('This notebook guides you through creating a new PostgreSQL schema and configuring permissions. Schemas help organize database objects and control access.') +
+                        `\n\n#### 🎯 What is a Schema?\n\n` +
+                        `A schema is a named collection of database objects (tables, views, functions) that:\n` +
+                        `- 📦 Organizes objects logically\n` +
+                        `- 🔐 Controls access at the schema level\n` +
+                        `- 🏗️ Prevents naming conflicts\n` +
+                        `- 👥 Supports multi-tenant applications\n\n` +
+                        MarkdownUtils.successBox('Execute cells in order. Skip optional sections if not needed for your use case.')
                 },
                 {
                     cell_type: "markdown",
                     metadata: { language: "markdown" },
-                    value: [
-                        "#### 1. Create Schema",
-                        "Create a new schema with optional ownership settings."
-                    ].join('\n')
+                    value: `#### 1. Create Schema\nCreate a new schema with optional ownership settings.`
                 },
                 {
                     cell_type: "markdown",
@@ -833,7 +821,7 @@ export async function cmdAddObjectInDatabase(item: DatabaseTreeItem, context: vs
             await vscode.window.showNotebookDocument(document);
         }
     } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to create notebook: ${err.message}`);
+        await ErrorHandlers.handleCommandError(err, 'create notebook');
     }
 }
 
@@ -845,13 +833,7 @@ export async function cmdAddObjectInDatabase(item: DatabaseTreeItem, context: vs
  */
 export async function cmdDatabaseOperations(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
-        if (!item) {
-            throw new Error('No database selected');
-        }
-        if (!item.connectionId || !item.databaseName) {
-            throw new Error('Invalid database selection - missing connection or database name');
-        }
-        // Remove validateItem() call since it requires schema which isn't needed for database operations
+        validateDatabaseItem(item);
 
         const connectionConfig = await getConnectionWithPassword(item.connectionId!);
         const connection = await ConnectionManager.getInstance().getConnection({
@@ -920,41 +902,27 @@ export async function cmdDatabaseOperations(item: DatabaseTreeItem, context: vsc
             const cells = [
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Markup,
-                    `### 📊 Database Operations: \`${item.label}\`
-
-<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
-    <strong>ℹ️ Note:</strong> Comprehensive database management notebook with statistics, monitoring queries, and administrative operations.
-</div>
-
-#### 📈 Database Overview
-
-##### 📊 Schema Size Distribution
-${schemaDistribution}
-
-##### 🏥 Health Metrics
-<table style="font-size: 11px; width: 100%; border-collapse: collapse;">
-    <tr><th style="text-align: left;">Metric</th><th style="text-align: left;">Value</th><th style="text-align: left;">Description</th></tr>
-    <tr><td>🗄️ <strong>Database Size</strong></td><td><code>${info.Size}</code></td><td>Total storage used</td></tr>
-    <tr><td>👤 <strong>Owner</strong></td><td><code>${info.Owner}</code></td><td>Database owner</td></tr>
-    <tr><td>🔗 <strong>Active Connections</strong></td><td><code>${info["Active Connections"]}</code></td><td>Current connections</td></tr>
-    <tr><td>📂 <strong>Schemas</strong></td><td><code>${info.Schemas}</code></td><td>User schemas</td></tr>
-    <tr><td>📊 <strong>Tables</strong></td><td><code>${info.Tables}</code></td><td>User tables</td></tr>
-    <tr><td>👥 <strong>Roles</strong></td><td><code>${info.Roles}</code></td><td>Total roles/users</td></tr>
-</table>
-
-#### 🎯 Available Operations
-
-Execute the cells below to:
-- 📦 **View schema sizes** - Analyze storage by schema
-- 👥 **List users/roles** - Review permissions and access
-- 🔍 **Monitor connections** - Track active sessions
-- 🧩 **Check extensions** - See installed features
-
-<div style="font-size: 12px; background-color: #2d3e30; border-left: 3px solid #2ecc71; padding: 6px 10px; margin-top: 15px; border-radius: 3px;">
-    <strong>💡 Tip:</strong> Use these queries for monitoring, reporting, and database administration. Modify as needed for your specific use case.
-</div>
-
----`,
+                    MarkdownUtils.header(`📊 Database Operations: \`${item.label}\``) +
+                        MarkdownUtils.infoBox('Comprehensive database management notebook with statistics, monitoring queries, and administrative operations.') +
+                        `\n\n#### 📈 Database Overview\n\n` +
+                        `##### 📊 Schema Size Distribution\n${schemaDistribution}\n\n` +
+                        `##### 🏥 Health Metrics\n` +
+                        MarkdownUtils.propertiesTable({
+                            '🗄️ Database Size': `<code>${info.Size}</code>`,
+                            '👤 Owner': `<code>${info.Owner}</code>`,
+                            '🔗 Active Connections': `<code>${info["Active Connections"]}</code>`,
+                            '📂 Schemas': `<code>${info.Schemas}</code>`,
+                            '📊 Tables': `<code>${info.Tables}</code>`,
+                            '👥 Roles': `<code>${info.Roles}</code>`
+                        }) +
+                        `\n\n#### 🎯 Available Operations\n\n` +
+                        `Execute the cells below to:\n` +
+                        `- 📦 **View schema sizes** - Analyze storage by schema\n` +
+                        `- 👥 **List users/roles** - Review permissions and access\n` +
+                        `- 🔍 **Monitor connections** - Track active sessions\n` +
+                        `- 🧩 **Check extensions** - See installed features\n\n` +
+                        MarkdownUtils.successBox('Use these queries for monitoring, reporting, and database administration. Modify as needed for your specific use case.') +
+                        `\n\n---`,
                     'markdown'
                 ),
                 new vscode.NotebookCellData(
@@ -1077,7 +1045,7 @@ AND pid <> pg_backend_pid();`,
             // Connection is managed by ConnectionManager, no need to close
         }
     } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to create database operations notebook: ${err.message}`);
+        await ErrorHandlers.handleCommandError(err, 'create database operations notebook');
     }
 }
 
@@ -1108,11 +1076,16 @@ export async function cmdCreateDatabase(item: DatabaseTreeItem, context: vscode.
         const cells = [
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `### 🆕 Create New Database
-
-<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
-    <strong>ℹ️ Note:</strong> Execute the cell below to create a new database.
-</div>`,
+                MarkdownUtils.header('🆕 Create New Database') +
+                    MarkdownUtils.infoBox('Execute the cell below to create a new database. Modify the database name and options as needed.') +
+                    `\n\n#### 🎯 Database Options\n\n` +
+                    MarkdownUtils.operationsTable([
+                        { operation: 'OWNER', description: 'Specify the database owner' },
+                        { operation: 'ENCODING', description: 'Character encoding (e.g., UTF8)' },
+                        { operation: 'TEMPLATE', description: 'Template database to copy from' },
+                        { operation: 'TABLESPACE', description: 'Default tablespace for the database' },
+                        { operation: 'CONNECTION LIMIT', description: 'Maximum concurrent connections' }
+                    ]),
                 'markdown'
             ),
             new vscode.NotebookCellData(
@@ -1122,15 +1095,24 @@ export async function cmdCreateDatabase(item: DatabaseTreeItem, context: vscode.
             ),
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Code,
-                `-- Create database
-CREATE DATABASE new_database;`,
+                `-- Create database with basic settings
+CREATE DATABASE new_database;
+
+-- Create database with full options
+-- CREATE DATABASE new_database
+--     WITH OWNER = postgres
+--     ENCODING = 'UTF8'
+--     LC_COLLATE = 'en_US.UTF-8'
+--     LC_CTYPE = 'en_US.UTF-8'
+--     TEMPLATE = template0
+--     CONNECTION LIMIT = -1;`,
                 'sql'
             )
         ];
 
         await createAndShowNotebook(cells, metadata);
     } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to create database notebook: ${err.message}`);
+        await ErrorHandlers.handleCommandError(err, 'create database notebook');
     }
 }
 
@@ -1154,12 +1136,28 @@ export async function cmdDeleteDatabase(item: DatabaseTreeItem, context: vscode.
         const cells = [
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `### ❌ Delete Database: \`${item.label}\`
-
-<div style="font-size: 12px; background-color: #3e2d2d; border-left: 3px solid #e74c3c; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
-    <strong>🛑 Caution:</strong> This action will <strong>PERMANENTLY DELETE</strong> the database and <strong>ALL DATA</strong>. This cannot be undone!
-</div>`,
+                MarkdownUtils.header(`❌ Delete Database: \`${item.label}\``) +
+                    MarkdownUtils.dangerBox('This action will <strong>PERMANENTLY DELETE</strong> the database and <strong>ALL DATA</strong>. This cannot be undone!', 'DANGER') +
+                    `\n\n#### ⚠️ Before You Drop\n\n` +
+                    `1. **Backup your data** - Create a full backup using pg_dump\n` +
+                    `2. **Verify connections** - Ensure no active connections to the database\n` +
+                    `3. **Test on non-production** - Verify the operation is intended\n\n` +
+                    MarkdownUtils.warningBox('You cannot drop a database while connected to it. This notebook connects to the postgres database to execute the DROP command.'),
                 'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### 🚨 Terminate Active Connections (if needed)`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Code,
+                `-- Terminate all connections to the database (run this first if needed)
+SELECT pg_terminate_backend(pid)
+FROM pg_stat_activity
+WHERE datname = '${item.label}'
+  AND pid <> pg_backend_pid();`,
+                'sql'
             ),
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
@@ -1168,7 +1166,7 @@ export async function cmdDeleteDatabase(item: DatabaseTreeItem, context: vscode.
             ),
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Code,
-                `-- Drop database
+                `-- Drop database (use with extreme caution!)
 DROP DATABASE IF EXISTS "${item.label}";`,
                 'sql'
             )
@@ -1176,7 +1174,7 @@ DROP DATABASE IF EXISTS "${item.label}";`,
 
         await createAndShowNotebook(cells, metadata);
     } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to create delete database notebook: ${err.message}`);
+        await ErrorHandlers.handleCommandError(err, 'create delete database notebook');
     }
 }
 
@@ -1241,7 +1239,7 @@ export async function cmdBackupDatabase(item: DatabaseTreeItem, context: vscode.
         terminal.sendText(command, false); // false = do not execute immediately
 
     } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to initiate backup: ${err.message}`);
+        await ErrorHandlers.handleCommandError(err, 'initiate backup');
     }
 }
 
@@ -1311,7 +1309,7 @@ export async function cmdRestoreDatabase(item: DatabaseTreeItem, context: vscode
         terminal.sendText(command, false); // false = do not execute immediately
 
     } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to initiate restore: ${err.message}`);
+        await ErrorHandlers.handleCommandError(err, 'initiate restore');
     }
 }
 
@@ -1341,11 +1339,13 @@ export async function cmdGenerateCreateScript(item: DatabaseTreeItem, context: v
         const cells = [
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `### 📝 CREATE Script: \`${item.label}\`
-
-<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
-    <strong>ℹ️ Note:</strong> This is the SQL script to recreate the database definition.
-</div>`,
+                MarkdownUtils.header(`📝 CREATE Script: \`${item.label}\``) +
+                    MarkdownUtils.infoBox('This is the SQL script to recreate the database definition. Copy and modify as needed.') +
+                    `\n\n#### 📚 Database Properties\n\n` +
+                    `The script includes:\n` +
+                    `- 👤 Owner specification\n` +
+                    `- 📝 Character encoding\n` +
+                    `- 🌐 Locale settings (collation and ctype)\n`,
                 'markdown'
             ),
             new vscode.NotebookCellData(
@@ -1362,20 +1362,15 @@ export async function cmdGenerateCreateScript(item: DatabaseTreeItem, context: v
 
         await createAndShowNotebook(cells, metadata);
     } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to generate create script: ${err.message}`);
+        await ErrorHandlers.handleCommandError(err, 'generate create script');
     }
 }
 
 export async function cmdDisconnectDatabase(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
-        // In this extension, connections are pooled. We can't easily "disconnect" a single DB without affecting others if they share the pool.
-        // But we can simulate it by just showing a message or clearing the pool for this specific config if possible.
-        // For now, let's just show a message that it's disconnected (conceptually).
-        // Or better, we can actually remove it from the tree if it was a "connected" node, but here it's a database node.
-        // Let's just show a message.
         vscode.window.showInformationMessage(`Disconnected from ${item.label} (Session cleared)`);
     } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to disconnect: ${err.message}`);
+        await ErrorHandlers.handleCommandError(err, 'disconnect');
     }
 }
 
@@ -1387,44 +1382,74 @@ export async function cmdMaintenanceDatabase(item: DatabaseTreeItem, context: vs
         const cells = [
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `### 🛠️ Database Maintenance: \`${item.label}\`
-
-<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
-    <strong>ℹ️ Note:</strong> Perform standard maintenance operations to optimize database performance.
-</div>
-
-#### 🎯 Operations
-
-<table style="font-size: 11px; width: 100%; border-collapse: collapse;">
-    <tr><th style="text-align: left;">Operation</th><th style="text-align: left;">Description</th></tr>
-    <tr><td><strong>VACUUM</strong></td><td>Reclaims storage and updates visibility map</td></tr>
-    <tr><td><strong>ANALYZE</strong></td><td>Updates optimizer statistics</td></tr>
-    <tr><td><strong>REINDEX</strong></td><td>Rebuilds indexes (commented out by default)</td></tr>
-</table>`,
+                MarkdownUtils.header(`🛠️ Database Maintenance: \`${item.label}\``) +
+                    MarkdownUtils.infoBox('Perform standard maintenance operations to optimize database performance.') +
+                    `\n\n#### 🎯 Maintenance Operations\n\n` +
+                    MarkdownUtils.operationsTable([
+                        { operation: 'VACUUM', description: 'Reclaims storage occupied by dead tuples' },
+                        { operation: 'ANALYZE', description: 'Updates optimizer statistics for better query plans' },
+                        { operation: 'REINDEX', description: 'Rebuilds indexes (use during maintenance windows)' },
+                        { operation: 'VACUUM FULL', description: 'Compacts tables (requires exclusive lock)' }
+                    ]) +
+                    `\n\n#### ⏱️ When to Run\n\n` +
+                    `- ✅ After large batch DELETE or UPDATE operations\n` +
+                    `- ✅ When query performance degrades\n` +
+                    `- ✅ Before major reporting operations\n` +
+                    `- ✅ During scheduled maintenance windows\n\n` +
+                    MarkdownUtils.successBox('PostgreSQL has autovacuum running automatically, but manual maintenance can be useful after bulk operations.'),
                 'markdown'
             ),
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `##### 🧹 Maintenance Commands`,
+                `##### 🧹 VACUUM & ANALYZE`,
                 'markdown'
             ),
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Code,
-                `-- Vacuum (recover storage)
-VACUUM VERBOSE;
+                `-- Vacuum and update statistics (safe, non-blocking)
+VACUUM (VERBOSE, ANALYZE);`,
+                'sql'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### 📊 Tables Needing Maintenance`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Code,
+                `-- Check tables with dead tuples
+SELECT 
+    schemaname || '.' || relname as "Table",
+    n_dead_tup as "Dead Tuples",
+    n_live_tup as "Live Tuples",
+    last_vacuum as "Last Vacuum",
+    last_autovacuum as "Last Auto Vacuum",
+    pg_size_pretty(pg_total_relation_size(schemaname || '.' || relname)) as "Total Size"
+FROM pg_stat_user_tables
+WHERE n_dead_tup > 0
+ORDER BY n_dead_tup DESC
+LIMIT 20;`,
+                'sql'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### 🔄 REINDEX (Use with Caution)`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Code,
+                `-- Reindex entire database (locks tables during rebuild)
+-- REINDEX DATABASE "${item.label}";
 
--- Analyze (update statistics)
-ANALYZE VERBOSE;
-
--- Reindex (rebuild indexes)
--- REINDEX DATABASE "${item.label}";`,
+-- Reindex specific table (safer approach)
+-- REINDEX TABLE schema_name.table_name;`,
                 'sql'
             )
         ];
 
         await createAndShowNotebook(cells, metadata);
     } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to create maintenance notebook: ${err.message}`);
+        await ErrorHandlers.handleCommandError(err, 'create maintenance notebook');
     }
 }
 
@@ -1435,8 +1460,14 @@ export async function cmdQueryTool(item: DatabaseTreeItem, context: vscode.Exten
 
         const cells = [
             new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                MarkdownUtils.header(`📝 Query Tool: \`${item.label}\``) +
+                    MarkdownUtils.infoBox('Write and execute SQL queries against this database.'),
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Code,
-                `-- Write your query here
+                `-- Write your SQL query here
 SELECT 1;`,
                 'sql'
             )
@@ -1444,7 +1475,7 @@ SELECT 1;`,
 
         await createAndShowNotebook(cells, metadata);
     } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to open query tool: ${err.message}`);
+        await ErrorHandlers.handleCommandError(err, 'open query tool');
     }
 }
 
@@ -1454,13 +1485,10 @@ export async function cmdPsqlTool(item: DatabaseTreeItem, context: vscode.Extens
 
         const terminal = vscode.window.createTerminal(`PSQL: ${item.label}`);
         terminal.show();
-        // Assuming psql is in PATH. If password is needed, it might prompt.
-        // We can try to set PGPASSWORD env var but that's insecure.
-        // Let's just run psql command.
         terminal.sendText(`psql -h ${connectionConfig.host} -p ${connectionConfig.port} -U ${connectionConfig.username} -d "${item.label}"`);
 
     } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to open PSQL tool: ${err.message}`);
+        await ErrorHandlers.handleCommandError(err, 'open PSQL tool');
     }
 }
 
@@ -1472,28 +1500,79 @@ export async function cmdShowConfiguration(item: DatabaseTreeItem, context: vsco
         const cells = [
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `### ⚙️ Database Configuration: \`${item.label}\`
-
-<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
-    <strong>ℹ️ Note:</strong> View current configuration settings for this database.
-</div>`,
+                MarkdownUtils.header(`⚙️ Database Configuration: \`${item.label}\``) +
+                    MarkdownUtils.infoBox('View and analyze current configuration settings for this PostgreSQL database.') +
+                    `\n\n#### 📚 Configuration Categories\n\n` +
+                    MarkdownUtils.operationsTable([
+                        { operation: 'Connections', description: 'Connection limits, timeouts, and authentication' },
+                        { operation: 'Memory', description: 'Shared buffers, work memory, maintenance memory' },
+                        { operation: 'WAL', description: 'Write-ahead logging and checkpoint settings' },
+                        { operation: 'Query Tuning', description: 'Planner costs, parallelism, and optimization' },
+                        { operation: 'Logging', description: 'Log destinations, levels, and rotation' }
+                    ]) +
+                    `\n\n` +
+                    MarkdownUtils.successBox('Filter by category to find specific settings. Most settings require a server restart to change.'),
                 'markdown'
             ),
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `##### 📋 Configuration Settings`,
+                `##### 📋 All Configuration Settings`,
                 'markdown'
             ),
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Code,
-                `-- View all configuration settings\nSELECT name, setting, unit, category, short_desc \nFROM pg_settings \nORDER BY category, name;`,
+                `-- View all configuration settings
+SELECT 
+    name as "Setting",
+    setting as "Value",
+    unit as "Unit",
+    category as "Category",
+    short_desc as "Description"
+FROM pg_settings 
+ORDER BY category, name;`,
+                'sql'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### 💻 Memory Settings`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Code,
+                `-- Memory-related settings
+SELECT 
+    name as "Setting",
+    setting as "Value",
+    unit as "Unit",
+    short_desc as "Description"
+FROM pg_settings 
+WHERE category LIKE '%Memory%' OR name LIKE '%memory%' OR name LIKE '%buffer%'
+ORDER BY name;`,
+                'sql'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### 🔗 Connection Settings`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Code,
+                `-- Connection-related settings
+SELECT 
+    name as "Setting",
+    setting as "Value",
+    unit as "Unit",
+    short_desc as "Description"
+FROM pg_settings 
+WHERE category LIKE '%Connection%' OR name LIKE '%connection%'
+ORDER BY name;`,
                 'sql'
             )
         ];
 
         await createAndShowNotebook(cells, metadata);
     } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to show configuration: ${err.message}`);
+        await ErrorHandlers.handleCommandError(err, 'show configuration');
     }
 }
 
@@ -1575,11 +1654,18 @@ export async function cmdScriptAlterDatabase(item: DatabaseTreeItem, context: vs
         const cells = [
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `### 📝 ALTER Database: \`${item.label}\`
-
-<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
-    <strong>ℹ️ Note:</strong> Use these commands to modify database attributes. Uncomment the operations you want to perform.
-</div>`,
+                MarkdownUtils.header(`📝 ALTER Database: \`${item.label}\``) +
+                    MarkdownUtils.infoBox('Use these commands to modify database attributes. Uncomment and modify the operations you want to perform.') +
+                    `\n\n#### 🎯 Available Modifications\n\n` +
+                    MarkdownUtils.operationsTable([
+                        { operation: 'RENAME', description: 'Change the database name' },
+                        { operation: 'OWNER', description: 'Transfer ownership to another role' },
+                        { operation: 'SET', description: 'Set runtime configuration parameters' },
+                        { operation: 'CONNECTION LIMIT', description: 'Set maximum concurrent connections' },
+                        { operation: 'TABLESPACE', description: 'Change default tablespace' }
+                    ]) +
+                    `\n\n` +
+                    MarkdownUtils.warningBox('Some operations require exclusive access to the database. Rename operations require no active connections.'),
                 'markdown'
             ),
             new vscode.NotebookCellData(
@@ -1589,7 +1675,7 @@ export async function cmdScriptAlterDatabase(item: DatabaseTreeItem, context: vs
             ),
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Code,
-                `-- Rename database
+                `-- Rename database (requires no active connections)
 -- ALTER DATABASE "${item.label}" RENAME TO new_name;`,
                 'sql'
             ),
@@ -1600,13 +1686,13 @@ export async function cmdScriptAlterDatabase(item: DatabaseTreeItem, context: vs
             ),
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Code,
-                `-- Change owner
+                `-- Change database owner
 -- ALTER DATABASE "${item.label}" OWNER TO new_owner;`,
                 'sql'
             ),
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `##### ⚙️ Set Configuration`,
+                `##### ⚙️ Set Configuration Parameters`,
                 'markdown'
             ),
             new vscode.NotebookCellData(
@@ -1615,7 +1701,13 @@ export async function cmdScriptAlterDatabase(item: DatabaseTreeItem, context: vs
 -- ALTER DATABASE "${item.label}" SET configuration_parameter TO value;
 
 -- Example: Set search path
--- ALTER DATABASE "${item.label}" SET search_path TO schema_name, public;`,
+-- ALTER DATABASE "${item.label}" SET search_path TO schema_name, public;
+
+-- Example: Set timezone
+-- ALTER DATABASE "${item.label}" SET timezone TO 'UTC';
+
+-- Reset to default
+-- ALTER DATABASE "${item.label}" RESET configuration_parameter;`,
                 'sql'
             ),
             new vscode.NotebookCellData(
@@ -1625,14 +1717,25 @@ export async function cmdScriptAlterDatabase(item: DatabaseTreeItem, context: vs
             ),
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Code,
-                `-- Set connection limit
+                `-- Set connection limit (-1 for unlimited)
 -- ALTER DATABASE "${item.label}" WITH CONNECTION LIMIT 50;`,
+                'sql'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### 📁 Change Tablespace`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Code,
+                `-- Move database to different tablespace
+-- ALTER DATABASE "${item.label}" SET TABLESPACE new_tablespace;`,
                 'sql'
             )
         ];
 
         await createAndShowNotebook(cells, metadata);
     } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to generate alter script: ${err.message}`);
+        await ErrorHandlers.handleCommandError(err, 'generate alter script');
     }
 }

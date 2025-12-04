@@ -1,5 +1,4 @@
 import { Client } from 'pg';
-import * as vscode from 'vscode';
 import { ConnectionConfig } from '../common/types';
 import { SecretStorageService } from './SecretStorageService';
 

@@ -2,35 +2,40 @@ import { Client } from 'pg';
 import * as vscode from 'vscode';
 import { PostgresMetadata } from '../common/types';
 import { ConnectionManager } from '../services/ConnectionManager';
+import { SecretStorageService } from '../services/SecretStorageService';
 
-export class PostgresKernel {
-    private readonly id = 'postgres-kernel';
-    private readonly label = 'PostgreSQL Kernel';
-    private readonly controller: vscode.NotebookController;
-    private messageHandler?: (message: any) => void;
+export class PostgresKernel implements vscode.Disposable {
+    readonly id = 'postgres-kernel';
+    readonly label = 'PostgreSQL';
+    readonly supportedLanguages = ['sql'];
+
+    private readonly _controller: vscode.NotebookController;
+    private readonly _executionOrder = new WeakMap<vscode.NotebookCell, number>();
+    private readonly _messageHandler?: (message: any) => void;
 
     constructor(private readonly context: vscode.ExtensionContext, viewType: string = 'postgres-notebook', messageHandler?: (message: any) => void) {
-        console.log('PostgresKernel: Initializing');
-        this.controller = vscode.notebooks.createNotebookController(
+        console.log(`PostgresKernel: Initializing for viewType: ${viewType}`);
+        this._controller = vscode.notebooks.createNotebookController(
             this.id + '-' + viewType,
             viewType,
             this.label
         );
 
-        this.messageHandler = messageHandler;
-        console.log('PostgresKernel: Message handler registered:', !!messageHandler);
+        this._messageHandler = messageHandler;
+        console.log(`PostgresKernel: Message handler registered for ${viewType}:`, !!messageHandler);
 
-        // Disable automatic timestamp parsing
-        const types = require('pg').types;
-        const TIMESTAMPTZ_OID = 1184;
-        const TIMESTAMP_OID = 1114;
-        types.setTypeParser(TIMESTAMPTZ_OID, (val: string) => val);
-        types.setTypeParser(TIMESTAMP_OID, (val: string) => val);
+        this._controller.supportedLanguages = this.supportedLanguages;
+        this._controller.supportsExecutionOrder = true;
+        this._controller.executeHandler = this._executeAll.bind(this);
 
-        this.controller.supportedLanguages = ['sql'];
-        this.controller.supportsExecutionOrder = true;
-        this.controller.description = 'PostgreSQL Query Executor';
-        this.controller.executeHandler = this._executeAll.bind(this);
+        // Disable automatic timestamp parsing (this was in original, but removed in new snippet, so removing it)
+        // const types = require('pg').types;
+        // const TIMESTAMPTZ_OID = 1184;
+        // const TIMESTAMP_OID = 1114;
+        // types.setTypeParser(TIMESTAMPTZ_OID, (val: string) => val);
+        // types.setTypeParser(TIMESTAMP_OID, (val: string) => val);
+
+        // this._controller.description = 'PostgreSQL Query Executor'; // Removed as per new snippet
 
         const getClientFromNotebook = async (document: vscode.TextDocument): Promise<Client | undefined> => {
             const cell = vscode.workspace.notebookDocuments
@@ -273,6 +278,249 @@ export class PostgresKernel {
                 ' ', ';' // Trigger on space and semicolon
             )
         );
+        // Handle messages from renderer (e.g., delete row)
+        console.log(`PostgresKernel: Subscribing to onDidReceiveMessage for Controller ID: ${this._controller.id}`);
+        (this._controller as any).onDidReceiveMessage(async (event: any) => {
+            console.log(`PostgresKernel: Received message on Controller ${this._controller.id}`, event.message);
+            if (event.message.type === 'script_delete') {
+                console.log('PostgresKernel: Processing script_delete message');
+                const { schema, table, primaryKeys, rows, cellIndex } = event.message;
+                const notebook = event.editor.notebook;
+
+                try {
+                    // Construct DELETE query
+                    let query = '';
+                    for (const row of rows) {
+                        const conditions: string[] = [];
+                        const values: any[] = [];
+
+                        for (const pk of primaryKeys) {
+                            const val = row[pk];
+                            // Simple quoting for string values, handle numbers/booleans
+                            const valStr = typeof val === 'string' ? `'${val.replace(/'/g, "''")}'` : val;
+                            conditions.push(`"${pk}" = ${valStr}`);
+                        }
+                        query += `DELETE FROM "${schema}"."${table}" WHERE ${conditions.join(' AND ')};\n`;
+                    }
+
+                    // Insert new cell with the query
+                    const targetIndex = cellIndex + 1;
+                    const newCell = new vscode.NotebookCellData(
+                        vscode.NotebookCellKind.Code,
+                        query,
+                        'sql'
+                    );
+
+                    const edit = new vscode.NotebookEdit(
+                        new vscode.NotebookRange(targetIndex, targetIndex),
+                        [newCell]
+                    );
+
+                    const workspaceEdit = new vscode.WorkspaceEdit();
+                    workspaceEdit.set(notebook.uri, [edit]);
+                    await vscode.workspace.applyEdit(workspaceEdit);
+
+                    // Focus the new cell (optional, but good UX)
+                    // Note: Focusing specific cell via API is limited, but inserting it usually reveals it.
+
+                } catch (err: any) {
+                    vscode.window.showErrorMessage(`Failed to generate delete script: ${err.message}`);
+                    console.error('Script delete error:', err);
+                }
+            } else if (event.message.type === 'execute_update') {
+                console.log('PostgresKernel: Processing execute_update message');
+                const { statements, cellIndex } = event.message;
+                const notebook = event.editor.notebook;
+
+                try {
+                    // Insert new cell with the UPDATE statements
+                    const query = statements.join('\n');
+                    const targetIndex = cellIndex + 1;
+                    const newCell = new vscode.NotebookCellData(
+                        vscode.NotebookCellKind.Code,
+                        `-- Update statements generated from cell edits\n${query}`,
+                        'sql'
+                    );
+
+                    const edit = new vscode.NotebookEdit(
+                        new vscode.NotebookRange(targetIndex, targetIndex),
+                        [newCell]
+                    );
+
+                    const workspaceEdit = new vscode.WorkspaceEdit();
+                    workspaceEdit.set(notebook.uri, [edit]);
+                    await vscode.workspace.applyEdit(workspaceEdit);
+
+                    vscode.window.showInformationMessage(`Generated ${statements.length} UPDATE statement(s). Review and execute the new cell.`);
+                } catch (err: any) {
+                    vscode.window.showErrorMessage(`Failed to generate update script: ${err.message}`);
+                    console.error('Script update error:', err);
+                }
+            } else if (event.message.type === 'execute_update_background') {
+                console.log('PostgresKernel: Processing execute_update_background message');
+                console.log('PostgresKernel: Statements to execute:', event.message.statements);
+                const { statements } = event.message;
+                const notebook = event.editor.notebook;
+
+                try {
+                    // Get connection from notebook metadata
+                    const metadata = notebook.metadata as PostgresMetadata;
+                    console.log('PostgresKernel: Notebook metadata:', metadata);
+                    if (!metadata?.connectionId) {
+                        throw new Error('No connection found in notebook metadata');
+                    }
+
+                    // Get connection configuration
+                    const connections = vscode.workspace.getConfiguration().get<any[]>('postgresExplorer.connections') || [];
+                    console.log('PostgresKernel: Found connections:', connections.length);
+                    const savedConnection = connections.find((c: any) => c.id === metadata.connectionId);
+                    
+                    if (!savedConnection) {
+                        throw new Error(`Connection not found for id: ${metadata.connectionId}`);
+                    }
+                    console.log('PostgresKernel: Using connection:', savedConnection.name);
+
+                    // Get password from secret storage
+                    const secretService = SecretStorageService.getInstance(this.context);
+                    const password = await secretService.getPassword(savedConnection.id);
+
+                    const client = new Client({
+                        host: savedConnection.host,
+                        port: savedConnection.port,
+                        user: savedConnection.username,
+                        password: password || '',
+                        database: metadata.databaseName || savedConnection.database,
+                        ssl: savedConnection.ssl ? { rejectUnauthorized: false } : false
+                    });
+
+                    console.log('PostgresKernel: Connecting to database:', metadata.databaseName || savedConnection.database);
+                    await client.connect();
+
+                    try {
+                        // Execute all UPDATE statements
+                        const combinedQuery = statements.join('\n');
+                        console.log('PostgresKernel: Executing query:', combinedQuery);
+                        const result = await client.query(combinedQuery);
+                        console.log('PostgresKernel: Query result:', result);
+                        
+                        vscode.window.showInformationMessage(`✅ Successfully saved ${statements.length} change(s) to database.`);
+                    } finally {
+                        await client.end();
+                    }
+                } catch (err: any) {
+                    console.error('PostgresKernel: Background update error:', err);
+                    vscode.window.showErrorMessage(`Failed to save changes: ${err.message}`);
+                }
+            } else if (event.message.type === 'export_request') {
+                console.log('PostgresKernel: Processing export_request message');
+                const { rows, columns } = event.message;
+
+                const selection = await vscode.window.showQuickPick(
+                    ['Save as CSV', 'Save as JSON', 'Copy to Clipboard'],
+                    { placeHolder: 'Select export format' }
+                );
+
+                if (!selection) return;
+
+                if (selection === 'Copy to Clipboard') {
+                    // Convert to CSV for clipboard
+                    const header = columns.map((c: string) => `"${c.replace(/"/g, '""')}"`).join(',');
+                    const body = rows.map((row: any) => {
+                        return columns.map((col: string) => {
+                            const val = row[col];
+                            if (val === null || val === undefined) return '';
+                            const str = String(val);
+                            if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+                                return `"${str.replace(/"/g, '""')}"`;
+                            }
+                            return str;
+                        }).join(',');
+                    }).join('\n');
+                    const csv = `${header}\n${body}`;
+
+                    await vscode.env.clipboard.writeText(csv);
+                    vscode.window.showInformationMessage('Data copied to clipboard (CSV format).');
+                } else if (selection === 'Save as CSV') {
+                    const header = columns.map((c: string) => `"${c.replace(/"/g, '""')}"`).join(',');
+                    const body = rows.map((row: any) => {
+                        return columns.map((col: string) => {
+                            const val = row[col];
+                            if (val === null || val === undefined) return '';
+                            const str = String(val);
+                            if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+                                return `"${str.replace(/"/g, '""')}"`;
+                            }
+                            return str;
+                        }).join(',');
+                    }).join('\n');
+                    const csv = `${header}\n${body}`;
+
+                    const uri = await vscode.window.showSaveDialog({
+                        filters: { 'CSV': ['csv'] },
+                        saveLabel: 'Export CSV'
+                    });
+
+                    if (uri) {
+                        await vscode.workspace.fs.writeFile(uri, Buffer.from(csv, 'utf8'));
+                        vscode.window.showInformationMessage('CSV exported successfully.');
+                    }
+                } else if (selection === 'Save as JSON') {
+                    const json = JSON.stringify(rows, null, 2);
+                    const uri = await vscode.window.showSaveDialog({
+                        filters: { 'JSON': ['json'] },
+                        saveLabel: 'Export JSON'
+                    });
+
+                    if (uri) {
+                        await vscode.workspace.fs.writeFile(uri, Buffer.from(json, 'utf8'));
+                        vscode.window.showInformationMessage('JSON exported successfully.');
+                    }
+                }
+            }
+            if (event.message.type === 'delete_row') {
+                const { schema, table, primaryKeys, row } = event.message;
+                const notebook = event.editor.notebook;
+                const metadata = notebook.metadata as PostgresMetadata;
+
+                if (!metadata?.connectionId) {
+                    vscode.window.showErrorMessage('No connection found for this notebook.');
+                    return;
+                }
+
+                try {
+                    const connections = vscode.workspace.getConfiguration().get<any[]>('postgresExplorer.connections') || [];
+                    const connection = connections.find(c => c.id === metadata.connectionId);
+                    if (!connection) throw new Error('Connection not found');
+
+                    const client = await ConnectionManager.getInstance().getConnection({
+                        id: connection.id,
+                        host: connection.host,
+                        port: connection.port,
+                        username: connection.username,
+                        database: metadata.databaseName || connection.database,
+                        name: connection.name
+                    });
+
+                    // Construct DELETE query
+                    const conditions: string[] = [];
+                    const values: any[] = [];
+                    let paramIndex = 1;
+
+                    for (const pk of primaryKeys) {
+                        conditions.push(`"${pk}" = $${paramIndex}`);
+                        values.push(row[pk]);
+                        paramIndex++;
+                    }
+
+                    const query = `DELETE FROM "${schema}"."${table}" WHERE ${conditions.join(' AND ')}`;
+                    await client.query(query, values);
+                    vscode.window.showInformationMessage('Row deleted successfully.');
+                } catch (err: any) {
+                    vscode.window.showErrorMessage(`Failed to delete row: ${err.message}`);
+                    console.error('Delete row error:', err);
+                }
+            }
+        });
     }
 
     private async _executeAll(cells: vscode.NotebookCell[], _notebook: vscode.NotebookDocument, _controller: vscode.NotebookController): Promise<void> {
@@ -281,11 +529,117 @@ export class PostgresKernel {
         }
     }
 
+    /**
+     * Split SQL text into individual statements, respecting semicolons but ignoring them inside:
+     * - String literals (single quotes)
+     * - Dollar-quoted strings ($$...$$, $tag$...$tag$)
+     * - Comments (-- and /* *\/)
+     */
+    private splitSqlStatements(sql: string): string[] {
+        const statements: string[] = [];
+        let currentStatement = '';
+        let i = 0;
+        let inSingleQuote = false;
+        let inDollarQuote = false;
+        let dollarQuoteTag = '';
+        let inBlockComment = false;
+
+        while (i < sql.length) {
+            const char = sql[i];
+            const nextChar = i + 1 < sql.length ? sql[i + 1] : '';
+            const peek = sql.substring(i, i + 10);
+
+            // Handle block comments /* ... */
+            if (!inSingleQuote && !inDollarQuote && char === '/' && nextChar === '*') {
+                inBlockComment = true;
+                currentStatement += char + nextChar;
+                i += 2;
+                continue;
+            }
+
+            if (inBlockComment && char === '*' && nextChar === '/') {
+                inBlockComment = false;
+                currentStatement += char + nextChar;
+                i += 2;
+                continue;
+            }
+
+            // Handle line comments -- ...
+            if (!inSingleQuote && !inDollarQuote && !inBlockComment && char === '-' && nextChar === '-') {
+                // Add rest of line to current statement
+                const lineEnd = sql.indexOf('\n', i);
+                if (lineEnd === -1) {
+                    currentStatement += sql.substring(i);
+                    break;
+                }
+                currentStatement += sql.substring(i, lineEnd + 1);
+                i = lineEnd + 1;
+                continue;
+            }
+
+            // Handle dollar-quoted strings
+            if (!inSingleQuote && !inBlockComment) {
+                const dollarMatch = peek.match(/^(\$[a-zA-Z0-9_]*\$)/);
+                if (dollarMatch) {
+                    const tag = dollarMatch[1];
+                    if (!inDollarQuote) {
+                        inDollarQuote = true;
+                        dollarQuoteTag = tag;
+                        currentStatement += tag;
+                        i += tag.length;
+                        continue;
+                    } else if (tag === dollarQuoteTag) {
+                        inDollarQuote = false;
+                        dollarQuoteTag = '';
+                        currentStatement += tag;
+                        i += tag.length;
+                        continue;
+                    }
+                }
+            }
+
+            // Handle single-quoted strings
+            if (!inDollarQuote && !inBlockComment && char === "'") {
+                if (inSingleQuote && nextChar === "'") {
+                    // Escaped quote ''
+                    currentStatement += "''";
+                    i += 2;
+                    continue;
+                }
+                inSingleQuote = !inSingleQuote;
+            }
+
+            // Handle semicolon as statement separator
+            if (!inSingleQuote && !inDollarQuote && !inBlockComment && char === ';') {
+                currentStatement += char;
+                const trimmed = currentStatement.trim();
+                if (trimmed) {
+                    statements.push(trimmed);
+                }
+                currentStatement = '';
+                i++;
+                continue;
+            }
+
+            currentStatement += char;
+            i++;
+        }
+
+        // Add remaining statement if any
+        const trimmed = currentStatement.trim();
+        if (trimmed) {
+            statements.push(trimmed);
+        }
+
+        return statements.filter(s => s.length > 0);
+    }
+
     private async _doExecution(cell: vscode.NotebookCell): Promise<void> {
-        console.log('PostgresKernel: Starting cell execution');
-        const execution = this.controller.createNotebookCellExecution(cell);
+        console.log(`PostgresKernel: Starting cell execution. Controller ID: ${this._controller.id}`);
+        const execution = this._controller.createNotebookCellExecution(cell);
         const startTime = Date.now();
         execution.start(startTime);
+        execution.clearOutput();
 
         try {
             const metadata = cell.notebook.metadata as PostgresMetadata;
@@ -311,428 +665,211 @@ export class PostgresKernel {
 
             console.log('PostgresKernel: Connected to database');
 
-            const query = cell.document.getText();
-            const result = await client.query(query);
-            // Do NOT close client here
+            // Capture PostgreSQL NOTICE messages
+            const notices: string[] = [];
+            const noticeListener = (msg: any) => {
+                const message = msg.message || msg.toString();
+                notices.push(message);
+            };
+            client.on('notice', noticeListener);
 
-            const endTime = Date.now();
-            const executionTime = (endTime - startTime) / 1000;
+            const queryText = cell.document.getText();
+            const statements = this.splitSqlStatements(queryText);
 
-            // Check if this is a DDL command by checking the command property or analyzing the query
-            const isDDLCommand = result.command &&
-                result.command.toString().toUpperCase().match(/^(CREATE|ALTER|DROP|TRUNCATE)/) ||
-                query.trim().toUpperCase().match(/^(CREATE|ALTER|DROP|TRUNCATE)/);
+            console.log('PostgresKernel: Executing', statements.length, 'statement(s)');
 
-            if (isDDLCommand) {
-                // Rest of the DDL handling code...
-                const html = `
-                    <div style="
-                        padding: 10px;
-                        margin: 5px 0;
-                        background: var(--vscode-editor-background);
-                        border: 1px solid var(--vscode-panel-border);
-                        border-radius: 4px;
-                    ">
-                        <div style="color: var(--vscode-gitDecoration-addedResourceForeground);">
-                            ✓ Query executed successfully
-                        </div>
-                        <div style="
-                            color: var(--vscode-foreground);
-                            opacity: 0.7;
-                            font-size: 0.9em;
-                            margin-top: 5px;
-                        ">
-                            Execution time: ${executionTime.toFixed(3)} seconds
-                        </div>
-                    </div>
-                `;
+            // Execute each statement and collect outputs
+            const outputs: vscode.NotebookCellOutput[] = [];
+            let totalExecutionTime = 0;
 
-                const output = new vscode.NotebookCellOutput([
-                    vscode.NotebookCellOutputItem.text(html, 'text/html')
-                ]);
-                execution.replaceOutput([output]);
-                execution.end(true);
-            } else if (result.fields && result.fields.length > 0) {
-                // Rest of the existing code for handling SELECT queries...
-                console.log('PostgresKernel: Query returned', result.rows.length, 'rows');
+            for (let stmtIndex = 0; stmtIndex < statements.length; stmtIndex++) {
+                const query = statements[stmtIndex];
+                const stmtStartTime = Date.now();
 
-                const headers = result.fields.map(f => f.name);
-                const rows = result.rows;
+                console.log(`PostgresKernel: Executing statement ${stmtIndex + 1}/${statements.length}:`, query.substring(0, 100));
 
-                const formatCellValue = (val: any): { minimized: string, full: string } => {
-                    if (val === null) return { minimized: '', full: '' };
-                    if (typeof val === 'object') {
-                        try {
-                            const minimized = JSON.stringify(val);
-                            const full = JSON.stringify(val, null, 2);
-                            return { minimized, full };
-                        } catch (e) {
-                            const str = String(val);
-                            return { minimized: str, full: str };
-                        }
-                    }
-                    const str = String(val);
-                    return { minimized: str, full: str };
-                };
+                let result;
+                try {
+                    result = await client.query(query);
+                    const stmtEndTime = Date.now();
+                    const executionTime = (stmtEndTime - stmtStartTime) / 1000;
+                    totalExecutionTime += executionTime;
 
-                const html = `
-                    <style>
-                        .output-controls {
-                            display: flex;
-                            justify-content: space-between;
-                            align-items: center;
-                            margin-bottom: 16px;
-                            gap: 8px;
-                        }
-                        .export-container {
-                            position: relative;
-                            display: inline-block;
-                        }
-                        .export-button {
-                            background: transparent;
-                            color: var(--vscode-foreground);
-                            border: 1px solid var(--vscode-button-border);
-                            padding: 4px 8px;
-                            cursor: pointer;
-                            border-radius: 2px;
-                            display: flex;
-                            align-items: center;
-                            gap: 4px;
-                            min-width: 32px;
-                            justify-content: center;
-                            opacity: 0.8;
-                        }
-                        .export-button:hover {
-                            opacity: 1;
-                            background: var(--vscode-button-secondaryHoverBackground);
-                        }
-                        .export-menu {
-                            display: none;
-                            position: absolute;
-                            top: 100%;
-                            left: 0;
-                            background: var(--vscode-menu-background);
-                            border: 1px solid var(--vscode-menu-border);
-                            border-radius: 2px;
-                            box-shadow: 0 2px 8px var(--vscode-widget-shadow);
-                            z-index: 1000;
-                            min-width: 160px;
-                        }
-                        .export-menu.show {
-                            display: block;
-                        }
-                        .export-option {
-                            padding: 8px 16px;
-                            cursor: pointer;
-                            display: flex;
-                            align-items: center;
-                            gap: 8px;
-                            color: var(--vscode-menu-foreground);
-                            text-decoration: none;
-                            white-space: nowrap;
-                            opacity: 0.8;
-                        }
-                        .export-option:hover {
-                            background: var(--vscode-list-hoverBackground);
-                            opacity: 1;
-                            background: var(--vscode-list-hoverBackground);
-                        }
-                        .clear-button {
-                            opacity: 0.6;
-                        }
-                        .clear-button:hover {
-                            opacity: 0.8;
-                        }
-                        .icon {
-                            width: 16px;
-                            height: 16px;
-                            display: inline-flex;
-                            align-items: center;
-                            justify-content: center;
-                        }
-                        .table-container {
-                            max-height: 400px;
-                            overflow: auto;
-                            border: 1px solid var(--vscode-panel-border);
-                        }
-                        table {
-                            width: 100%;
-                            border-collapse: collapse;
-                        }
-                        th, td {
-                            padding: 8px;
-                            text-align: left;
-                            border: 1px solid var(--vscode-panel-border);
-                            white-space: pre;
-                            font-family: var(--vscode-editor-font-family);
-                        }
-                        th {
-                            background: var(--vscode-editor-background);
-                            position: sticky;
-                            top: 0;
-                        }
-                        tr:nth-child(even) {
-                            background: var(--vscode-list-hoverBackground);
-                        }
-                        .execution-time {
-                            margin-top: 8px;
-                            color: var(--vscode-foreground);
-                            opacity: 0.7;
-                            font-size: 0.9em;
-                        }
-                        .hidden {
-                            display: none !important;
-                        }
-                        td pre {
-                            margin: 0;
-                            cursor: pointer;
-                            transition: all 0.2s;
-                            max-height: 1.2em;
-                            overflow: hidden;
-                        }
-                        
-                        td pre:hover, td pre.expanded {
-                            max-height: none;
-                            background: var(--vscode-editor-background);
-                            box-shadow: 0 2px 8px var(--vscode-widget-shadow);
-                            position: relative;
-                            z-index: 1;
-                        }
-                        
-                        td pre[data-full]:not(:hover):not(.expanded)::after {
-                            content: "...";
-                            color: var(--vscode-descriptionForeground);
-                        }
-                    </style>
-                    <div class="output-wrapper">
-                        <div class="output-controls">
-                            <div class="export-container">
-                                <button class="export-button" onclick="toggleExportMenu()" title="Export options">
-                                    <span class="icon">🗃️</span>
-                                </button>
-                                <div class="export-menu" id="exportMenu">
-                                    <a href="#" class="export-option" onclick="downloadCSV(); return false;">
-                                        <span class="icon">📄</span> CSV
-                                    </a>
-                                    <a href="#" class="export-option" onclick="downloadExcel(); return false;">
-                                        <span class="icon">📊</span> Excel
-                                    </a>
-                                    <a href="#" class="export-option" onclick="downloadJSON(); return false;">
-                                        <span class="icon">{ }</span> JSON
-                                    </a>
-                                </div>
-                            </div>
-                            <button class="export-button clear-button" onclick="clearOutput()" title="Clear output">
-                                <span class="icon">❌</span>
-                            </button>
-                        </div>
-                        <div class="output-content">
-                            <div class="table-container">
-                                <table id="resultTable">
-                                    <thead>
-                                        <tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr>
-                                    </thead>
-                                    <tbody>
-                                        ${rows.map(row =>
-                    `<tr>${headers.map(h => {
-                        const { minimized, full } = formatCellValue(row[h]);
-                        const hasFullVersion = minimized !== full;
-                        return `<td><pre ${hasFullVersion ? `data-full="${encodeURIComponent(full)}"` : ''}>${minimized}</pre></td>`;
-                    }).join('')}</tr>`
-                ).join('')}
-                                    </tbody>
-                                </table>
-                            </div>
-                            <div>${rows.length} rows</div>
-                            <div class="execution-time">Execution time: ${executionTime.toFixed(3)} seconds</div>
-                        </div>
-                    </div>
-                    <script>
-                        // Close export menu when clicking outside
-                        document.addEventListener('click', function(event) {
-                            const menu = document.getElementById('exportMenu');
-                            const button = event.target.closest('.export-button');
-                            if (!button && menu.classList.contains('show')) {
-                                menu.classList.remove('show');
-                            }
-                        });
+                    console.log(`PostgresKernel: Statement ${stmtIndex + 1} result:`, {
+                        hasFields: !!result.fields,
+                        fieldsLength: result.fields?.length,
+                        rowsLength: result.rows?.length,
+                        command: result.command
+                    });
 
-                        function toggleExportMenu() {
-                            const menu = document.getElementById('exportMenu');
-                            menu.classList.toggle('show');
-                        }
+                    let tableInfo: { schema: string; table: string; primaryKeys: string[]; uniqueKeys: string[] } | undefined;
 
-                        function clearOutput() {
-                            const wrapper = document.querySelector('.output-wrapper');
-                            wrapper.classList.add('hidden');
-                        }
+                    // Try to get table metadata for SELECT queries to enable deletion
+                    if (result.command === 'SELECT' && result.fields && result.fields.length > 0) {
+                        const tableId = result.fields[0].tableID;
+                        // Check if all fields come from the same table and tableId is valid
+                        const allSameTable = result.fields.every((f: any) => f.tableID === tableId);
 
-                        function downloadCSV() {
-                            const table = document.getElementById('resultTable');
-                            const headers = Array.from(table.querySelectorAll('th')).map(th => th.textContent);
-                            const rows = Array.from(table.querySelectorAll('tbody tr')).map(row => 
-                                Array.from(row.querySelectorAll('td pre')).map(pre => {
-                                    // Use full version for export
-                                    const val = pre.hasAttribute('data-full') ? 
-                                        decodeURIComponent(pre.getAttribute('data-full')) : 
-                                        pre.textContent;
-                                    return val.includes(',') || val.includes('"') || val.includes('\\n') ?
-                                        '"' + val.replace(/"/g, '""') + '"' :
-                                        val;
-                                })
-                            );
+                        if (tableId && tableId > 0 && allSameTable) {
+                            try {
+                                // Get table name and schema
+                                const tableRes = await client.query(
+                                    `SELECT n.nspname, c.relname 
+                                     FROM pg_class c 
+                                     JOIN pg_namespace n ON n.oid = c.relnamespace 
+                                     WHERE c.oid = $1`,
+                                    [tableId]
+                                );
 
-                            const csv = [
-                                headers.join(','),
-                                ...rows.map(row => row.join(','))
-                            ].join('\\n');
+                                if (tableRes.rows.length > 0) {
+                                    const { nspname, relname } = tableRes.rows[0];
 
-                            downloadFile(csv, 'query_result.csv', 'text/csv');
-                        }
+                                    // Get primary keys
+                                    const pkRes = await client.query(
+                                        `SELECT a.attname 
+                                         FROM pg_index i 
+                                         JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey) 
+                                         WHERE i.indrelid = $1 AND i.indisprimary`,
+                                        [tableId]
+                                    );
 
-                        function downloadJSON() {
-                            const table = document.getElementById('resultTable');
-                            const headers = Array.from(table.querySelectorAll('th')).map(th => th.textContent);
-                            const rows = Array.from(table.querySelectorAll('tbody tr')).map(row => {
-                                const rowData = {};
-                                Array.from(row.querySelectorAll('td pre')).forEach((pre, index) => {
-                                    // Use full version for export
-                                    rowData[headers[index]] = pre.hasAttribute('data-full') ? 
-                                        decodeURIComponent(pre.getAttribute('data-full')) : 
-                                        pre.textContent;
-                                });
-                                return rowData;
-                            });
+                                    const primaryKeys = pkRes.rows.map((r: any) => r.attname);
 
-                            const json = JSON.stringify(rows, null, 2);
-                            downloadFile(json, 'query_result.json', 'application/json');
-                        }
+                                    // Get unique keys (columns with unique constraints, excluding primary keys)
+                                    const ukRes = await client.query(
+                                        `SELECT DISTINCT a.attname 
+                                         FROM pg_index i 
+                                         JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey) 
+                                         WHERE i.indrelid = $1 AND i.indisunique AND NOT i.indisprimary`,
+                                        [tableId]
+                                    );
 
-                        function downloadExcel() {
-                            const table = document.getElementById('resultTable');
-                            const headers = Array.from(table.querySelectorAll('th')).map(th => th.textContent);
-                            const rows = Array.from(table.querySelectorAll('tbody tr')).map(row => 
-                                Array.from(row.querySelectorAll('td pre')).map(pre => {
-                                    // Use full version for export
-                                    return pre.hasAttribute('data-full') ? 
-                                        decodeURIComponent(pre.getAttribute('data-full')) : 
-                                        pre.textContent;
-                                })
-                            );
+                                    const uniqueKeys = ukRes.rows.map((r: any) => r.attname);
 
-                            let xml = '<?xml version="1.0"?>\\n<?mso-application progid="Excel.Sheet"?>\\n';
-                            xml += '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">\\n';
-                            xml += '<Worksheet ss:Name="Query Result"><Table>\\n';
-                            
-                            xml += '<Row>' + headers.map(h => 
-                                '<Cell><Data ss:Type="String">' + 
-                                (h || '').replace(/[<>&]/g, c => c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&amp;') + 
-                                '</Data></Cell>'
-                            ).join('') + '</Row>\\n';
-                            
-                            rows.forEach(row => {
-                                xml += '<Row>' + row.map(cell => {
-                                    const value = cell || '';
-                                    return '<Cell><Data ss:Type="String">' + 
-                                        value.toString().replace(/[<>&]/g, c => 
-                                            c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&amp;'
-                                        ) + 
-                                        '</Data></Cell>';
-                                }).join('') + '</Row>\\n';
-                            });
-                            
-                            xml += '</Table></Worksheet></Workbook>';
-                            downloadFile(xml, 'query_result.xls', 'application/vnd.ms-excel');
-                        }
-
-                        function downloadFile(content, filename, type) {
-                            const blob = new Blob([content], { type });
-                            const a = document.createElement('a');
-                            a.href = URL.createObjectURL(blob);
-                            a.download = filename;
-                            document.body.appendChild(a);
-                            a.click();
-                            document.body.removeChild(a);
-                            URL.revokeObjectURL(a.href);
-                            // Close the export menu after downloading
-                            document.getElementById('exportMenu').classList.remove('show');
-                        }
-
-                        // Add click handler for expandable cells
-                        document.querySelectorAll('td pre[data-full]').forEach(pre => {
-                            pre.addEventListener('click', function(e) {
-                                const full = decodeURIComponent(this.getAttribute('data-full'));
-                                if (this.classList.contains('expanded')) {
-                                    this.textContent = this.getAttribute('data-minimized') || this.textContent;
-                                    this.classList.remove('expanded');
-                                } else {
-                                    if (!this.hasAttribute('data-minimized')) {
-                                        this.setAttribute('data-minimized', this.textContent);
+                                    if (primaryKeys.length > 0 || uniqueKeys.length > 0) {
+                                        tableInfo = {
+                                            schema: nspname,
+                                            table: relname,
+                                            primaryKeys: primaryKeys,
+                                            uniqueKeys: uniqueKeys
+                                        };
                                     }
-                                    this.textContent = full;
-                                    this.classList.add('expanded');
                                 }
-                                e.stopPropagation();
-                            });
-                        });
-                    </script>`;
-
-                const output = new vscode.NotebookCellOutput([
-                    vscode.NotebookCellOutputItem.text(html, 'text/html')
-                ]);
-
-                output.metadata = {
-                    outputType: 'display_data',
-                    custom: {
-                        vscode: {
-                            cellId: cell.document.uri.toString(),
-                            controllerId: this.id,
-                            enableScripts: true
+                            } catch (err) {
+                                console.warn('Failed to fetch table metadata:', err);
+                            }
                         }
                     }
-                };
 
-                execution.replaceOutput([output]);
-                execution.end(true);
-                console.log('PostgresKernel: Cell execution completed successfully');
-            } else {
-                const output = new vscode.NotebookCellOutput([
-                    vscode.NotebookCellOutputItem.text(`
+                    // Get column type names from pg_type
+                    let columnTypes: { [key: string]: string } = {};
+                    if (result.fields && result.fields.length > 0) {
+                        try {
+                            const typeOids = result.fields.map((f: any) => f.dataTypeID);
+                            const uniqueOids = [...new Set(typeOids)];
+                            const typeRes = await client.query(
+                                `SELECT oid, typname FROM pg_type WHERE oid = ANY($1::oid[])`,
+                                [uniqueOids]
+                            );
+                            const typeMap = new Map(typeRes.rows.map((r: any) => [r.oid, r.typname]));
+                            result.fields.forEach((f: any) => {
+                                columnTypes[f.name] = typeMap.get(f.dataTypeID) || 'unknown';
+                            });
+                        } catch (err) {
+                            console.warn('Failed to fetch column type names:', err);
+                        }
+                    }
+
+                    // Generate output for this statement
+                    const data = {
+                        columns: result.fields ? result.fields.map((f: any) => f.name) : [],
+                        columnTypes: columnTypes,
+                        rows: result.rows || [],
+                        rowCount: result.rowCount,
+                        command: result.command,
+                        notices: [...notices],
+                        executionTime: executionTime,
+                        tableInfo: tableInfo,
+                        cellIndex: cell.index,
+                        success: true
+                    };
+
+                    const cellOutput = new vscode.NotebookCellOutput([
+                        vscode.NotebookCellOutputItem.json(data, 'application/x-postgres-result')
+                    ]);
+                    outputs.push(cellOutput);
+
+                    console.log(`PostgresKernel: Generated output for statement ${stmtIndex + 1}, outputs count: ${outputs.length}`);
+
+                    // Clear notices for next statement
+                    notices.length = 0;
+                } catch (err: any) {
+                    const stmtEndTime = Date.now();
+                    const executionTime = (stmtEndTime - stmtStartTime) / 1000;
+                    totalExecutionTime += executionTime;
+
+                    console.error(`PostgresKernel: Statement ${stmtIndex + 1} error:`, err.message);
+
+                    // Show error for this specific statement
+                    const errorHtml = `
                         <div style="
                             padding: 10px;
                             margin: 5px 0;
-                            background: var(--vscode-editor-background);
-                            border: 1px solid var(--vscode-panel-border);
+                            background: var(--vscode-inputValidation-errorBackground);
+                            border: 1px solid var(--vscode-inputValidation-errorBorder);
                             border-radius: 4px;
                         ">
-                            <div style="color: var(--vscode-gitDecoration-addedResourceForeground);">
-                                ✓ Query executed successfully
+                            <div style="color: var(--vscode-errorForeground); font-weight: bold;">
+                                ✗ Statement ${stmtIndex + 1}/${statements.length} Error
                             </div>
+                            <div style="
+                                color: var(--vscode-foreground);
+                                margin-top: 5px;
+                                font-family: var(--vscode-editor-font-family);
+                                white-space: pre-wrap;
+                            ">${err.message || err}</div>
                             <div style="
                                 color: var(--vscode-foreground);
                                 opacity: 0.7;
                                 font-size: 0.9em;
                                 margin-top: 5px;
-                            ">
-                                Execution time: ${executionTime.toFixed(3)} seconds
-                            </div>
+                            ">Execution time: ${executionTime.toFixed(3)} sec.</div>
                         </div>
-                    `, 'text/html')
-                ]);
-                execution.replaceOutput([output]);
+                    `;
+                    const cellOutput = new vscode.NotebookCellOutput([
+                        vscode.NotebookCellOutputItem.text(errorHtml, 'text/html')
+                    ]);
+                    outputs.push(cellOutput);
+
+                    // Continue with remaining statements even if one fails
+                    notices.length = 0;
+                }
+            }
+
+            // Remove notice listener
+            client.off('notice', noticeListener);
+
+            // Combine all outputs
+            console.log(`PostgresKernel: Combining ${outputs.length} output(s)`);
+
+            if (outputs.length > 0) {
+                execution.replaceOutput(outputs);
                 execution.end(true);
+                console.log('PostgresKernel: Cell execution completed successfully');
+            } else {
+                throw new Error('No statements to execute');
             }
         } catch (err: any) {
             console.error('PostgresKernel: Cell execution failed:', err);
-            execution.replaceOutput([
-                new vscode.NotebookCellOutput([
-                    vscode.NotebookCellOutputItem.error({
-                        name: 'Error',
-                        message: err.message || 'Unknown error occurred'
-                    })
-                ])
+            const output = new vscode.NotebookCellOutput([
+                vscode.NotebookCellOutputItem.error(err)
             ]);
+            execution.replaceOutput([output]);
             execution.end(false);
         }
+    }
+
+    dispose() {
+        this._controller.dispose();
     }
 }

@@ -45,7 +45,8 @@ export interface DashboardStats {
 }
 
 export async function fetchStats(client: Client, dbName: string): Promise<DashboardStats> {
-    const [dbInfoRes, connRes, tableRes, extRes, countsRes, activeQueriesRes, locksRes, metricsRes] = await Promise.all([
+    // Fetch data with error handling for each query to prevent one failure from breaking the entire dashboard
+    const [dbInfoRes, connRes, tableRes, extRes, countsRes, activeQueriesRes, locksRes, metricsRes] = await Promise.allSettled([
         // DB Info
         client.query(`
             SELECT pg_catalog.pg_get_userbyid(d.datdba) as owner,
@@ -138,9 +139,24 @@ export async function fetchStats(client: Client, dbName: string): Promise<Dashbo
         `, [dbName])
     ]);
 
-    const dbInfo = dbInfoRes.rows[0];
-    const connections = connRes.rows;
-    const counts = countsRes.rows[0];
+    // Helper to safely extract result or return empty default
+    const getResult = (result: PromiseSettledResult<any>, defaultValue: any = { rows: [] }) => {
+        if (result.status === 'fulfilled') {
+            return result.value;
+        } else {
+            console.error('Dashboard query failed:', result.reason?.message || result.reason);
+            return defaultValue;
+        }
+    };
+
+    const dbInfo = getResult(dbInfoRes).rows[0] || {};
+    const connections = getResult(connRes).rows;
+    const counts = getResult(countsRes).rows[0] || { schemas: 0, tables: 0, views: 0, functions: 0, sequences: 0 };
+    const tableRows = getResult(tableRes).rows;
+    const extCount = getResult(extRes).rows[0]?.count || 0;
+    const activeQueriesRows = getResult(activeQueriesRes).rows;
+    const locksRows = getResult(locksRes).rows;
+    const metricsRow = getResult(metricsRes).rows[0] || { xact_commit: 0, xact_rollback: 0, blks_read: 0, blks_hit: 0 };
 
     let active = 0;
     let idle = 0;
@@ -162,21 +178,21 @@ export async function fetchStats(client: Client, dbName: string): Promise<Dashbo
         activeConnections: active,
         idleConnections: idle,
         totalConnections: total,
-        extensionCount: parseInt(extRes.rows[0].count),
-        topTables: tableRes.rows.map((r: any) => ({
+        extensionCount: parseInt(extCount),
+        topTables: tableRows.map((r: any) => ({
             name: r.name,
             size: r.size,
             rawSize: parseInt(r.raw_size)
         })),
         connectionStates,
         objectCounts: {
-            schemas: parseInt(counts.schemas),
-            tables: parseInt(counts.tables),
-            views: parseInt(counts.views),
-            functions: parseInt(counts.functions),
-            sequences: parseInt(counts.sequences)
+            schemas: parseInt(counts.schemas || '0'),
+            tables: parseInt(counts.tables || '0'),
+            views: parseInt(counts.views || '0'),
+            functions: parseInt(counts.functions || '0'),
+            sequences: parseInt(counts.sequences || '0')
         },
-        activeQueries: activeQueriesRes.rows.map((r: any) => {
+        activeQueries: activeQueriesRows.map((r: any) => {
             // Format duration to be more readable (e.g., remove milliseconds if too long, or keep as is from PG)
             // PG 'interval' cast to text usually looks like "00:00:05.123456" or "1 day 00:00:05"
             let duration = r.duration || '';
@@ -195,12 +211,12 @@ export async function fetchStats(client: Client, dbName: string): Promise<Dashbo
                 query: r.query
             };
         }),
-        blockingLocks: locksRes.rows,
+        blockingLocks: locksRows,
         metrics: {
-            xact_commit: parseInt(metricsRes.rows[0]?.xact_commit || '0'),
-            xact_rollback: parseInt(metricsRes.rows[0]?.xact_rollback || '0'),
-            blks_read: parseInt(metricsRes.rows[0]?.blks_read || '0'),
-            blks_hit: parseInt(metricsRes.rows[0]?.blks_hit || '0')
+            xact_commit: parseInt(metricsRow.xact_commit || '0'),
+            xact_rollback: parseInt(metricsRow.xact_rollback || '0'),
+            blks_read: parseInt(metricsRow.blks_read || '0'),
+            blks_hit: parseInt(metricsRow.blks_hit || '0')
         }
     };
 }

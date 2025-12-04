@@ -369,29 +369,29 @@ export class ConnectionManagementPanel {
                 }
 
                 .btn-test {
-                    background: #7BA3DC;
+                    background: #4875b3ff;
                     color: #ffffff;
-                    border: 2px solid #9BB8E5;
+                    border: 2px solid #4c6892ff;
                     box-shadow: 0 2px 8px rgba(123, 163, 220, 0.25);
                 }
 
                 .btn-test:hover {
-                    background: #6A92CB;
-                    border-color: #8AA7D4;
+                    background: #5678a8ff;
+                    border-color: #294e85ff;
                     transform: translateY(-1px);
                     box-shadow: 0 4px 12px rgba(123, 163, 220, 0.35);
                 }
 
                 .btn-delete {
-                    background: #E88B8B;
+                    background: #d16969ff;
                     color: #ffffff;
-                    border: 2px solid #F0A5A5;
+                    border: 2px solid #af4242ff;
                     box-shadow: 0 2px 8px rgba(232, 139, 139, 0.25);
                 }
 
                 .btn-delete:hover {
-                    background: #D77A7A;
-                    border-color: #DF9494;
+                    background: #c04242ff;
+                    border-color: #914343ff;
                     transform: translateY(-1px);
                     box-shadow: 0 4px 12px rgba(232, 139, 139, 0.35);
                 }
