@@ -1,7 +1,6 @@
-import { Client } from 'pg';
 import * as vscode from 'vscode';
-import { DatabaseTreeItem, DatabaseTreeProvider } from '../providers/DatabaseTreeProvider';
 import { createAndShowNotebook, createMetadata, getConnectionWithPassword, validateItem, validateRoleItem } from '../commands/connection';
+import { DatabaseTreeItem, DatabaseTreeProvider } from '../providers/DatabaseTreeProvider';
 import { ConnectionManager } from '../services/ConnectionManager';
 
 /**

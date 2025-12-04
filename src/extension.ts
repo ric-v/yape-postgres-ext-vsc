@@ -1,26 +1,32 @@
+import { Client } from 'pg';
 import * as vscode from 'vscode';
+import { cmdAiAssist } from './commands/aiAssist';
+import { showColumnProperties, copyColumnName, copyColumnNameQuoted, generateSelectStatement, generateWhereClause, generateAlterColumnScript, generateDropColumnScript, generateRenameColumnScript, addColumnComment, generateIndexOnColumn, viewColumnStatistics, cmdAddColumn } from './commands/columns';
+import { showConstraintProperties, copyConstraintName, generateDropConstraintScript, generateAlterConstraintScript, validateConstraint, generateAddConstraintScript, viewConstraintDependencies, cmdConstraintOperations, cmdAddConstraint } from './commands/constraints';
+import { cmdConnectDatabase, cmdDisconnectConnection, cmdDisconnectDatabase } from './commands/connection';
+import { showIndexProperties, copyIndexName, generateDropIndexScript, generateReindexScript, generateScriptCreate, analyzeIndexUsage, generateAlterIndexScript, addIndexComment, cmdIndexOperations, cmdAddIndex } from './commands/indexes';
+import { cmdAddObjectInDatabase, cmdBackupDatabase, cmdCreateDatabase, cmdDatabaseDashboard, cmdDatabaseOperations, cmdDeleteDatabase, cmdDisconnectDatabase as cmdDisconnectDatabaseLegacy, cmdGenerateCreateScript, cmdMaintenanceDatabase, cmdPsqlTool, cmdQueryTool, cmdRestoreDatabase, cmdScriptAlterDatabase, cmdShowConfiguration } from './commands/database';
+import { cmdDropExtension, cmdEnableExtension, cmdExtensionOperations, cmdRefreshExtension } from './commands/extensions';
+import { cmdCreateForeignTable, cmdEditForeignTable, cmdForeignTableOperations, cmdRefreshForeignTable } from './commands/foreignTables';
+import { cmdCallFunction, cmdCreateFunction, cmdDropFunction, cmdEditFunction, cmdFunctionOperations, cmdRefreshFunction, cmdShowFunctionProperties } from './commands/functions';
+import { cmdCreateMaterializedView, cmdDropMatView, cmdEditMatView, cmdMatViewOperations, cmdRefreshMatView, cmdViewMatViewData, cmdViewMatViewProperties } from './commands/materializedViews';
+import { cmdNewNotebook } from './commands/notebook';
+import { cmdCreateObjectInSchema, cmdCreateSchema, cmdSchemaOperations, cmdShowSchemaProperties } from './commands/schema';
+import { cmdCreateTable, cmdDropTable, cmdEditTable, cmdInsertTable, cmdMaintenanceAnalyze, cmdMaintenanceReindex, cmdMaintenanceVacuum, cmdScriptCreate, cmdScriptDelete, cmdScriptInsert, cmdScriptSelect, cmdScriptUpdate, cmdShowTableProperties, cmdTableOperations, cmdTruncateTable, cmdUpdateTable, cmdViewTableData } from './commands/tables';
+import { cmdAllOperationsTypes, cmdCreateType, cmdDropType, cmdEditTypes, cmdRefreshType, cmdShowTypeProperties } from './commands/types';
+import { cmdAddRole, cmdAddUser, cmdDropRole, cmdEditRole, cmdGrantRevokeRole, cmdRefreshRole, cmdRoleOperations, cmdShowRoleProperties } from './commands/usersRoles';
+import { cmdCreateView, cmdDropView, cmdEditView, cmdRefreshView, cmdScriptCreate as cmdViewScriptCreate, cmdScriptSelect as cmdViewScriptSelect, cmdShowViewProperties, cmdViewData, cmdViewOperations } from './commands/views';
+import { PostgresMetadata } from './common/types';
 import { ConnectionFormPanel } from './connectionForm';
 import { ConnectionManagementPanel } from './connectionManagement';
-import { DatabaseTreeItem, DatabaseTreeProvider } from './providers/DatabaseTreeProvider';
-import { PostgresKernel } from './providers/NotebookKernel';
 import { PostgresNotebookProvider } from './notebookProvider';
 import { PostgresNotebookSerializer } from './postgresNotebook';
-import { cmdRefreshDatabase, cmdCreateDatabase, cmdDeleteDatabase, cmdAddObjectInDatabase, cmdDatabaseOperations, cmdDatabaseDashboard, cmdBackupDatabase, cmdRestoreDatabase, cmdGenerateCreateScript, cmdDisconnectDatabase as cmdDisconnectDatabaseLegacy, cmdMaintenanceDatabase, cmdQueryTool, cmdPsqlTool, cmdShowConfiguration, cmdScriptAlterDatabase } from './commands/database';
-import { cmdRefreshSchema, cmdCreateSchema, cmdCreateObjectInSchema, cmdSchemaOperations, cmdShowSchemaProperties } from './commands/schema';
-import { cmdRefreshTable, cmdTableOperations, cmdEditTable, cmdInsertTable, cmdUpdateTable, cmdShowTableProperties, cmdViewTableData, cmdDropTable, cmdTruncateTable, cmdScriptSelect, cmdScriptInsert, cmdScriptUpdate, cmdScriptDelete, cmdScriptCreate, cmdMaintenanceVacuum, cmdMaintenanceAnalyze, cmdMaintenanceReindex, cmdCreateTable } from './commands/tables';
-import { cmdRefreshView, cmdViewOperations, cmdShowViewProperties, cmdEditView, cmdViewData, cmdDropView, cmdCreateView } from './commands/views';
-import { cmdRefreshFunction, cmdFunctionOperations, cmdShowFunctionProperties, cmdEditFunction, cmdCallFunction, cmdDropFunction, cmdCreateFunction } from './commands/functions';
-import { cmdRefreshMatView, cmdMatViewOperations, cmdEditMatView, cmdViewMatViewData, cmdViewMatViewProperties, cmdDropMatView, cmdCreateMaterializedView } from './commands/materializedViews';
-import { cmdRefreshForeignTable, cmdForeignTableOperations, cmdEditForeignTable, cmdCreateForeignTable } from './commands/foreignTables';
-import { cmdRefreshExtension, cmdExtensionOperations, cmdEnableExtension, cmdDropExtension } from './commands/extensions';
-import { cmdRefreshType, cmdAllOperationsTypes, cmdEditTypes, cmdShowTypeProperties, cmdDropType, cmdCreateType } from './commands/types';
-import { cmdRefreshRole, cmdRoleOperations, cmdAddRole, cmdShowRoleProperties, cmdAddUser, cmdEditRole, cmdGrantRevokeRole, cmdDropRole } from './commands/usersRoles';
-import { cmdNewNotebook } from './commands/notebook';
-import { cmdDisconnectConnection, cmdConnectDatabase, cmdDisconnectDatabase } from './commands/connection';
-import { SecretStorageService } from './services/SecretStorageService';
-import { ConnectionManager } from './services/ConnectionManager';
-import { cmdAiAssist } from './commands/aiAssist';
 import { AiCodeLensProvider } from './providers/AiCodeLensProvider';
+import { ChatViewProvider } from './providers/ChatViewProvider';
+import { DatabaseTreeItem, DatabaseTreeProvider } from './providers/DatabaseTreeProvider';
+import { PostgresKernel } from './providers/NotebookKernel';
+import { ConnectionManager } from './services/ConnectionManager';
+import { SecretStorageService } from './services/SecretStorageService';
 
 export let outputChannel: vscode.OutputChannel;
 
@@ -42,6 +48,16 @@ export async function activate(context: vscode.ExtensionContext) {
         showCollapseAll: true
     });
     context.subscriptions.push(treeView);
+
+    // Register the chat view provider
+    const chatViewProvider = new ChatViewProvider(context.extensionUri);
+    context.subscriptions.push(
+        vscode.window.registerWebviewViewProvider(
+            ChatViewProvider.viewType,
+            chatViewProvider,
+            { webviewOptions: { retainContextWhenHidden: true } }
+        )
+    );
 
     // Register all commands
     const commands = [
@@ -263,6 +279,14 @@ export async function activate(context: vscode.ExtensionContext) {
             command: 'postgres-explorer.showViewProperties',
             callback: async (item: DatabaseTreeItem) => await cmdShowViewProperties(item, context)
         },
+        {
+            command: 'postgres-explorer.viewScriptSelect',
+            callback: async (item: DatabaseTreeItem) => await cmdViewScriptSelect(item, context)
+        },
+        {
+            command: 'postgres-explorer.viewScriptCreate',
+            callback: async (item: DatabaseTreeItem) => await cmdViewScriptCreate(item, context)
+        },
         // Add function commands
         {
             command: 'postgres-explorer.refreshFunction',
@@ -444,6 +468,136 @@ export async function activate(context: vscode.ExtensionContext) {
             command: 'postgres-explorer.aiAssist',
             callback: async (cell: vscode.NotebookCell) => await cmdAiAssist(cell, context, outputChannel)
         },
+
+        // Column commands
+        {
+            command: 'postgres-explorer.showColumnProperties',
+            callback: async (item: DatabaseTreeItem) => await showColumnProperties(item)
+        },
+        {
+            command: 'postgres-explorer.copyColumnName',
+            callback: async (item: DatabaseTreeItem) => await copyColumnName(item)
+        },
+        {
+            command: 'postgres-explorer.copyColumnNameQuoted',
+            callback: async (item: DatabaseTreeItem) => await copyColumnNameQuoted(item)
+        },
+        {
+            command: 'postgres-explorer.generateSelectStatement',
+            callback: async (item: DatabaseTreeItem) => await generateSelectStatement(item)
+        },
+        {
+            command: 'postgres-explorer.generateWhereClause',
+            callback: async (item: DatabaseTreeItem) => await generateWhereClause(item)
+        },
+        {
+            command: 'postgres-explorer.generateAlterColumnScript',
+            callback: async (item: DatabaseTreeItem) => await generateAlterColumnScript(item)
+        },
+        {
+            command: 'postgres-explorer.generateDropColumnScript',
+            callback: async (item: DatabaseTreeItem) => await generateDropColumnScript(item)
+        },
+        {
+            command: 'postgres-explorer.generateRenameColumnScript',
+            callback: async (item: DatabaseTreeItem) => await generateRenameColumnScript(item)
+        },
+        {
+            command: 'postgres-explorer.addColumnComment',
+            callback: async (item: DatabaseTreeItem) => await addColumnComment(item)
+        },
+        {
+            command: 'postgres-explorer.generateIndexOnColumn',
+            callback: async (item: DatabaseTreeItem) => await generateIndexOnColumn(item)
+        },
+        {
+            command: 'postgres-explorer.viewColumnStatistics',
+            callback: async (item: DatabaseTreeItem) => await viewColumnStatistics(item)
+        },
+
+        // Constraint commands
+        {
+            command: 'postgres-explorer.showConstraintProperties',
+            callback: async (item: DatabaseTreeItem) => await showConstraintProperties(item)
+        },
+        {
+            command: 'postgres-explorer.copyConstraintName',
+            callback: async (item: DatabaseTreeItem) => await copyConstraintName(item)
+        },
+        {
+            command: 'postgres-explorer.generateDropConstraintScript',
+            callback: async (item: DatabaseTreeItem) => await generateDropConstraintScript(item)
+        },
+        {
+            command: 'postgres-explorer.generateAlterConstraintScript',
+            callback: async (item: DatabaseTreeItem) => await generateAlterConstraintScript(item)
+        },
+        {
+            command: 'postgres-explorer.validateConstraint',
+            callback: async (item: DatabaseTreeItem) => await validateConstraint(item)
+        },
+        {
+            command: 'postgres-explorer.generateAddConstraintScript',
+            callback: async (item: DatabaseTreeItem) => await generateAddConstraintScript(item)
+        },
+        {
+            command: 'postgres-explorer.viewConstraintDependencies',
+            callback: async (item: DatabaseTreeItem) => await viewConstraintDependencies(item)
+        },
+        {
+            command: 'postgres-explorer.constraintOperations',
+            callback: async (item: DatabaseTreeItem) => await cmdConstraintOperations(item, context)
+        },
+
+        // Index commands
+        {
+            command: 'postgres-explorer.showIndexProperties',
+            callback: async (item: DatabaseTreeItem) => await showIndexProperties(item)
+        },
+        {
+            command: 'postgres-explorer.copyIndexName',
+            callback: async (item: DatabaseTreeItem) => await copyIndexName(item)
+        },
+        {
+            command: 'postgres-explorer.generateDropIndexScript',
+            callback: async (item: DatabaseTreeItem) => await generateDropIndexScript(item)
+        },
+        {
+            command: 'postgres-explorer.generateReindexScript',
+            callback: async (item: DatabaseTreeItem) => await generateReindexScript(item)
+        },
+        {
+            command: 'postgres-explorer.generateScriptCreate',
+            callback: async (item: DatabaseTreeItem) => await generateScriptCreate(item)
+        },
+        {
+            command: 'postgres-explorer.analyzeIndexUsage',
+            callback: async (item: DatabaseTreeItem) => await analyzeIndexUsage(item)
+        },
+        {
+            command: 'postgres-explorer.generateAlterIndexScript',
+            callback: async (item: DatabaseTreeItem) => await generateAlterIndexScript(item)
+        },
+        {
+            command: 'postgres-explorer.addIndexComment',
+            callback: async (item: DatabaseTreeItem) => await addIndexComment(item)
+        },
+        {
+            command: 'postgres-explorer.indexOperations',
+            callback: async (item: DatabaseTreeItem) => await cmdIndexOperations(item, context)
+        },
+        {
+            command: 'postgres-explorer.addColumn',
+            callback: async (item: DatabaseTreeItem) => await cmdAddColumn(item)
+        },
+        {
+            command: 'postgres-explorer.addConstraint',
+            callback: async (item: DatabaseTreeItem) => await cmdAddConstraint(item)
+        },
+        {
+            command: 'postgres-explorer.addIndex',
+            callback: async (item: DatabaseTreeItem) => await cmdAddIndex(item)
+        },
     ];
 
     // Register all commands
@@ -477,10 +631,111 @@ export async function activate(context: vscode.ExtensionContext) {
             });
         }
     });
+    context.subscriptions.push(kernel);
 
     // Create kernel for postgres-query (SQL files)
     const queryKernel = new PostgresKernel(context, 'postgres-query');
-    // context.subscriptions.push(kernel); // Kernel is not a disposable in the new implementation, but controller is managed internally
+
+    // Set up renderer messaging to receive messages from the notebook renderer
+    console.log('Extension: Setting up renderer messaging for postgres-query-renderer');
+    outputChannel.appendLine('Setting up renderer messaging for postgres-query-renderer');
+    const rendererMessaging = vscode.notebooks.createRendererMessaging('postgres-query-renderer');
+    rendererMessaging.onDidReceiveMessage(async (event) => {
+        console.log('Extension: Received message from renderer:', event.message);
+        outputChannel.appendLine('Received message from renderer: ' + JSON.stringify(event.message));
+        const message = event.message;
+        const notebook = event.editor.notebook;
+
+        if (message.type === 'execute_update_background') {
+            console.log('Extension: Processing execute_update_background');
+            const { statements } = message;
+
+            try {
+                // Get connection from notebook metadata
+                const metadata = notebook.metadata as PostgresMetadata;
+                if (!metadata?.connectionId) {
+                    vscode.window.showErrorMessage('No connection found in notebook metadata');
+                    return;
+                }
+
+                const password = await SecretStorageService.getInstance().getPassword(metadata.connectionId);
+
+                const client = new Client({
+                    host: metadata.host,
+                    port: metadata.port,
+                    database: metadata.databaseName,
+                    user: metadata.username,
+                    password: password || metadata.password || undefined,
+                });
+
+                await client.connect();
+                console.log('Extension: Connected to database for background update');
+
+                // Execute each statement
+                let successCount = 0;
+                let errorCount = 0;
+                for (const stmt of statements) {
+                    try {
+                        console.log('Extension: Executing:', stmt);
+                        await client.query(stmt);
+                        successCount++;
+                    } catch (err: any) {
+                        console.error('Extension: Statement error:', err.message);
+                        errorCount++;
+                        vscode.window.showErrorMessage(`Update failed: ${err.message}`);
+                    }
+                }
+
+                await client.end();
+
+                if (successCount > 0) {
+                    vscode.window.showInformationMessage(`Successfully updated ${successCount} row(s)${errorCount > 0 ? `, ${errorCount} failed` : ''}`);
+                }
+            } catch (err: any) {
+                console.error('Extension: Background update error:', err);
+                vscode.window.showErrorMessage(`Failed to execute updates: ${err.message}`);
+            }
+        } else if (message.type === 'script_delete') {
+            console.log('Extension: Processing script_delete from renderer');
+            const { schema, table, primaryKeys, rows, cellIndex } = message;
+
+            try {
+                // Construct DELETE query
+                let query = '';
+                for (const row of rows) {
+                    const conditions: string[] = [];
+
+                    for (const pk of primaryKeys) {
+                        const val = row[pk];
+                        const valStr = typeof val === 'string' ? `'${val.replace(/'/g, "''")}'` : val;
+                        conditions.push(`"${pk}" = ${valStr}`);
+                    }
+                    query += `DELETE FROM "${schema}"."${table}" WHERE ${conditions.join(' AND ')};\n`;
+                }
+
+                // Insert new cell with the query
+                const targetIndex = cellIndex + 1;
+                const newCell = new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Code,
+                    query,
+                    'sql'
+                );
+
+                const edit = new vscode.NotebookEdit(
+                    new vscode.NotebookRange(targetIndex, targetIndex),
+                    [newCell]
+                );
+
+                const workspaceEdit = new vscode.WorkspaceEdit();
+                workspaceEdit.set(notebook.uri, [edit]);
+                await vscode.workspace.applyEdit(workspaceEdit);
+            } catch (err: any) {
+                vscode.window.showErrorMessage(`Failed to generate delete script: ${err.message}`);
+                console.error('Extension: Script delete error:', err);
+            }
+        }
+    });
+    // Note: rendererMessaging doesn't have dispose method, so we don't add to subscriptions
 
     // Register notebook providers
     const notebookProvider = new PostgresNotebookProvider();
@@ -505,14 +760,19 @@ export async function activate(context: vscode.ExtensionContext) {
         )
     );
 
-    // Register CodeLens Provider
+    // Register CodeLens Provider for both 'postgres' and 'sql' languages
+    const aiCodeLensProvider = new AiCodeLensProvider();
     context.subscriptions.push(
         vscode.languages.registerCodeLensProvider(
             { language: 'postgres', scheme: 'vscode-notebook-cell' },
-            new AiCodeLensProvider()
+            aiCodeLensProvider
+        ),
+        vscode.languages.registerCodeLensProvider(
+            { language: 'sql', scheme: 'vscode-notebook-cell' },
+            aiCodeLensProvider
         )
     );
-    outputChannel.appendLine('AiCodeLensProvider registered.');
+    outputChannel.appendLine('AiCodeLensProvider registered for postgres and sql languages.');
 
     // Immediately migrate any existing passwords to SecretStorage
     await migrateExistingPasswords(context);

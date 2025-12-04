@@ -2,8 +2,8 @@ import * as vscode from 'vscode';
 
 export class AiCodeLensProvider implements vscode.CodeLensProvider {
     provideCodeLenses(document: vscode.TextDocument, token: vscode.CancellationToken): vscode.CodeLens[] {
-        // Only provide CodeLens for PostgreSQL notebook cells
-        if (document.languageId !== 'postgres') {
+        // Only provide CodeLens for PostgreSQL/SQL notebook cells
+        if (document.languageId !== 'postgres' && document.languageId !== 'sql') {
             return [];
         }
 

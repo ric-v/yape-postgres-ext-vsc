@@ -1,9 +1,9 @@
-import { Client } from 'pg';
 import * as vscode from 'vscode';
 import { DatabaseTreeItem, DatabaseTreeProvider } from '../providers/DatabaseTreeProvider';
+import { ConnectionManager } from '../services/ConnectionManager';
 import { TablePropertiesPanel } from '../tableProperties';
 import { createAndShowNotebook, createMetadata, getConnectionWithPassword, validateItem } from './connection';
-import { ConnectionManager } from '../services/ConnectionManager';
+import { MarkdownUtils, ErrorHandlers } from './helper';
 
 // ... (keep existing queries) ...
 const TABLE_INFO_QUERY = `
@@ -905,17 +905,404 @@ export async function cmdShowTableProperties(item: DatabaseTreeItem, context: vs
     try {
         validateItem(item);
         const connection = await getConnectionWithPassword(item.connectionId!);
+        const client = await ConnectionManager.getInstance().getConnection({
+            id: connection.id,
+            host: connection.host,
+            port: connection.port,
+            username: connection.username,
+            database: item.databaseName,
+            name: connection.name
+        });
 
         try {
-            const client = await ConnectionManager.getInstance().getConnection({
-                id: connection.id,
-                host: connection.host,
-                port: connection.port,
-                username: connection.username,
-                database: item.databaseName,
-                name: connection.name
-            });
-            await TablePropertiesPanel.show(client, item.schema!, item.label);
+            // Gather comprehensive table information
+            const [tableInfo, columnInfo, constraintInfo, indexInfo, statsInfo, sizeInfo] = await Promise.all([
+                // Basic table info
+                client.query(`
+                    SELECT 
+                        c.relname as table_name,
+                        n.nspname as schema_name,
+                        pg_get_userbyid(c.relowner) as owner,
+                        obj_description(c.oid) as comment,
+                        c.reltuples::bigint as row_estimate,
+                        c.relpages as page_count,
+                        c.relhasindex as has_indexes,
+                        c.relispartition as is_partition
+                    FROM pg_class c
+                    JOIN pg_namespace n ON n.oid = c.relnamespace
+                    WHERE n.nspname = $1 AND c.relname = $2
+                `, [item.schema, item.label]),
+                
+                // Column details
+                client.query(`
+                    SELECT 
+                        column_name,
+                        data_type,
+                        character_maximum_length,
+                        numeric_precision,
+                        numeric_scale,
+                        is_nullable,
+                        column_default,
+                        ordinal_position
+                    FROM information_schema.columns
+                    WHERE table_schema = $1 AND table_name = $2
+                    ORDER BY ordinal_position
+                `, [item.schema, item.label]),
+                
+                // Constraints
+                client.query(`
+                    SELECT 
+                        tc.constraint_name,
+                        tc.constraint_type,
+                        string_agg(kcu.column_name, ', ' ORDER BY kcu.ordinal_position) as columns,
+                        CASE 
+                            WHEN tc.constraint_type = 'FOREIGN KEY' THEN
+                                ccu.table_schema || '.' || ccu.table_name
+                            ELSE NULL
+                        END as referenced_table
+                    FROM information_schema.table_constraints tc
+                    LEFT JOIN information_schema.key_column_usage kcu 
+                        ON tc.constraint_name = kcu.constraint_name
+                        AND tc.table_schema = kcu.table_schema
+                    LEFT JOIN information_schema.constraint_column_usage ccu
+                        ON tc.constraint_name = ccu.constraint_name
+                        AND tc.table_schema = ccu.constraint_schema
+                    WHERE tc.table_schema = $1 AND tc.table_name = $2
+                    GROUP BY tc.constraint_name, tc.constraint_type, ccu.table_schema, ccu.table_name
+                    ORDER BY tc.constraint_type, tc.constraint_name
+                `, [item.schema, item.label]),
+                
+                // Indexes
+                client.query(`
+                    SELECT 
+                        i.relname as index_name,
+                        ix.indisunique as is_unique,
+                        ix.indisprimary as is_primary,
+                        string_agg(a.attname, ', ' ORDER BY a.attnum) as columns,
+                        pg_get_indexdef(i.oid) as definition,
+                        pg_size_pretty(pg_relation_size(i.oid)) as index_size
+                    FROM pg_index ix
+                    JOIN pg_class i ON i.oid = ix.indexrelid
+                    JOIN pg_class t ON t.oid = ix.indrelid
+                    JOIN pg_namespace n ON n.oid = t.relnamespace
+                    JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(ix.indkey)
+                    WHERE n.nspname = $1 AND t.relname = $2
+                    GROUP BY i.relname, ix.indisunique, ix.indisprimary, i.oid
+                    ORDER BY ix.indisprimary DESC, ix.indisunique DESC, i.relname
+                `, [item.schema, item.label]),
+                
+                // Table statistics
+                client.query(`
+                    SELECT 
+                        n_live_tup as live_tuples,
+                        n_dead_tup as dead_tuples,
+                        n_mod_since_analyze as modifications_since_analyze,
+                        last_vacuum,
+                        last_autovacuum,
+                        last_analyze,
+                        last_autoanalyze,
+                        vacuum_count,
+                        autovacuum_count,
+                        analyze_count,
+                        autoanalyze_count
+                    FROM pg_stat_user_tables
+                    WHERE schemaname = $1 AND relname = $2
+                `, [item.schema, item.label]),
+                
+                // Size information
+                client.query(`
+                    SELECT 
+                        pg_size_pretty(pg_total_relation_size($1::regclass)) as total_size,
+                        pg_size_pretty(pg_relation_size($1::regclass)) as table_size,
+                        pg_size_pretty(pg_indexes_size($1::regclass)) as indexes_size,
+                        pg_size_pretty(pg_total_relation_size($1::regclass) - pg_relation_size($1::regclass)) as toast_size
+                `, [`${item.schema}.${item.label}`])
+            ]);
+
+            const table = tableInfo.rows[0];
+            const columns = columnInfo.rows;
+            const constraints = constraintInfo.rows;
+            const indexes = indexInfo.rows;
+            const stats = statsInfo.rows[0] || {};
+            const sizes = sizeInfo.rows[0];
+
+            const metadata = createMetadata(connection, item.databaseName);
+
+            // Build CREATE TABLE script
+            const columnDefs = columns.map(col => {
+                // Check if column uses a sequence (auto-increment)
+                const hasSequence = col.column_default && col.column_default.includes('nextval(');
+                
+                // Build proper data type
+                let dataType = col.data_type;
+                
+                // Convert integer types with sequences to serial types
+                if (hasSequence) {
+                    if (col.data_type === 'integer') {
+                        dataType = 'serial';
+                    } else if (col.data_type === 'bigint') {
+                        dataType = 'bigserial';
+                    } else if (col.data_type === 'smallint') {
+                        dataType = 'smallserial';
+                    }
+                } else if (col.character_maximum_length && (col.data_type === 'character varying' || col.data_type === 'character' || col.data_type === 'varchar' || col.data_type === 'char')) {
+                    dataType = `${col.data_type}(${col.character_maximum_length})`;
+                } else if (col.numeric_precision && (col.data_type === 'numeric' || col.data_type === 'decimal')) {
+                    dataType = `${col.data_type}(${col.numeric_precision}${col.numeric_scale ? ',' + col.numeric_scale : ''})`;
+                }
+                
+                let colDef = `    ${col.column_name} ${dataType}`;
+                
+                // For serial types, NOT NULL is implicit, don't add DEFAULT
+                if (hasSequence && (dataType === 'serial' || dataType === 'bigserial' || dataType === 'smallserial')) {
+                    // NOT NULL is automatic for serial types
+                } else {
+                    if (col.is_nullable === 'NO') colDef += ' NOT NULL';
+                    if (col.column_default) colDef += ` DEFAULT ${col.column_default}`;
+                }
+                
+                return colDef;
+            }).join(',\n');
+
+            // Build constraint definitions
+            const constraintDefs = constraints.map(c => {
+                if (c.constraint_type === 'PRIMARY KEY') {
+                    return `    CONSTRAINT ${c.constraint_name} PRIMARY KEY (${c.columns})`;
+                } else if (c.constraint_type === 'FOREIGN KEY') {
+                    return `    CONSTRAINT ${c.constraint_name} FOREIGN KEY (${c.columns}) REFERENCES ${c.referenced_table}`;
+                } else if (c.constraint_type === 'UNIQUE') {
+                    return `    CONSTRAINT ${c.constraint_name} UNIQUE (${c.columns})`;
+                }
+                return null;
+            }).filter(c => c !== null);
+
+            const createTableScript = `-- DROP TABLE IF EXISTS ${item.schema}.${item.label};
+
+CREATE TABLE ${item.schema}.${item.label} (
+${columnDefs}${constraintDefs.length > 0 ? ',\n' + constraintDefs.join(',\n') : ''}
+);
+
+-- Table comment
+${table.comment ? `COMMENT ON TABLE ${item.schema}.${item.label} IS '${table.comment.replace(/'/g, "''")}';` : `-- COMMENT ON TABLE ${item.schema}.${item.label} IS 'table description';`}
+
+-- Indexes
+${indexes.map(idx => idx.definition).join('\n')}`;
+
+            // Build column table HTML
+            const columnRows = columns.map(col => {
+                const dataType = col.character_maximum_length 
+                    ? `${col.data_type}(${col.character_maximum_length})`
+                    : col.numeric_precision 
+                        ? `${col.data_type}(${col.numeric_precision}${col.numeric_scale ? ',' + col.numeric_scale : ''})`
+                        : col.data_type;
+                return `    <tr>
+        <td>${col.ordinal_position}</td>
+        <td><strong>${col.column_name}</strong></td>
+        <td><code>${dataType}</code></td>
+        <td>${col.is_nullable === 'YES' ? '✅' : '🚫'}</td>
+        <td>${col.column_default ? `<code>${col.column_default}</code>` : '—'}</td>
+    </tr>`;
+            }).join('\n');
+
+            // Build constraints HTML
+            const constraintRows = constraints.map(c => {
+                const icon = c.constraint_type === 'PRIMARY KEY' ? '🔑' : 
+                           c.constraint_type === 'FOREIGN KEY' ? '🔗' :
+                           c.constraint_type === 'UNIQUE' ? '⭐' : '✓';
+                const ref = c.referenced_table ? ` → ${c.referenced_table}` : '';
+                return `    <tr>
+        <td>${icon} ${c.constraint_type}</td>
+        <td><code>${c.constraint_name}</code></td>
+        <td>${c.columns || ''}</td>
+        <td>${c.referenced_table || '—'}</td>
+    </tr>`;
+            }).join('\n');
+
+            // Build indexes HTML
+            const indexRows = indexes.map(idx => {
+                const badges = [];
+                if (idx.is_primary) badges.push('🔑 PRIMARY');
+                if (idx.is_unique) badges.push('⭐ UNIQUE');
+                return `    <tr>
+        <td><strong>${idx.index_name}</strong>${badges.length > 0 ? ` <span style="font-size: 9px;">${badges.join(' ')}</span>` : ''}</td>
+        <td>${idx.columns || ''}</td>
+        <td>${idx.index_size}</td>
+    </tr>`;
+            }).join('\n');
+
+            // Build maintenance history rows
+            const maintenanceRows = [];
+            if (stats.last_vacuum) {
+                maintenanceRows.push(`    <tr>
+        <td>Manual VACUUM</td>
+        <td>${new Date(stats.last_vacuum).toLocaleString()}</td>
+        <td>${stats.vacuum_count || 0}</td>
+    </tr>`);
+            }
+            if (stats.last_autovacuum) {
+                maintenanceRows.push(`    <tr>
+        <td>Auto VACUUM</td>
+        <td>${new Date(stats.last_autovacuum).toLocaleString()}</td>
+        <td>${stats.autovacuum_count || 0}</td>
+    </tr>`);
+            }
+            if (stats.last_analyze) {
+                maintenanceRows.push(`    <tr>
+        <td>Manual ANALYZE</td>
+        <td>${new Date(stats.last_analyze).toLocaleString()}</td>
+        <td>${stats.analyze_count || 0}</td>
+    </tr>`);
+            }
+            if (stats.last_autoanalyze) {
+                maintenanceRows.push(`    <tr>
+        <td>Auto ANALYZE</td>
+        <td>${new Date(stats.last_autoanalyze).toLocaleString()}</td>
+        <td>${stats.autoanalyze_count || 0}</td>
+    </tr>`);
+            }
+
+            const markdown = `### 📊 Table Properties: \`${item.schema}.${item.label}\`
+
+<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+    <strong>ℹ️ Owner:</strong> ${table.owner} ${table.comment ? `| <strong>Comment:</strong> ${table.comment}` : ''}
+</div>
+
+#### 💾 Size & Statistics
+
+<table style="font-size: 11px; width: 100%; border-collapse: collapse;">
+    <tr><th style="text-align: left; width: 30%;">Metric</th><th style="text-align: left;">Value</th></tr>
+    <tr><td><strong>Total Size</strong></td><td>${sizes.total_size}</td></tr>
+    <tr><td><strong>Table Size</strong></td><td>${sizes.table_size}</td></tr>
+    <tr><td><strong>Indexes Size</strong></td><td>${sizes.indexes_size}</td></tr>
+    <tr><td><strong>TOAST Size</strong></td><td>${sizes.toast_size}</td></tr>
+    <tr><td><strong>Row Estimate</strong></td><td>${table.row_estimate?.toLocaleString() || 'N/A'}</td></tr>
+    <tr><td><strong>Live Tuples</strong></td><td>${stats.live_tuples?.toLocaleString() || 'N/A'}</td></tr>
+    <tr><td><strong>Dead Tuples</strong></td><td>${stats.dead_tuples?.toLocaleString() || 'N/A'}</td></tr>
+</table>
+
+#### 📋 Columns (${columns.length})
+
+<table style="font-size: 11px; width: 100%; border-collapse: collapse;">
+    <tr>
+        <th style="text-align: left; width: 5%;">#</th>
+        <th style="text-align: left; width: 25%;">Name</th>
+        <th style="text-align: left; width: 25%;">Data Type</th>
+        <th style="text-align: left; width: 10%;">Nullable</th>
+        <th style="text-align: left;">Default</th>
+    </tr>
+${columnRows}
+</table>
+
+${constraints.length > 0 ? `#### 🔒 Constraints (${constraints.length})
+
+<table style="font-size: 11px; width: 100%; border-collapse: collapse;">
+    <tr>
+        <th style="text-align: left; width: 20%;">Type</th>
+        <th style="text-align: left; width: 30%;">Name</th>
+        <th style="text-align: left; width: 25%;">Columns</th>
+        <th style="text-align: left;">References</th>
+    </tr>
+${constraintRows}
+</table>
+
+` : ''}${indexes.length > 0 ? `#### 🔍 Indexes (${indexes.length})
+
+<table style="font-size: 11px; width: 100%; border-collapse: collapse;">
+    <tr>
+        <th style="text-align: left; width: 35%;">Index Name</th>
+        <th style="text-align: left; width: 40%;">Columns</th>
+        <th style="text-align: left;">Size</th>
+    </tr>
+${indexRows}
+</table>
+
+` : ''}${maintenanceRows.length > 0 ? `#### 🧹 Maintenance History
+
+<table style="font-size: 11px; width: 100%; border-collapse: collapse;">
+    <tr>
+        <th style="text-align: left;">Operation</th>
+        <th style="text-align: left;">Last Run</th>
+        <th style="text-align: left;">Count</th>
+    </tr>
+${maintenanceRows.join('\n')}
+</table>
+
+` : ''}---`;
+
+            const cells = [
+                new vscode.NotebookCellData(vscode.NotebookCellKind.Markup, markdown, 'markdown'),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 📝 CREATE TABLE Script`,
+                    'markdown'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Code,
+                    createTableScript,
+                    'sql'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 🗑️ DROP TABLE Script`,
+                    'markdown'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Code,
+                    `-- Drop table (with dependencies)
+DROP TABLE IF EXISTS ${item.schema}.${item.label} CASCADE;
+
+-- Drop table (without dependencies - will fail if referenced)
+-- DROP TABLE IF EXISTS ${item.schema}.${item.label} RESTRICT;`,
+                    'sql'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 🔍 Query Table Data`,
+                    'markdown'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Code,
+                    `-- Select all data
+SELECT * FROM ${item.schema}.${item.label}
+LIMIT 100;`,
+                    'sql'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `##### 📊 Detailed Statistics`,
+                    'markdown'
+                ),
+                new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Code,
+                    `-- Table bloat and statistics
+SELECT 
+    schemaname,
+    relname,
+    n_live_tup,
+    n_dead_tup,
+    ROUND(100.0 * n_dead_tup / NULLIF(n_live_tup + n_dead_tup, 0), 2) as dead_tuple_percent,
+    last_vacuum,
+    last_autovacuum,
+    last_analyze,
+    last_autoanalyze
+FROM pg_stat_user_tables
+WHERE schemaname = '${item.schema}' AND relname = '${item.label}';
+
+-- Column statistics
+SELECT 
+    attname as column_name,
+    n_distinct,
+    ROUND((null_frac * 100)::numeric, 2) as null_percentage,
+    avg_width,
+    correlation
+FROM pg_stats
+WHERE schemaname = '${item.schema}' AND tablename = '${item.label}'
+ORDER BY attname;`,
+                    'sql'
+                )
+            ];
+
+            await createAndShowNotebook(cells, metadata);
         } finally {
             // Do not close shared client
         }
@@ -957,39 +1344,257 @@ export async function cmdCreateTable(item: DatabaseTreeItem, context: vscode.Ext
         const connection = await getConnectionWithPassword(item.connectionId!);
         const metadata = createMetadata(connection, item.databaseName);
 
-        const cells = [
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Markup,
-                `### Create New Table in Schema: \`${item.schema}\`
+        const schema = item.schema!;
 
-<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
-    <strong>ℹ️ Note:</strong> Modify the table definition below and execute the cell to create the table.
-</div>`,
-                'markdown'
-            ),
+        const markdown = MarkdownUtils.header(`➕ Create New Table in Schema: \`${schema}\``) +
+            MarkdownUtils.infoBox('This notebook provides templates for creating tables. Choose the template that best fits your use case.') +
+            `\n\n#### 📋 Table Design Guidelines\n\n` +
+            MarkdownUtils.operationsTable([
+                { operation: '<strong>Naming</strong>', description: 'Use snake_case for table names (e.g., user_accounts, order_items)' },
+                { operation: '<strong>Primary Key</strong>', description: 'Every table should have a primary key. Use SERIAL/BIGSERIAL or UUID' },
+                { operation: '<strong>Timestamps</strong>', description: 'Include created_at and updated_at for audit trails' },
+                { operation: '<strong>Constraints</strong>', description: 'Add NOT NULL, UNIQUE, CHECK constraints to enforce data integrity' },
+                { operation: '<strong>Foreign Keys</strong>', description: 'Reference related tables with ON DELETE/UPDATE actions' }
+            ]) +
+            `\n\n#### 🏷️ Common Data Types Reference\n\n` +
+            MarkdownUtils.propertiesTable({
+                'SERIAL / BIGSERIAL': 'Auto-incrementing integer (4/8 bytes)',
+                'UUID': 'Universally unique identifier (use gen_random_uuid())',
+                'VARCHAR(n) / TEXT': 'Variable-length character strings',
+                'INTEGER / BIGINT': 'Whole numbers (4/8 bytes)',
+                'NUMERIC(p,s)': 'Exact decimal numbers for money/precision',
+                'BOOLEAN': 'true/false values',
+                'TIMESTAMPTZ': 'Timestamp with timezone (recommended)',
+                'DATE / TIME': 'Date or time only',
+                'JSONB': 'Binary JSON for flexible schema data',
+                'ARRAY': 'Array of any type (e.g., TEXT[], INTEGER[])'
+            }) +
+            MarkdownUtils.successBox('Use TIMESTAMPTZ instead of TIMESTAMP for timezone-aware applications.') +
+            `
+
+---`;
+
+        const cells = [
+            new vscode.NotebookCellData(vscode.NotebookCellKind.Markup, markdown, 'markdown'),
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
-                `##### 📝 Table Definition`,
+                `##### 📝 Basic Table (Recommended Start)`,
                 'markdown'
             ),
             new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Code,
-                `-- Create new table
-CREATE TABLE ${item.schema}.table_name (
-    id serial PRIMARY KEY,
-    column_name data_type,
-    created_at timestamptz DEFAULT current_timestamp
+                `-- Create basic table with common patterns
+CREATE TABLE ${schema}.table_name (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ
 );
 
--- Add comments
-COMMENT ON TABLE ${item.schema}.table_name IS 'Table description';
-COMMENT ON COLUMN ${item.schema}.table_name.column_name IS 'Column description';`,
+-- Add table comment
+COMMENT ON TABLE ${schema}.table_name IS 'Description of what this table stores';`,
                 'sql'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### 🔑 Table with UUID Primary Key`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Code,
+                `-- Table using UUID as primary key (better for distributed systems)
+CREATE TABLE ${schema}.table_name (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(255) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ
+);`,
+                'sql'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### 🔗 Table with Foreign Key References`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Code,
+                `-- Table with foreign key relationships
+CREATE TABLE ${schema}.order_items (
+    id SERIAL PRIMARY KEY,
+    order_id INTEGER NOT NULL REFERENCES ${schema}.orders(id) ON DELETE CASCADE,
+    product_id INTEGER NOT NULL REFERENCES ${schema}.products(id) ON DELETE RESTRICT,
+    quantity INTEGER NOT NULL CHECK (quantity > 0),
+    unit_price NUMERIC(10,2) NOT NULL CHECK (unit_price >= 0),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Create index on foreign key columns for better join performance
+CREATE INDEX idx_order_items_order_id ON ${schema}.order_items(order_id);
+CREATE INDEX idx_order_items_product_id ON ${schema}.order_items(product_id);`,
+                'sql'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### ⭐ Table with Unique Constraints`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Code,
+                `-- Table with unique constraints
+CREATE TABLE ${schema}.users (
+    id SERIAL PRIMARY KEY,
+    email VARCHAR(255) NOT NULL,
+    username VARCHAR(50) NOT NULL,
+    display_name VARCHAR(100),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    
+    -- Unique constraints
+    CONSTRAINT users_email_unique UNIQUE (email),
+    CONSTRAINT users_username_unique UNIQUE (username)
+);
+
+-- Partial unique index (unique only for non-deleted)
+-- CREATE UNIQUE INDEX users_email_active_unique 
+-- ON ${schema}.users(email) WHERE deleted_at IS NULL;`,
+                'sql'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### ✓ Table with CHECK Constraints`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Code,
+                `-- Table with validation constraints
+CREATE TABLE ${schema}.products (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    sku VARCHAR(50) NOT NULL UNIQUE,
+    price NUMERIC(10,2) NOT NULL,
+    stock_quantity INTEGER NOT NULL DEFAULT 0,
+    status VARCHAR(20) NOT NULL DEFAULT 'draft',
+    weight_kg NUMERIC(6,3),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    
+    -- Check constraints
+    CONSTRAINT products_price_positive CHECK (price >= 0),
+    CONSTRAINT products_stock_non_negative CHECK (stock_quantity >= 0),
+    CONSTRAINT products_status_valid CHECK (status IN ('draft', 'active', 'discontinued', 'archived')),
+    CONSTRAINT products_weight_positive CHECK (weight_kg IS NULL OR weight_kg > 0)
+);`,
+                'sql'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### 📄 Table with JSONB Column`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Code,
+                `-- Table with JSONB for flexible/dynamic data
+CREATE TABLE ${schema}.events (
+    id SERIAL PRIMARY KEY,
+    event_type VARCHAR(50) NOT NULL,
+    payload JSONB NOT NULL DEFAULT '{}',
+    metadata JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Create GIN index for efficient JSONB queries
+CREATE INDEX idx_events_payload ON ${schema}.events USING GIN (payload);
+
+-- Query examples:
+-- SELECT * FROM events WHERE payload->>'user_id' = '123';
+-- SELECT * FROM events WHERE payload @> '{"status": "completed"}';`,
+                'sql'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### 🕐 Table with Soft Delete Pattern`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Code,
+                `-- Table with soft delete (keeps data, marks as deleted)
+CREATE TABLE ${schema}.documents (
+    id SERIAL PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    content TEXT,
+    created_by INTEGER NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ,
+    deleted_at TIMESTAMPTZ  -- NULL = active, timestamp = deleted
+);
+
+-- Partial index for efficient queries on active records
+CREATE INDEX idx_documents_active ON ${schema}.documents(created_at) 
+WHERE deleted_at IS NULL;
+
+-- View for only active documents
+CREATE VIEW ${schema}.active_documents AS
+SELECT * FROM ${schema}.documents WHERE deleted_at IS NULL;`,
+                'sql'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### 📊 Table with Composite Primary Key`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Code,
+                `-- Many-to-many junction table with composite key
+CREATE TABLE ${schema}.user_roles (
+    user_id INTEGER NOT NULL REFERENCES ${schema}.users(id) ON DELETE CASCADE,
+    role_id INTEGER NOT NULL REFERENCES ${schema}.roles(id) ON DELETE CASCADE,
+    granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    granted_by INTEGER REFERENCES ${schema}.users(id),
+    
+    -- Composite primary key
+    PRIMARY KEY (user_id, role_id)
+);
+
+-- Indexes for reverse lookups
+CREATE INDEX idx_user_roles_role_id ON ${schema}.user_roles(role_id);`,
+                'sql'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `##### 📅 Partitioned Table (for large datasets)`,
+                'markdown'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Code,
+                `-- Partitioned table by date range (for time-series data)
+CREATE TABLE ${schema}.logs (
+    id BIGSERIAL,
+    log_level VARCHAR(10) NOT NULL,
+    message TEXT NOT NULL,
+    context JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+) PARTITION BY RANGE (created_at);
+
+-- Create partitions for each month
+CREATE TABLE ${schema}.logs_2024_01 PARTITION OF ${schema}.logs
+    FOR VALUES FROM ('2024-01-01') TO ('2024-02-01');
+    
+CREATE TABLE ${schema}.logs_2024_02 PARTITION OF ${schema}.logs
+    FOR VALUES FROM ('2024-02-01') TO ('2024-03-01');
+
+-- Create index on partitioned table
+CREATE INDEX idx_logs_created_at ON ${schema}.logs(created_at);`,
+                'sql'
+            ),
+            new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                MarkdownUtils.warningBox('After creating a table, remember to: 1) Add appropriate indexes for query patterns, 2) Set up foreign key relationships, 3) Grant necessary permissions to roles.'),
+                'markdown'
             )
         ];
 
         await createAndShowNotebook(cells, metadata);
     } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to create table notebook: ${err.message}`);
+        await ErrorHandlers.handleCommandError(err, 'create table notebook');
     }
 }

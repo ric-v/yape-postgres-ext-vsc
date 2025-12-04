@@ -1,0 +1,19 @@
+{
+    "extends": "../../tsconfig.json",
+    "compilerOptions": {
+        "module": "commonjs",
+        "target": "ES2020",
+        "baseUrl": ".",
+        "paths": {
+            "vscode": [
+                "unit/mocks/vscode.ts"
+            ]
+        },
+        "types": [
+            "node",
+            "mocha",
+            "chai",
+            "sinon"
+        ]
+    }
+}

@@ -1,7 +1,7 @@
-import * as vscode from 'vscode';
 import { Client } from 'pg';
-import { fetchStats, DashboardStats } from './DashboardData';
-import { getHtmlForWebview, getLoadingHtml, getErrorHtml } from './DashboardHtml';
+import * as vscode from 'vscode';
+import { fetchStats } from './DashboardData';
+import { getErrorHtml, getHtmlForWebview, getLoadingHtml } from './DashboardHtml';
 
 export class DashboardPanel {
     private static panels: Map<string, DashboardPanel> = new Map();
