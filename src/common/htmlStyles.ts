@@ -132,7 +132,7 @@ export class MarkdownBuilder {
      * Create an info box with icon and message
      */
     static infoBox(message: string, title: string = 'Note'): string {
-        return `<div style="font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+        return `<div style="font-size: 12px; background-color: rgba(52, 152, 219, 0.1); border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px; color: var(--vscode-editor-foreground);">
     <strong>ℹ️ ${title}:</strong> ${message}
 </div>`;
     }
@@ -141,7 +141,7 @@ export class MarkdownBuilder {
      * Create a warning box with icon and message
      */
     static warningBox(message: string, title: string = 'Warning'): string {
-        return `<div style="font-size: 12px; background-color: #3e2d2d; border-left: 3px solid #e74c3c; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+        return `<div style="font-size: 12px; background-color: rgba(231, 76, 60, 0.1); border-left: 3px solid #e74c3c; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px; color: var(--vscode-editor-foreground);">
     <strong>⚠️ ${title}:</strong> ${message}
 </div>`;
     }
@@ -150,7 +150,7 @@ export class MarkdownBuilder {
      * Create a success/tip box with icon and message
      */
     static successBox(message: string, title: string = 'Tip'): string {
-        return `<div style="font-size: 12px; background-color: #2d3e30; border-left: 3px solid #2ecc71; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+        return `<div style="font-size: 12px; background-color: rgba(46, 204, 113, 0.1); border-left: 3px solid #2ecc71; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px; color: var(--vscode-editor-foreground);">
     <strong>💡 ${title}:</strong> ${message}
 </div>`;
     }
@@ -159,7 +159,7 @@ export class MarkdownBuilder {
      * Create a danger/caution box with icon and message
      */
     static dangerBox(message: string, title: string = 'Caution'): string {
-        return `<div style="font-size: 12px; background-color: #3e2d2d; border-left: 3px solid #e74c3c; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;">
+        return `<div style="font-size: 12px; background-color: rgba(231, 76, 60, 0.1); border-left: 3px solid #e74c3c; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px; color: var(--vscode-editor-foreground);">
     <strong>🛑 ${title}:</strong> ${message}
 </div>`;
     }

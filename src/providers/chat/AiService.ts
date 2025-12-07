@@ -100,15 +100,34 @@ IMPORTANT: At the end of each response, provide 2-4 numbered follow-up questions
 Make these questions relevant to the topic discussed and progressively more advanced.`;
     }
 
-    async callVsCodeLm(userMessage: string): Promise<string> {
-        const models = await vscode.lm.selectChatModels({ family: 'gpt-4' });
-        let model = models[0];
-
-        if (!model) {
+    async callVsCodeLm(userMessage: string, config: vscode.WorkspaceConfiguration): Promise<string> {
+        const configuredModel = config.get<string>('aiModel');
+        let models: vscode.LanguageModelChat[];
+        
+        if (configuredModel) {
+            // Extract base name if format is "name (family)"
+            const baseName = configuredModel.replace(/\s*\(.*\)$/, '').trim();
+            
+            // Try to find the specific model by name/id/family
             const allModels = await vscode.lm.selectChatModels({});
-            model = allModels[0];
+            const matchingModels = allModels.filter(m => 
+                m.id === baseName || 
+                m.name === baseName || 
+                m.family === baseName ||
+                m.id === configuredModel || 
+                m.name === configuredModel || 
+                m.family === configuredModel
+            );
+            models = matchingModels.length > 0 ? matchingModels : allModels;
+        } else {
+            // Default: try gpt-4o family first
+            models = await vscode.lm.selectChatModels({ family: 'gpt-4o' });
+            if (models.length === 0) {
+                models = await vscode.lm.selectChatModels({});
+            }
         }
 
+        const model = models[0];
         if (!model) {
             throw new Error('No AI models available via VS Code API. Please ensure GitHub Copilot Chat is installed or switch provider.');
         }
@@ -198,7 +217,7 @@ Make these questions relevant to the topic discussed and progressively more adva
             };
         } else if (provider === 'anthropic') {
             endpoint = 'https://api.anthropic.com/v1/messages';
-            model = model || 'claude-3-opus-20240229';
+            model = model || 'claude-3-5-sonnet-20241022';
             headers['x-api-key'] = apiKey;
             headers['anthropic-version'] = '2023-06-01';
             delete headers['Authorization'];
@@ -212,7 +231,7 @@ Make these questions relevant to the topic discussed and progressively more adva
                 max_tokens: 4096
             };
         } else if (provider === 'gemini') {
-            model = model || 'gemini-2.0-flash';
+            model = model || 'gemini-pro';
             endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
             headers['X-goog-api-key'] = apiKey;
             delete headers['Authorization'];
@@ -319,6 +338,46 @@ Make these questions relevant to the topic discussed and progressively more adva
         } catch {
             const simple = firstMessage.substring(0, 40).replace(/\n/g, ' ').trim();
             return simple.length === 40 ? simple + '...' : simple;
+        }
+    }
+
+    async getModelInfo(provider: string, config: vscode.WorkspaceConfiguration): Promise<string> {
+        try {
+            const configuredModel = config.get<string>('aiModel');
+            
+            if (provider === 'vscode-lm') {
+                if (configuredModel) {
+                    const baseName = configuredModel.replace(/\s*\(.*\)$/, '').trim();
+                    const allModels = await vscode.lm.selectChatModels({});
+                    const matchingModels = allModels.filter(m => 
+                        m.id === baseName || m.name === baseName || m.family === baseName ||
+                        m.id === configuredModel || m.name === configuredModel || m.family === configuredModel
+                    );
+                    if (matchingModels.length > 0) {
+                        return matchingModels[0].name || matchingModels[0].id;
+                    }
+                }
+                const models = await vscode.lm.selectChatModels({ family: 'gpt-4o' });
+                if (models.length > 0) {
+                    return models[0].name || models[0].id;
+                }
+                const anyModels = await vscode.lm.selectChatModels({});
+                return anyModels.length > 0 ? (anyModels[0].name || anyModels[0].id) : 'Unknown';
+            } else {
+                return configuredModel || this._getDefaultModel(provider);
+            }
+        } catch {
+            return 'Unknown';
+        }
+    }
+
+    private _getDefaultModel(provider: string): string {
+        switch (provider) {
+            case 'openai': return 'gpt-4';
+            case 'anthropic': return 'claude-3-5-sonnet-20241022';
+            case 'gemini': return 'gemini-pro';
+            case 'custom': return 'custom-model';
+            default: return 'Unknown';
         }
     }
 }

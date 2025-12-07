@@ -153,11 +153,38 @@ export async function cmdDisconnectConnection(item: DatabaseTreeItem, context: v
             throw new Error('Invalid connection selection');
         }
 
-        // Refresh the tree view which will collapse all items and close any open connections
-        databaseTreeProvider?.refresh();
+        const connectionManager = ConnectionManager.getInstance();
+        
+        // Close all database connections for this connection ID
+        await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: `Closing connections for ${item.label}...`,
+            cancellable: false
+        }, async () => {
+            await connectionManager.closeAllConnectionsById(item.connectionId);
+        });
+
+        // Mark connection as disconnected and refresh tree
+        databaseTreeProvider?.markConnectionDisconnected(item.connectionId);
+        
         vscode.window.showInformationMessage(`Disconnected from '${item.label}'`);
     } catch (err: any) {
         await ErrorHandlers.handleCommandError(err, 'disconnect');
+    }
+}
+
+export async function cmdReconnectConnection(item: DatabaseTreeItem, context: vscode.ExtensionContext, databaseTreeProvider?: DatabaseTreeProvider) {
+    try {
+        if (!item?.connectionId) {
+            throw new Error('Invalid connection selection');
+        }
+
+        // Mark connection as connected and refresh tree
+        databaseTreeProvider?.markConnectionConnected(item.connectionId);
+        
+        vscode.window.showInformationMessage(`Reconnected to '${item.label}'`);
+    } catch (err: any) {
+        await ErrorHandlers.handleCommandError(err, 'reconnect');
     }
 }
 

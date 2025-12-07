@@ -40,6 +40,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         this._sessionService = new SessionService(context);
     }
 
+    /**
+     * Public method to refresh the AI model info display
+     * Called when AI settings are changed
+     */
+    public refreshModelInfo(): void {
+        this._updateModelInfo();
+    }
+
     public resolveWebviewView(
         webviewView: vscode.WebviewView,
         context: vscode.WebviewViewResolveContext,
@@ -54,8 +62,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
         webviewView.webview.html = getWebviewHtml(webviewView.webview);
 
-        // Send initial history
-        setTimeout(() => this._sendHistoryToWebview(), 100);
+        // Send initial history and model info
+        setTimeout(() => {
+            this._sendHistoryToWebview();
+            this._updateModelInfo();
+        }, 100);
 
         webviewView.webview.onDidReceiveMessage(async (data) => {
             switch (data.type) {
@@ -95,6 +106,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     break;
                 case 'getDbObjects':
                     await this._handleGetAllDbObjects();
+                    break;
+                case 'openAiSettings':
+                    vscode.commands.executeCommand('postgres-explorer.aiSettings');
                     break;
             }
         });
@@ -189,14 +203,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         try {
             const config = vscode.workspace.getConfiguration('postgresExplorer');
             const provider = config.get<string>('aiProvider') || 'vscode-lm';
-            console.log('[ChatView] Using AI provider:', provider);
+            const modelInfo = await this._aiService.getModelInfo(provider, config);
+            console.log('[ChatView] Using AI provider:', provider, 'Model:', modelInfo);
+
+            // Update model info in UI
+            this._updateModelInfo();
+
+            // Show model info to user
+            vscode.window.setStatusBarMessage(`$(sparkle) AI: ${modelInfo}`, 3000);
 
             this._aiService.setMessages(this._messages);
             let response: string;
 
             if (provider === 'vscode-lm') {
                 console.log('[ChatView] Calling VS Code LM API...');
-                response = await this._aiService.callVsCodeLm(aiMessage);
+                response = await this._aiService.callVsCodeLm(aiMessage, config);
             } else {
                 console.log('[ChatView] Calling direct API:', provider);
                 response = await this._aiService.callDirectApi(provider, aiMessage, config);
@@ -409,6 +430,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             this._view.webview.postMessage({
                 type: 'setTyping',
                 isTyping
+            });
+        }
+    }
+
+    private async _updateModelInfo(): Promise<void> {
+        if (this._view) {
+            const config = vscode.workspace.getConfiguration('postgresExplorer');
+            const provider = config.get<string>('aiProvider') || 'vscode-lm';
+            const modelInfo = await this._aiService.getModelInfo(provider, config);
+            
+            this._view.webview.postMessage({
+                type: 'updateModelInfo',
+                modelName: modelInfo
             });
         }
     }

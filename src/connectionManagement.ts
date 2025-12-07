@@ -133,7 +133,7 @@ export class ConnectionManagementPanel {
     private async _getHtmlForWebview(webview: vscode.Webview): Promise<string> {
         const config = vscode.workspace.getConfiguration();
         const connections = config.get<ConnectionInfo[]>('postgresExplorer.connections') || [];
-        const logoPath = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'resources', 'postgres-explorer.png'));
+        const logoPath = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'resources', 'postgres-vsc-icon.png'));
 
         // Get passwords for connections (to show if they exist)
         const connectionsWithStatus = await Promise.all(connections.map(async (conn) => {
@@ -171,9 +171,10 @@ export class ConnectionManagementPanel {
                     --success-color: var(--vscode-testing-iconPassed);
                     --secondary-text: var(--vscode-descriptionForeground);
                     --font-family: var(--vscode-font-family);
-                    --shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
-                    --card-radius: 16px;
-                    --card-border: 1px solid rgba(128, 128, 128, 0.15);
+                    --shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+                    --shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.08);
+                    --card-radius: 12px;
+                    --card-border: 1px solid var(--border-color);
                 }
 
                 * {
@@ -186,64 +187,98 @@ export class ConnectionManagementPanel {
                     background-color: var(--bg-color);
                     color: var(--text-color);
                     font-family: var(--font-family);
-                    padding: 40px;
+                    padding: 32px 24px;
                     line-height: 1.6;
+                    min-height: 100vh;
+                }
+
+                .container {
+                    max-width: 1200px;
+                    margin: 0 auto;
+                    animation: fadeIn 0.3s ease;
+                }
+
+                @keyframes fadeIn {
+                    from { opacity: 0; transform: translateY(10px); }
+                    to { opacity: 1; transform: translateY(0); }
                 }
 
                 .header {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
+                    text-align: center;
                     margin-bottom: 48px;
                 }
 
-                .header-left {
+                .header-icon {
+                    width: 56px;
+                    height: 56px;
+                    margin: 0 auto 16px;
+                    background: linear-gradient(135deg, #336791 0%, #4a7ba7 100%);
+                    border-radius: 14px;
                     display: flex;
                     align-items: center;
-                    gap: 20px;
+                    justify-content: center;
+                    box-shadow: 0 4px 12px rgba(51, 103, 145, 0.2);
                 }
 
-                .header img {
-                    width: 48px;
-                    height: 48px;
+                .header-icon img {
+                    width: 32px;
+                    height: 32px;
+                    filter: brightness(0) invert(1);
                 }
 
-                .header-text h1 {
+                .header h1 {
                     font-size: 28px;
-                    font-weight: 500;
+                    font-weight: 600;
                     letter-spacing: -0.5px;
-                    margin-bottom: 4px;
+                    margin-bottom: 8px;
                 }
 
-                .header-text p {
+                .header p {
                     color: var(--secondary-text);
                     font-size: 14px;
+                    margin-bottom: 24px;
+                }
+
+                .header-actions {
+                    text-align: center;
                 }
 
                 .btn-primary {
-                    background: var(--accent-color);
-                    color: var(--bg-color);
+                    background: var(--vscode-button-background);
+                    color: var(--vscode-button-foreground);
                     border: none;
-                    padding: 10px 20px;
-                    border-radius: 8px;
+                    padding: 11px 24px;
+                    border-radius: 7px;
                     font-size: 14px;
                     font-weight: 500;
                     cursor: pointer;
-                    transition: all 0.2s;
-                    display: flex;
+                    transition: all 0.2s ease;
+                    display: inline-flex;
                     align-items: center;
                     gap: 8px;
+                    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
                 }
 
                 .btn-primary:hover {
-                    opacity: 0.9;
-                    transform: translateY(-2px);
+                    background: var(--vscode-button-hoverBackground);
+                    transform: translateY(-1px);
+                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+                }
+
+                .btn-primary:active {
+                    transform: scale(0.98);
+                }
+
+                .btn-icon {
+                    font-size: 16px;
+                    line-height: 1;
                 }
 
                 .connections-grid {
                     display: grid;
-                    grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
-                    gap: 24px;
+                    grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+                    gap: 20px;
+                    margin-top: 24px;
                 }
 
                 .connection-card {
@@ -252,9 +287,9 @@ export class ConnectionManagementPanel {
                     border-radius: var(--card-radius);
                     padding: 24px;
                     box-shadow: var(--shadow);
+                    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
                     position: relative;
                     overflow: hidden;
-                    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
                 }
 
                 .connection-card::before {
@@ -262,15 +297,15 @@ export class ConnectionManagementPanel {
                     position: absolute;
                     top: 0;
                     left: 0;
-                    width: 100%;
-                    height: 4px;
+                    right: 0;
+                    height: 3px;
                     background: linear-gradient(90deg, var(--accent-color), transparent);
-                    opacity: 0.5;
+                    opacity: 0.6;
                 }
 
                 .connection-card:hover {
                     transform: translateY(-4px);
-                    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.1);
+                    box-shadow: var(--shadow-hover);
                     border-color: var(--accent-color);
                 }
 
@@ -284,17 +319,25 @@ export class ConnectionManagementPanel {
                 .card-title {
                     font-size: 18px;
                     font-weight: 600;
-                    margin-bottom: 4px;
+                    margin-bottom: 6px;
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                }
+
+                .card-icon {
+                    font-size: 20px;
                 }
 
                 .card-status {
                     display: flex;
                     gap: 6px;
                     align-items: center;
+                    flex-wrap: wrap;
                 }
 
                 .status-badge {
-                    padding: 4px 10px;
+                    padding: 5px 12px;
                     border-radius: 12px;
                     font-size: 11px;
                     font-weight: 500;
@@ -303,28 +346,73 @@ export class ConnectionManagementPanel {
                 }
 
                 .status-badge.has-auth {
-                    background: color-mix(in srgb, var(--success-color), transparent 85%);
+                    background: rgba(34, 197, 94, 0.15);
                     color: var(--success-color);
+                    border: 1px solid var(--success-color);
+                }
+
+                .live-indicator {
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    padding: 4px 10px;
+                    background: rgba(34, 197, 94, 0.1);
+                    border: 1px solid rgba(34, 197, 94, 0.3);
+                    border-radius: 12px;
+                    font-size: 11px;
+                    font-weight: 600;
+                    color: #22c55e;
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                }
+
+                .live-dot {
+                    width: 8px;
+                    height: 8px;
+                    background: #22c55e;
+                    border-radius: 50%;
+                    animation: pulse 2s ease-in-out infinite;
+                    box-shadow: 0 0 8px rgba(34, 197, 94, 0.6);
+                }
+
+                @keyframes pulse {
+                    0%, 100% {
+                        opacity: 1;
+                        transform: scale(1);
+                    }
+                    50% {
+                        opacity: 0.4;
+                        transform: scale(0.8);
+                    }
                 }
 
                 .status-badge.no-auth {
-                    background: color-mix(in srgb, var(--secondary-text), transparent 85%);
+                    background: rgba(128, 128, 128, 0.15);
                     color: var(--secondary-text);
+                    border: 1px solid var(--secondary-text);
                 }
 
                 .card-details {
-                    margin-bottom: 20px;
+                    margin-bottom: 16px;
                 }
 
                 .detail-row {
                     display: flex;
-                    margin-bottom: 12px;
+                    margin-bottom: 10px;
                     font-size: 13px;
+                    align-items: center;
+                    gap: 8px;
+                }
+
+                .detail-icon {
+                    font-size: 14px;
+                    width: 20px;
+                    opacity: 0.7;
                 }
 
                 .detail-label {
                     color: var(--secondary-text);
-                    min-width: 80px;
+                    min-width: 70px;
                     font-weight: 500;
                 }
 
@@ -332,16 +420,17 @@ export class ConnectionManagementPanel {
                     color: var(--text-color);
                     font-family: 'Courier New', monospace;
                     word-break: break-all;
+                    flex: 1;
                 }
 
                 .connection-string {
-                    background: color-mix(in srgb, var(--accent-color), transparent 95%);
-                    border: 1px solid color-mix(in srgb, var(--accent-color), transparent 85%);
-                    border-radius: 8px;
-                    padding: 12px;
-                    margin-bottom: 20px;
+                    background: rgba(96, 165, 250, 0.08);
+                    border: 1px solid rgba(96, 165, 250, 0.2);
+                    border-radius: 6px;
+                    padding: 10px 12px;
+                    margin-bottom: 16px;
                     font-family: 'Courier New', monospace;
-                    font-size: 12px;
+                    font-size: 11px;
                     word-break: break-all;
                     color: var(--text-color);
                 }
@@ -355,85 +444,93 @@ export class ConnectionManagementPanel {
 
                 .btn {
                     flex: 1;
-                    padding: 8px 14px;
-                    border-radius: 8px;
+                    padding: 9px 16px;
+                    border-radius: 6px;
                     font-size: 13px;
                     font-weight: 500;
                     cursor: pointer;
-                    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-                    border: 2px solid transparent;
+                    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+                    border: none;
                     display: flex;
                     align-items: center;
                     justify-content: center;
                     gap: 6px;
                 }
 
+                .btn:active {
+                    transform: scale(0.97);
+                }
+
                 .btn-test {
-                    background: #4875b3ff;
+                    background: #4875b3;
                     color: #ffffff;
-                    border: 2px solid #4c6892ff;
-                    box-shadow: 0 2px 8px rgba(123, 163, 220, 0.25);
+                    box-shadow: 0 2px 6px rgba(72, 117, 179, 0.3);
                 }
 
                 .btn-test:hover {
-                    background: #5678a8ff;
-                    border-color: #294e85ff;
+                    background: #5989c7;
                     transform: translateY(-1px);
-                    box-shadow: 0 4px 12px rgba(123, 163, 220, 0.35);
+                    box-shadow: 0 4px 10px rgba(72, 117, 179, 0.4);
                 }
 
                 .btn-delete {
-                    background: #d16969ff;
+                    background: #d16969;
                     color: #ffffff;
-                    border: 2px solid #af4242ff;
-                    box-shadow: 0 2px 8px rgba(232, 139, 139, 0.25);
+                    box-shadow: 0 2px 6px rgba(209, 105, 105, 0.3);
                 }
 
                 .btn-delete:hover {
-                    background: #c04242ff;
-                    border-color: #914343ff;
+                    background: #e07a7a;
                     transform: translateY(-1px);
-                    box-shadow: 0 4px 12px rgba(232, 139, 139, 0.35);
+                    box-shadow: 0 4px 10px rgba(209, 105, 105, 0.4);
                 }
 
                 .empty-state {
                     text-align: center;
                     padding: 80px 20px;
+                    animation: fadeIn 0.4s ease;
                 }
 
                 .empty-icon {
                     font-size: 64px;
                     margin-bottom: 20px;
-                    opacity: 0.5;
+                    opacity: 0.4;
                 }
 
                 .empty-state h2 {
                     font-size: 24px;
-                    font-weight: 500;
-                    margin-bottom: 8px;
+                    font-weight: 600;
+                    margin-bottom: 12px;
                 }
 
                 .empty-state p {
                     color: var(--secondary-text);
                     margin-bottom: 24px;
+                    font-size: 14px;
                 }
 
                 .test-result {
                     margin-top: 12px;
-                    padding: 10px;
+                    padding: 10px 12px;
                     border-radius: 6px;
                     font-size: 12px;
                     display: none;
+                    animation: slideDown 0.3s ease;
+                }
+
+                @keyframes slideDown {
+                    from { opacity: 0; transform: translateY(-10px); }
+                    to { opacity: 1; transform: translateY(0); }
                 }
 
                 .test-result.success {
-                    background: color-mix(in srgb, var(--success-color), transparent 90%);
+                    background: rgba(34, 197, 94, 0.1);
                     color: var(--success-color);
                     border: 1px solid var(--success-color);
                 }
 
                 .test-result.error {
-                    background: color-mix(in srgb, var(--danger-color), transparent 90%);
+                    background: rgba(239, 68, 68, 0.1);
                     color: var(--danger-color);
                     border: 1px solid var(--danger-color);
                 }
@@ -442,24 +539,125 @@ export class ConnectionManagementPanel {
                     opacity: 0.6;
                     pointer-events: none;
                 }
+
+                .delete-confirmation {
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    background: linear-gradient(135deg, rgba(0, 0, 0, 0.95), rgba(20, 20, 20, 0.98));
+                    backdrop-filter: blur(8px);
+                    border-radius: 12px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    animation: fadeIn 0.2s ease;
+                    z-index: 10;
+                    border: 1px solid rgba(239, 68, 68, 0.3);
+                }
+
+                .confirm-content {
+                    text-align: center;
+                    padding: 24px;
+                }
+
+                .confirm-content p {
+                    font-size: 15px;
+                    margin-bottom: 20px;
+                    color: var(--text-color);
+                    font-weight: 500;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 8px;
+                }
+
+                .confirm-content p::before {
+                    content: '⚠️';
+                    font-size: 20px;
+                }
+
+                .confirm-actions {
+                    display: flex;
+                    gap: 10px;
+                    justify-content: center;
+                }
+
+                .btn-confirm-yes,
+                .btn-confirm-no {
+                    padding: 9px 18px;
+                    border: none;
+                    border-radius: 6px;
+                    font-size: 13px;
+                    font-weight: 500;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                }
+
+                .btn-confirm-yes {
+                    background: #d16969;
+                    color: white;
+                    box-shadow: 0 2px 8px rgba(209, 105, 105, 0.3);
+                }
+
+                .btn-confirm-yes::before {
+                    content: '🗑️';
+                    font-size: 14px;
+                }
+
+                .btn-confirm-yes:hover {
+                    background: #e07a7a;
+                    transform: translateY(-1px);
+                    box-shadow: 0 4px 12px rgba(209, 105, 105, 0.4);
+                }
+
+                .btn-confirm-yes:active {
+                    transform: scale(0.97);
+                }
+
+                .btn-confirm-no {
+                    background: var(--vscode-button-secondaryBackground);
+                    color: var(--vscode-button-secondaryForeground);
+                }
+
+                .btn-confirm-no:hover {
+                    background: var(--vscode-button-secondaryHoverBackground);
+                    transform: translateY(-1px);
+                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+                }
+
+                .btn-confirm-no:active {
+                    transform: scale(0.97);
+                }
+
+                .card-actions {
+                    position: relative;
+                }
             </style>
         </head>
         <body>
-            <div class="header">
-                <div class="header-left">
-                    <img src="${logoPath}" alt="PostgreSQL Explorer">
-                    <div class="header-text">
-                        <h1>Connection Management</h1>
-                        <p>Manage your PostgreSQL database connections</p>
+            <div class="container">
+                <div class="header">
+                    <div class="header-icon">
+                        <img src="${logoPath}" alt="PostgreSQL">
+                    </div>
+                    <h1>Connection Management</h1>
+                    <p>Manage your PostgreSQL database connections</p>
+                    <div class="header-actions">
+                        <button class="btn-primary" onclick="addConnection()">
+                            <span class="btn-icon">➕</span>
+                            <span>Add Connection</span>
+                        </button>
                     </div>
                 </div>
-                <button class="btn-primary" onclick="addConnection()">
-                    <span>➕</span> Add Connection
-                </button>
-            </div>
 
-            <div class="connections-grid">
-                ${connectionsHtml}
+                <div class="connections-grid">
+                    ${connectionsHtml}
+                </div>
             </div>
 
             <script>
@@ -494,10 +692,39 @@ export class ConnectionManagementPanel {
                         const id = deleteBtn.getAttribute('data-connection-id');
                         const name = deleteBtn.getAttribute('data-connection-name');
                         
-                        if (id && confirm(\`Are you sure you want to delete connection "\${name}"?\`)) {
-                            vscode.postMessage({ 
-                                command: 'delete',
-                                id: id 
+                        if (id) {
+                            // Show custom confirmation
+                            const card = deleteBtn.closest('.connection-card');
+                            const existingConfirm = card.querySelector('.delete-confirmation');
+                            
+                            if (existingConfirm) {
+                                existingConfirm.remove();
+                                return;
+                            }
+                            
+                            const confirmDiv = document.createElement('div');
+                            confirmDiv.className = 'delete-confirmation';
+                            confirmDiv.innerHTML = \`
+                                <div class="confirm-content">
+                                    <p>Delete "\${name}"?</p>
+                                    <div class="confirm-actions">
+                                        <button class="btn-confirm-no">Cancel</button>
+                                        <button class="btn-confirm-yes">Delete</button>
+                                    </div>
+                                </div>
+                            \`;
+                            
+                            card.querySelector('.card-actions').appendChild(confirmDiv);
+                            
+                            confirmDiv.querySelector('.btn-confirm-yes').addEventListener('click', function() {
+                                vscode.postMessage({ 
+                                    command: 'delete',
+                                    id: id 
+                                });
+                            });
+                            
+                            confirmDiv.querySelector('.btn-confirm-no').addEventListener('click', function() {
+                                confirmDiv.remove();
                             });
                         }
                     }
@@ -540,41 +767,51 @@ export class ConnectionManagementPanel {
     private _getConnectionCardHtml(conn: ConnectionInfo & { hasPassword: boolean }): string {
         const connectionString = this._buildConnectionString(conn);
         const authBadge = conn.hasPassword || conn.username
-            ? '<span class="status-badge has-auth">Authenticated</span>'
+            ? '<span class="status-badge has-auth">✓ Auth</span>'
             : '<span class="status-badge no-auth">No Auth</span>';
 
         return `
             <div class="connection-card">
                 <div class="card-header">
                     <div>
-                        <div class="card-title">${conn.name}</div>
+                        <div class="card-title">
+                            <span class="card-icon">🗄️</span>
+                            <span>${this._escapeHtml(conn.name)}</span>
+                        </div>
                     </div>
                     <div class="card-status">
+                        <div class="live-indicator">
+                            <span class="live-dot"></span>
+                            <span>Live</span>
+                        </div>
                         ${authBadge}
                     </div>
                 </div>
 
                 <div class="card-details">
                     <div class="detail-row">
+                        <span class="detail-icon">🌐</span>
                         <span class="detail-label">Host:</span>
-                        <span class="detail-value">${conn.host}:${conn.port}</span>
+                        <span class="detail-value">${this._escapeHtml(conn.host)}:${conn.port}</span>
                     </div>
                     ${conn.database ? `
                     <div class="detail-row">
+                        <span class="detail-icon">💾</span>
                         <span class="detail-label">Database:</span>
-                        <span class="detail-value">${conn.database}</span>
+                        <span class="detail-value">${this._escapeHtml(conn.database)}</span>
                     </div>
                     ` : ''}
                     ${conn.username ? `
                     <div class="detail-row">
-                        <span class="detail-label">Username:</span>
-                        <span class="detail-value">${conn.username}</span>
+                        <span class="detail-icon">👤</span>
+                        <span class="detail-label">User:</span>
+                        <span class="detail-value">${this._escapeHtml(conn.username)}</span>
                     </div>
                     ` : ''}
                 </div>
 
                 <div class="connection-string">
-                    ${connectionString}
+                    ${this._escapeHtml(connectionString)}
                 </div>
 
                 <div id="test-result-${conn.id}" class="test-result"></div>

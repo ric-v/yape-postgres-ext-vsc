@@ -146,7 +146,7 @@ export class ConnectionFormPanel {
     }
 
     private _getHtmlForWebview(webview: vscode.Webview): string {
-        const logoPath = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'resources', 'postgres-explorer.png'));
+        const logoPath = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'resources', 'postgres-vsc-icon.png'));
 
         return `<!DOCTYPE html>
         <html lang="en">
@@ -163,59 +163,85 @@ export class ConnectionFormPanel {
                     --accent-color: var(--vscode-textLink-foreground);
                     --hover-bg: var(--vscode-list-hoverBackground);
                     --danger-color: var(--vscode-errorForeground);
+                    --success-color: var(--vscode-testing-iconPassed);
+                    --warning-color: var(--vscode-editorWarning-foreground);
                     --secondary-text: var(--vscode-descriptionForeground);
                     --font-family: var(--vscode-font-family);
-                    --shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
-                    --card-radius: 16px;
-                    --card-border: 1px solid rgba(128, 128, 128, 0.15);
+                    --shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+                    --shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.08);
+                    --card-radius: 12px;
+                    --card-border: 1px solid var(--border-color);
                     --input-bg: var(--vscode-input-background);
                     --input-fg: var(--vscode-input-foreground);
                     --input-border: var(--vscode-input-border);
                     --button-bg: var(--vscode-button-background);
                     --button-fg: var(--vscode-button-foreground);
                     --button-hover: var(--vscode-button-hoverBackground);
+                    --button-secondary-bg: var(--vscode-button-secondaryBackground);
+                    --button-secondary-fg: var(--vscode-button-secondaryForeground);
+                    --button-secondary-hover: var(--vscode-button-secondaryHoverBackground);
+                }
+
+                * {
+                    margin: 0;
+                    padding: 0;
+                    box-sizing: border-box;
                 }
 
                 body {
                     background-color: var(--bg-color);
                     color: var(--text-color);
                     font-family: var(--font-family);
-                    padding: 40px;
-                    margin: 0;
+                    padding: 32px 24px;
                     line-height: 1.6;
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
                     min-height: 100vh;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
                 }
 
                 .container {
                     width: 100%;
-                    max-width: 800px;
+                    max-width: 720px;
+                    animation: fadeIn 0.3s ease;
+                }
+
+                @keyframes fadeIn {
+                    from { opacity: 0; transform: translateY(10px); }
+                    to { opacity: 1; transform: translateY(0); }
                 }
 
                 .header {
+                    text-align: center;
+                    margin-bottom: 32px;
+                }
+
+                .header-icon {
+                    width: 56px;
+                    height: 56px;
+                    margin: 0 auto 16px;
+                    background: linear-gradient(135deg, #336791 0%, #4a7ba7 100%);
+                    border-radius: 14px;
                     display: flex;
                     align-items: center;
-                    margin-bottom: 32px;
-                    gap: 20px;
                     justify-content: center;
+                    box-shadow: 0 4px 12px rgba(51, 103, 145, 0.2);
                 }
 
-                .header img {
-                    width: 48px;
-                    height: 48px;
+                .header-icon img {
+                    width: 32px;
+                    height: 32px;
+                    filter: brightness(0) invert(1);
                 }
 
-                .header-text h1 {
-                    margin: 0;
-                    font-size: 24px;
-                    font-weight: 500;
+                .header h1 {
+                    font-size: 28px;
+                    font-weight: 600;
                     letter-spacing: -0.5px;
+                    margin-bottom: 8px;
                 }
 
-                .header-text p {
-                    margin: 4px 0 0 0;
+                .header p {
                     color: var(--secondary-text);
                     font-size: 14px;
                 }
@@ -226,197 +252,314 @@ export class ConnectionFormPanel {
                     border-radius: var(--card-radius);
                     box-shadow: var(--shadow);
                     padding: 32px;
-                    position: relative;
-                    overflow: hidden;
+                    transition: box-shadow 0.3s ease;
                 }
-                
-                .card::before {
-                    content: '';
-                    position: absolute;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 4px;
-                    background: linear-gradient(90deg, var(--accent-color), transparent);
-                    opacity: 0.5;
+
+                .section-header {
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    margin-bottom: 24px;
+                    padding-bottom: 12px;
+                    border-bottom: 2px solid var(--border-color);
+                }
+
+                .section-icon {
+                    width: 28px;
+                    height: 28px;
+                    background: linear-gradient(135deg, var(--accent-color), var(--hover-bg));
+                    border-radius: 6px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 14px;
+                }
+
+                .section-title {
+                    font-size: 15px;
+                    font-weight: 600;
+                    letter-spacing: -0.2px;
+                    color: var(--text-color);
                 }
 
                 .form-grid {
                     display: grid;
                     grid-template-columns: 1fr 1fr;
-                    gap: 32px;
-                }
-
-                .section-title {
-                    font-size: 14px;
-                    font-weight: 600;
-                    text-transform: uppercase;
-                    letter-spacing: 1px;
-                    color: var(--secondary-text);
-                    margin-bottom: 20px;
-                    grid-column: span 2;
-                    border-bottom: 1px solid var(--border-color);
-                    padding-bottom: 8px;
+                    gap: 24px;
+                    margin-bottom: 32px;
                 }
 
                 .form-group {
-                    margin-bottom: 20px;
+                    display: flex;
+                    flex-direction: column;
+                }
+
+                .form-group.full-width {
+                    grid-column: span 2;
                 }
 
                 label {
-                    display: block;
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
                     margin-bottom: 8px;
                     font-size: 13px;
                     font-weight: 500;
                     color: var(--text-color);
                 }
 
-                .required::after {
-                    content: " *";
+                .required-indicator {
                     color: var(--danger-color);
+                    font-size: 16px;
+                    line-height: 1;
+                }
+
+                .label-hint {
+                    display: block;
+                    font-size: 12px;
+                    color: var(--secondary-text);
+                    font-weight: 400;
+                    margin-top: 2px;
                 }
 
                 input {
                     width: 100%;
-                    padding: 10px 12px;
+                    padding: 10px 14px;
                     background: var(--input-bg);
                     color: var(--input-fg);
-                    border: 1px solid var(--input-border);
+                    border: 1.5px solid var(--input-border);
                     border-radius: 6px;
                     font-family: var(--font-family);
                     font-size: 13px;
-                    box-sizing: border-box;
                     transition: all 0.2s ease;
+                }
+
+                input:hover {
+                    border-color: var(--accent-color);
                 }
 
                 input:focus {
                     outline: none;
                     border-color: var(--accent-color);
-                    box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.2);
+                    box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.15);
+                }
+
+                input::placeholder {
+                    color: var(--secondary-text);
+                    opacity: 0.6;
+                }
+
+                .message {
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    padding: 12px 16px;
+                    border-radius: 8px;
+                    font-size: 13px;
+                    margin-bottom: 24px;
+                    display: none;
+                    animation: slideDown 0.3s ease;
+                }
+
+                @keyframes slideDown {
+                    from { opacity: 0; transform: translateY(-10px); }
+                    to { opacity: 1; transform: translateY(0); }
+                }
+
+                .message-icon {
+                    font-size: 18px;
+                    line-height: 1;
+                }
+
+                .message.success {
+                    background: rgba(34, 197, 94, 0.1);
+                    border: 1.5px solid var(--success-color);
+                    color: var(--success-color);
+                }
+
+                .message.error {
+                    background: rgba(239, 68, 68, 0.1);
+                    border: 1.5px solid var(--danger-color);
+                    color: var(--danger-color);
+                }
+
+                .message.info {
+                    background: rgba(96, 165, 250, 0.1);
+                    border: 1.5px solid var(--accent-color);
+                    color: var(--accent-color);
                 }
 
                 .actions {
-                    margin-top: 32px;
                     display: flex;
-                    justify-content: flex-end;
                     gap: 12px;
-                    padding-top: 20px;
+                    padding-top: 24px;
                     border-top: 1px solid var(--border-color);
                 }
 
                 button {
-                    padding: 10px 20px;
-                    border-radius: 6px;
+                    flex: 1;
+                    padding: 11px 20px;
+                    border: none;
+                    border-radius: 7px;
                     font-size: 13px;
                     font-weight: 500;
                     cursor: pointer;
-                    transition: all 0.2s;
-                    border: 1px solid transparent;
+                    transition: all 0.2s ease;
+                    font-family: var(--font-family);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 8px;
+                }
+
+                button:active {
+                    transform: scale(0.98);
                 }
 
                 .btn-secondary {
-                    background: transparent;
-                    color: var(--text-color);
-                    border: 1px solid var(--border-color);
+                    background: var(--button-secondary-bg);
+                    color: var(--button-secondary-fg);
                 }
 
-                .btn-secondary:hover {
-                    background: var(--hover-bg);
-                    border-color: var(--accent-color);
+                .btn-secondary:hover:not(:disabled) {
+                    background: var(--button-secondary-hover);
+                    transform: translateY(-1px);
+                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
                 }
 
                 .btn-primary {
                     background: var(--button-bg);
                     color: var(--button-fg);
+                    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
                 }
 
-                .btn-primary:hover {
+                .btn-primary:hover:not(:disabled) {
                     background: var(--button-hover);
+                    transform: translateY(-1px);
+                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
                 }
                 
-                .btn-primary:disabled {
+                button:disabled {
                     opacity: 0.5;
                     cursor: not-allowed;
+                    transform: none !important;
                 }
 
-                .message {
-                    margin-top: 20px;
-                    padding: 12px;
-                    border-radius: 6px;
-                    font-size: 13px;
-                    display: none;
-                }
-
-                .message.error {
-                    background: color-mix(in srgb, var(--danger-color), transparent 85%);
-                    color: var(--danger-color);
-                    border: 1px solid color-mix(in srgb, var(--danger-color), transparent 70%);
-                }
-
-                .message.success {
-                    background: color-mix(in srgb, var(--accent-color), transparent 85%);
-                    color: var(--accent-color);
-                    border: 1px solid color-mix(in srgb, var(--accent-color), transparent 70%);
+                .btn-icon {
+                    font-size: 16px;
+                    line-height: 1;
                 }
                 
                 .hidden {
                     display: none !important;
+                }
+
+                .info-badge {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 6px;
+                    padding: 6px 12px;
+                    background: rgba(96, 165, 250, 0.1);
+                    border: 1px solid rgba(96, 165, 250, 0.3);
+                    border-radius: 6px;
+                    font-size: 12px;
+                    color: var(--accent-color);
+                    margin-bottom: 24px;
                 }
             </style>
         </head>
         <body>
             <div class="container">
                 <div class="header">
-                    <img src="${logoPath}" alt="PostgreSQL Explorer">
-                    <div class="header-text">
-                        <h1>Add Connection</h1>
-                        <p>Configure your PostgreSQL database connection</p>
+                    <div class="header-icon">
+                        <img src="${logoPath}" alt="PostgreSQL">
                     </div>
+                    <h1>New Connection</h1>
+                    <p>Configure your PostgreSQL database connection</p>
                 </div>
                 
                 <div class="card">
                     <form id="connectionForm">
-                        <div class="form-grid">
-                            <div class="section-title">Connection Details</div>
-                            
-                            <div class="form-group" style="grid-column: span 2;">
-                                <label for="name" class="required">Connection Name</label>
-                                <input type="text" id="name" name="name" required placeholder="e.g. Production DB">
-                            </div>
-
-                            <div class="form-group">
-                                <label for="host" class="required">Host</label>
-                                <input type="text" id="host" name="host" required placeholder="localhost">
-                            </div>
-
-                            <div class="form-group">
-                                <label for="port" class="required">Port</label>
-                                <input type="number" id="port" name="port" value="5432" required>
-                            </div>
-
-                            <div class="form-group" style="grid-column: span 2;">
-                                <label for="database">Database</label>
-                                <input type="text" id="database" name="database" placeholder="postgres">
-                            </div>
-
-                            <div class="section-title" style="margin-top: 10px;">Authentication</div>
-
-                            <div class="form-group">
-                                <label for="username">Username</label>
-                                <input type="text" id="username" name="username" placeholder="postgres">
-                            </div>
-
-                            <div class="form-group">
-                                <label for="password">Password</label>
-                                <input type="password" id="password" name="password" placeholder="••••••••">
-                            </div>
+                        <div class="info-badge">
+                            <span>💡</span>
+                            <span>All fields marked with <span class="required-indicator">*</span> are required</span>
                         </div>
 
                         <div id="message" class="message"></div>
 
+                        <div class="section-header">
+                            <div class="section-icon">🔌</div>
+                            <div class="section-title">Connection Details</div>
+                        </div>
+                        
+                        <div class="form-grid">
+                            <div class="form-group full-width">
+                                <label for="name">
+                                    Connection Name
+                                    <span class="required-indicator">*</span>
+                                </label>
+                                <input type="text" id="name" name="name" required placeholder="e.g., Production Database">
+                            </div>
+
+                            <div class="form-group">
+                                <label for="host">
+                                    Host
+                                    <span class="required-indicator">*</span>
+                                    <span class="label-hint">Server address or IP</span>
+                                </label>
+                                <input type="text" id="host" name="host" required placeholder="localhost">
+                            </div>
+
+                            <div class="form-group">
+                                <label for="port">
+                                    Port
+                                    <span class="required-indicator">*</span>
+                                    <span class="label-hint">Default: 5432</span>
+                                </label>
+                                <input type="number" id="port" name="port" value="5432" required>
+                            </div>
+
+                            <div class="form-group full-width">
+                                <label for="database">
+                                    Database
+                                    <span class="label-hint">Leave empty to connect to default database (postgres)</span>
+                                </label>
+                                <input type="text" id="database" name="database" placeholder="postgres">
+                            </div>
+                        </div>
+
+                        <div class="section-header">
+                            <div class="section-icon">🔐</div>
+                            <div class="section-title">Authentication</div>
+                        </div>
+
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="username">
+                                    Username
+                                    <span class="label-hint">Database user</span>
+                                </label>
+                                <input type="text" id="username" name="username" placeholder="postgres">
+                            </div>
+
+                            <div class="form-group">
+                                <label for="password">
+                                    Password
+                                    <span class="label-hint">Stored securely</span>
+                                </label>
+                                <input type="password" id="password" name="password" placeholder="••••••••">
+                            </div>
+                        </div>
+
                         <div class="actions">
-                            <button type="button" id="testConnection" class="btn-secondary">Test Connection</button>
-                            <button type="submit" id="addConnection" class="btn-primary hidden">Add Connection</button>
+                            <button type="button" id="testConnection" class="btn-secondary">
+                                <span class="btn-icon">⚡</span>
+                                <span>Test Connection</span>
+                            </button>
+                            <button type="submit" id="addConnection" class="btn-primary hidden">
+                                <span class="btn-icon">✓</span>
+                                <span>Add Connection</span>
+                            </button>
                         </div>
                     </form>
                 </div>
@@ -432,10 +575,15 @@ export class ConnectionFormPanel {
 
                 let isTested = false;
 
-                function showMessage(text, isError = false) {
-                    messageDiv.textContent = text;
-                    messageDiv.className = 'message ' + (isError ? 'error' : 'success');
-                    messageDiv.style.display = 'block';
+                function showMessage(text, type = 'info') {
+                    const icons = {
+                        success: '✓',
+                        error: '✗',
+                        info: 'ℹ'
+                    };
+                    messageDiv.innerHTML = \`<span class="message-icon">\${icons[type]}</span><span>\${text}</span>\`;
+                    messageDiv.className = 'message ' + type;
+                    messageDiv.style.display = 'flex';
                 }
 
                 function hideMessage() {
@@ -476,7 +624,7 @@ export class ConnectionFormPanel {
                     
                     hideMessage();
                     testBtn.disabled = true;
-                    testBtn.textContent = 'Testing...';
+                    testBtn.innerHTML = '<span class="btn-icon">⏳</span><span>Testing...</span>';
                     
                     vscode.postMessage({
                         command: 'testConnection',
@@ -489,6 +637,9 @@ export class ConnectionFormPanel {
                     if (!isTested) return;
                     
                     hideMessage();
+                    addBtn.disabled = true;
+                    addBtn.innerHTML = '<span class="btn-icon">⏳</span><span>Saving...</span>';
+                    
                     vscode.postMessage({
                         command: 'saveConnection',
                         connection: getFormData()
@@ -498,17 +649,19 @@ export class ConnectionFormPanel {
                 window.addEventListener('message', event => {
                     const message = event.data;
                     testBtn.disabled = false;
-                    testBtn.textContent = 'Test Connection';
+                    testBtn.innerHTML = '<span class="btn-icon">⚡</span><span>Test Connection</span>';
+                    addBtn.disabled = false;
+                    addBtn.innerHTML = '<span class="btn-icon">✓</span><span>Add Connection</span>';
 
                     switch (message.type) {
                         case 'testSuccess':
-                            showMessage('Connection successful! Server version: ' + message.version);
+                            showMessage('Connection successful! ' + message.version, 'success');
                             isTested = true;
                             testBtn.classList.add('hidden');
                             addBtn.classList.remove('hidden');
                             break;
                         case 'testError':
-                            showMessage(message.error, true);
+                            showMessage('Connection failed: ' + message.error, 'error');
                             isTested = false;
                             addBtn.classList.add('hidden');
                             testBtn.classList.remove('hidden');

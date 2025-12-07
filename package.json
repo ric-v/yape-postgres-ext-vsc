@@ -1,11 +1,12 @@
 {
   "name": "postgres-explorer",
   "displayName": "PostgreSQL Explorer",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "PostgreSQL database explorer for VS Code with notebook support",
   "publisher": "ric-v",
   "private": false,
   "license": "MIT",
+  "readme": "MARKETPLACE.md",
   "repository": {
     "type": "git",
     "url": "https://github.com/dev-asterix/yape-postgres-ext-vsc.git"
@@ -14,7 +15,7 @@
     "url": "https://github.com/dev-asterix/yape-postgres-ext-vsc/issues"
   },
   "homepage": "https://github.com/dev-asterix/yape-postgres-ext-vsc#readme",
-  "icon": "resources/postgres-explorer.png",
+  "icon": "resources/postgres-vsc-icon.png",
   "galleryBanner": {
     "color": "#C80000",
     "theme": "dark"
@@ -65,6 +66,11 @@
         "command": "postgres-explorer.manageConnections",
         "title": "Manage Connections",
         "icon": "$(settings-gear)"
+      },
+      {
+        "command": "postgres-explorer.aiSettings",
+        "title": "AI Settings",
+        "icon": "$(sparkle)"
       },
       {
         "command": "postgres-explorer.showTableProperties",
@@ -303,19 +309,15 @@
         "icon": "$(debug-disconnect)"
       },
       {
-        "command": "postgres-explorer.refreshMatView",
-        "title": "Refresh Materialized View",
-        "icon": "$(refresh)"
+        "command": "postgres-explorer.reconnectConnection",
+        "title": "Connect",
+        "category": "Postgres Explorer",
+        "icon": "$(plug)"
       },
       {
         "command": "postgres-explorer.editMatView",
         "title": "Edit Materialized View",
         "icon": "$(edit)"
-      },
-      {
-        "command": "postgres-explorer.viewMatViewData",
-        "title": "View Data",
-        "icon": "$(table)"
       },
       {
         "command": "postgres-explorer.editType",
@@ -730,13 +732,15 @@
         {
           "id": "postgresExplorer",
           "name": "Connections",
-          "contextualTitle": "PostgreSQL Explorer"
+          "contextualTitle": "PostgreSQL Explorer",
+          "icon": "resources/postgres-vsc-icon.png"
         },
         {
           "id": "postgresExplorer.chatView",
-          "name": "SQL Chat",
+          "name": "SQL Assistant",
           "type": "webview",
-          "contextualTitle": "SQL Chat Assistant"
+          "contextualTitle": "SQL Assistant",
+          "icon": "resources/ai-icon.png"
         }
       ]
     },
@@ -877,6 +881,11 @@
           "command": "postgres-explorer.manageConnections",
           "when": "view == postgresExplorer",
           "group": "navigation"
+        },
+        {
+          "command": "postgres-explorer.aiSettings",
+          "when": "view == postgresExplorer",
+          "group": "navigation"
         }
       ],
       "view/item/context": [
@@ -887,7 +896,7 @@
         },
         {
           "command": "postgres-explorer.newNotebook",
-          "when": "view == postgresExplorer && viewItem =~ /(schema|table)/",
+          "when": "view == postgresExplorer && viewItem =~ /^(schema|table)$/",
           "group": "1_actions"
         },
         {
@@ -898,6 +907,11 @@
         {
           "command": "postgres-explorer.disconnectConnection",
           "when": "view == postgresExplorer && viewItem == connection",
+          "group": "inline@1"
+        },
+        {
+          "command": "postgres-explorer.reconnectConnection",
+          "when": "view == postgresExplorer && viewItem == connection-disconnected",
           "group": "inline@1"
         },
         {
@@ -944,11 +958,6 @@
           "command": "postgres-explorer.dropTable",
           "when": "view == postgresExplorer && viewItem == table",
           "group": "9_delete"
-        },
-        {
-          "command": "postgres-explorer.editViewDefinition",
-          "when": "view == postgresExplorer && viewItem == view",
-          "group": "inline@1"
         },
         {
           "command": "postgres-explorer.viewViewData",
@@ -1026,12 +1035,6 @@
           "command": "postgres-explorer.materializedViewOperations",
           "when": "view == postgresExplorer && viewItem == materialized-view",
           "group": "1_operations@0"
-        },
-        {
-          "command": "postgres-explorer.showMaterializedViewProperties",
-          "when": "view == postgresExplorer && viewItem == materialized-view",
-          "group": "inline@4",
-          "icon": "$(info)"
         },
         {
           "command": "postgres-explorer.foreignTableOperations",
@@ -1114,17 +1117,12 @@
           "group": "inline@2"
         },
         {
-          "command": "postgres-explorer.refreshMatView",
+          "command": "postgres-explorer.showMaterializedViewProperties",
           "when": "view == postgresExplorer && viewItem == materialized-view",
-          "group": "1_modification"
+          "group": "inline@3"
         },
         {
-          "command": "postgres-explorer.editMatView",
-          "when": "view == postgresExplorer && viewItem == materialized-view",
-          "group": "1_modification"
-        },
-        {
-          "command": "postgres-explorer.viewMatViewData",
+          "command": "postgres-explorer.viewMaterializedViewData",
           "when": "view == postgresExplorer && viewItem == materialized-view",
           "group": "2_query"
         },
@@ -1134,19 +1132,9 @@
           "group": "9_delete"
         },
         {
-          "command": "postgres-explorer.editMatView",
-          "when": "view == postgresExplorer && viewItem == materialized-view",
-          "group": "inline@2"
-        },
-        {
           "command": "postgres-explorer.showTypeProperties",
           "when": "view == postgresExplorer && viewItem == type",
           "group": "inline@1"
-        },
-        {
-          "command": "postgres-explorer.editType",
-          "when": "view == postgresExplorer && viewItem == type",
-          "group": "inline@2"
         },
         {
           "command": "postgres-explorer.dropType",
@@ -1248,11 +1236,6 @@
           "command": "postgres-explorer.dropDatabase",
           "when": "view == postgresExplorer && viewItem == database",
           "group": "9_delete"
-        },
-        {
-          "submenu": "postgres-explorer.databaseScriptsMenu",
-          "when": "view == postgresExplorer && viewItem == database",
-          "group": "1_operations@2"
         },
         {
           "command": "postgres-explorer.disconnectDatabase",
@@ -1496,8 +1479,7 @@
     }
   },
   "activationEvents": [
-    "onNotebook:postgres-notebook",
-    "onNotebook:postgres-query"
+    "onStartupFinished"
   ],
   "main": "./dist/extension.js",
   "scripts": {

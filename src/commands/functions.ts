@@ -1,77 +1,19 @@
 import * as vscode from 'vscode';
-import { createAndShowNotebook, createMetadata, getConnectionWithPassword, validateItem } from '../commands/connection';
+
 import { DatabaseTreeItem, DatabaseTreeProvider } from '../providers/DatabaseTreeProvider';
-import { ConnectionManager } from '../services/ConnectionManager';
-import { TablePropertiesPanel } from '../tableProperties';
-import { 
-    MarkdownUtils, 
-    FormatHelpers, 
-    ErrorHandlers, 
-    SQL_TEMPLATES, 
-    ObjectUtils
+import {
+    MarkdownUtils,
+    FormatHelpers,
+    ErrorHandlers,
+    SQL_TEMPLATES,
+    ObjectUtils,
+    getDatabaseConnection,
+    NotebookBuilder,
+    QueryBuilder
 } from './helper';
+import { FunctionSQL } from './sql';
 
-/**
- * Queries for PostgreSQL database
- */
 
-/**
- * FUNCTION_INFO_QUERY - Query to get function details
- * fetches - function name, arguments, result type, definition, and description
- * from pg_proc and pg_description tables
- * where function name and namespace are provided as parameters
- */
-const FUNCTION_INFO_QUERY = `
-SELECT p.proname,
-    pg_get_function_arguments(p.oid) as arguments,
-    pg_get_function_result(p.oid) as result_type,
-    pg_get_functiondef(p.oid) as definition,
-    d.description
-FROM pg_proc p
-LEFT JOIN pg_description d ON p.oid = d.objoid
-WHERE p.proname = $1
-AND p.pronamespace = (SELECT oid FROM pg_namespace WHERE nspname = $2)`;
-
-/**
- * FUNCTION_DEF_QUERY - Query to get function definition
- * fetches - function definition from pg_proc table
- * where function name and namespace are provided as parameters
- */
-const FUNCTION_DEF_QUERY = `
-SELECT pg_get_functiondef(p.oid) as definition
-FROM pg_proc p
-WHERE p.proname = $1
-AND p.pronamespace = (SELECT oid FROM pg_namespace WHERE nspname = $2)`;
-
-/**
- * FUNCTION_SIGN_QUERY - Query to get function signature to perform function call
- * fetches - function name, arguments, result type, and description
- * from pg_proc and pg_description tables
- * where function name and namespace are provided as parameters
- * This query is used to get the function signature for function call
-*/
-const FUNCTION_SIGN_QUERY = `
-SELECT p.proname,
-    pg_get_function_arguments(p.oid) as arguments,
-    pg_get_function_result(p.oid) as result_type,
-    d.description
-FROM pg_proc p
-LEFT JOIN pg_description d ON p.oid = d.objoid
-WHERE p.proname = $1
-AND p.pronamespace = (SELECT oid FROM pg_namespace WHERE nspname = $2)`;
-
-/**
- * FUNCTION_ARGS_QUERY - Query to get function arguments
- * fetches - function arguments from pg_proc table
- * where function name and namespace are provided as parameters
- * This query is used to get the function arguments for drop function
- * It is used to get the function arguments for drop function
- */
-const FUNCTION_ARGS_QUERY = `
-SELECT pg_get_function_arguments(p.oid) as arguments
-FROM pg_proc p
-WHERE p.proname = $1
-AND p.pronamespace = (SELECT oid FROM pg_namespace WHERE nspname = $2)`;
 
 /**
  * This function creates a notebook with common operations for a PostgreSQL function.
@@ -84,29 +26,18 @@ AND p.pronamespace = (SELECT oid FROM pg_namespace WHERE nspname = $2)`;
  */
 export async function cmdFunctionOperations(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
-        validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId!);
-        const client = await ConnectionManager.getInstance().getConnection({
-            id: connection.id,
-            host: connection.host,
-            port: connection.port,
-            username: connection.username,
-            database: item.databaseName,
-            name: connection.name
-        });
+        const { connection, client, metadata } = await getDatabaseConnection(item);
 
         try {
-            const functionResult = await client.query(FUNCTION_INFO_QUERY, [item.label, item.schema]);
+            const functionResult = await client.query(QueryBuilder.functionInfo(item.schema!, item.label));
             if (functionResult.rows.length === 0) {
                 throw new Error('Function not found');
             }
 
             const functionInfo = functionResult.rows[0];
-            const metadata = createMetadata(connection, item.databaseName);
 
-            const cells = [
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Markup,
+            await new NotebookBuilder(metadata)
+                .addMarkdown(
                     MarkdownUtils.header(`⚡ Function Operations: \`${item.schema}.${item.label}\``) +
                     (functionInfo.description ? MarkdownUtils.infoBox(`<strong>Description:</strong> ${functionInfo.description}`) : '') +
                     MarkdownUtils.infoBox('This notebook contains common operations for the PostgreSQL function. Run the cells below to execute the operations.') +
@@ -115,45 +46,18 @@ export async function cmdFunctionOperations(item: DatabaseTreeItem, context: vsc
                         { operation: '📝 View Definition', description: 'Show the current function code' },
                         { operation: '📞 Call Function', description: 'Template for executing the function' },
                         { operation: '❌ Drop', description: 'Delete the function (Warning: Irreversible)' }
-                    ]),
-                    'markdown'
-                ),
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Markup,
-                    `##### 📝 Function Definition`,
-                    'markdown'
-                ),
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Code,
-                    `-- Current function definition\n${functionInfo.definition} `,
-                    'sql'
-                ),
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Markup,
-                    `##### 📞 Call Function`,
-                    'markdown'
-                ),
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Code,
-                    `-- Call function\nSELECT ${item.schema}.${item.label} (${functionInfo.arguments ?
-                        '\n  -- Replace with actual values:\n  ' + functionInfo.arguments.split(',').join(',\n  ')
-                        : ''
-                    }); `,
-                    'sql'
-                ),
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Markup,
-                    `##### ❌ Drop Function`,
-                    'markdown'
-                ),
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Code,
-                    SQL_TEMPLATES.DROP.FUNCTION(item.schema!, item.label, functionInfo.arguments || ''),
-                    'sql'
+                    ])
                 )
-            ];
-
-            await createAndShowNotebook(cells, metadata);
+                .addMarkdown('##### 📝 Function Definition')
+                .addSql(`-- Current function definition\n${functionInfo.definition} `)
+                .addMarkdown('##### 📞 Call Function')
+                .addSql(`-- Call function\nSELECT ${item.schema}.${item.label} (${functionInfo.arguments ?
+                    '\n  -- Replace with actual values:\n  ' + functionInfo.arguments.split(',').join(',\n  ')
+                    : ''
+                    }); `)
+                .addMarkdown('##### ❌ Drop Function')
+                .addSql(SQL_TEMPLATES.DROP.FUNCTION(item.schema!, item.label, functionInfo.arguments || ''))
+                .show();
         } finally {
             // Do not close shared client
         }
@@ -172,46 +76,24 @@ export async function cmdFunctionOperations(item: DatabaseTreeItem, context: vsc
  */
 export async function cmdEditFunction(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
-        validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId!);
-        const client = await ConnectionManager.getInstance().getConnection({
-            id: connection.id,
-            host: connection.host,
-            port: connection.port,
-            username: connection.username,
-            database: item.databaseName,
-            name: connection.name
-        });
+        const { connection, client, metadata } = await getDatabaseConnection(item);
 
         try {
-            const functionResult = await client.query(FUNCTION_DEF_QUERY, [item.label, item.schema]);
+            const functionResult = await client.query(QueryBuilder.functionDefinition(item.schema!, item.label));
             if (functionResult.rows.length === 0) {
                 throw new Error('Function not found');
             }
 
             const functionInfo = functionResult.rows[0];
-            const metadata = createMetadata(connection, item.databaseName);
 
-            const cells = [
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Markup,
+            await new NotebookBuilder(metadata)
+                .addMarkdown(
                     MarkdownUtils.header(`✏️ Edit Function: \`${item.schema}.${item.label}\``) +
-                    MarkdownUtils.infoBox('Modify the function definition below and execute the cell to update the function.'),
-                    'markdown'
-                ),
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Markup,
-                    `##### 📝 Function Definition`,
-                    'markdown'
-                ),
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Code,
-                    functionInfo.definition,
-                    'sql'
+                    MarkdownUtils.infoBox('Modify the function definition below and execute the cell to update the function.')
                 )
-            ];
-
-            await createAndShowNotebook(cells, metadata);
+                .addMarkdown('##### 📝 Function Definition')
+                .addSql(functionInfo.definition)
+                .show();
         } finally {
             // Do not close shared client
         }
@@ -230,29 +112,18 @@ export async function cmdEditFunction(item: DatabaseTreeItem, context: vscode.Ex
  */
 export async function cmdCallFunction(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
-        validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId!);
-        const client = await ConnectionManager.getInstance().getConnection({
-            id: connection.id,
-            host: connection.host,
-            port: connection.port,
-            username: connection.username,
-            database: item.databaseName,
-            name: connection.name
-        });
+        const { connection, client, metadata } = await getDatabaseConnection(item);
 
         try {
-            const functionResult = await client.query(FUNCTION_SIGN_QUERY, [item.label, item.schema]);
+            const functionResult = await client.query(QueryBuilder.functionSignature(item.schema!, item.label));
             if (functionResult.rows.length === 0) {
                 throw new Error('Function not found');
             }
 
             const functionInfo = functionResult.rows[0];
-            const metadata = createMetadata(connection, item.databaseName);
 
-            const cells = [
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Markup,
+            await new NotebookBuilder(metadata)
+                .addMarkdown(
                     MarkdownUtils.header(`📞 Call Function: \`${item.schema}.${item.label}\``) +
                     (functionInfo.description ? MarkdownUtils.infoBox(`<strong>Description:</strong> ${functionInfo.description}`) : '') +
                     `\n\n` +
@@ -260,25 +131,14 @@ export async function cmdCallFunction(item: DatabaseTreeItem, context: vscode.Ex
                         'Arguments': functionInfo.arguments ? `<code>${functionInfo.arguments}</code>` : 'None',
                         'Returns': `<code>${functionInfo.result_type}</code>`
                     }) +
-                    MarkdownUtils.infoBox('Edit the argument values below and execute the cell to call the function.'),
-                    'markdown'
-                ),
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Markup,
-                    `##### 📞 Execution`,
-                    'markdown'
-                ),
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Code,
-                    `-- Call function\nSELECT ${item.schema}.${item.label} (${functionInfo.arguments ?
-                        '\n  -- Replace with actual values:\n  ' + functionInfo.arguments.split(',').join(',\n  ')
-                        : ''
-                    }); `,
-                    'sql'
+                    MarkdownUtils.infoBox('Edit the argument values below and execute the cell to call the function.')
                 )
-            ];
-
-            await createAndShowNotebook(cells, metadata);
+                .addMarkdown('##### 📞 Execution')
+                .addSql(`-- Call function\nSELECT ${item.schema}.${item.label} (${functionInfo.arguments ?
+                    '\n  -- Replace with actual values:\n  ' + functionInfo.arguments.split(',').join(',\n  ')
+                    : ''
+                    }); `)
+                .show();
         } finally {
             // Do not close shared client
         }
@@ -296,46 +156,24 @@ export async function cmdCallFunction(item: DatabaseTreeItem, context: vscode.Ex
  */
 export async function cmdDropFunction(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
-        validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId!);
-        const client = await ConnectionManager.getInstance().getConnection({
-            id: connection.id,
-            host: connection.host,
-            port: connection.port,
-            username: connection.username,
-            database: item.databaseName,
-            name: connection.name
-        });
+        const { connection, client, metadata } = await getDatabaseConnection(item);
 
         try {
-            const functionResult = await client.query(FUNCTION_ARGS_QUERY, [item.label, item.schema]);
+            const functionResult = await client.query(QueryBuilder.functionArguments(item.schema!, item.label));
             if (functionResult.rows.length === 0) {
                 throw new Error('Function not found');
             }
 
             const functionInfo = functionResult.rows[0];
-            const metadata = createMetadata(connection, item.databaseName);
 
-            const cells = [
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Markup,
+            await new NotebookBuilder(metadata)
+                .addMarkdown(
                     MarkdownUtils.header(`❌ Drop Function: \`${item.schema}.${item.label}\``) +
-                    MarkdownUtils.dangerBox('This action will permanently delete the function. This operation cannot be undone.'),
-                    'markdown'
-                ),
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Markup,
-                    `##### ❌ Drop Command`,
-                    'markdown'
-                ),
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Code,
-                    SQL_TEMPLATES.DROP.FUNCTION(item.schema!, item.label, functionInfo.arguments || ''),
-                    'sql'
+                    MarkdownUtils.dangerBox('This action will permanently delete the function. This operation cannot be undone.')
                 )
-            ];
-
-            await createAndShowNotebook(cells, metadata);
+                .addMarkdown('##### ❌ Drop Command')
+                .addSql(SQL_TEMPLATES.DROP.FUNCTION(item.schema!, item.label, functionInfo.arguments || ''))
+                .show();
         } finally {
             // Do not close shared client
         }
@@ -353,16 +191,7 @@ export async function cmdDropFunction(item: DatabaseTreeItem, context: vscode.Ex
  */
 export async function cmdShowFunctionProperties(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
-        validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId!);
-        const client = await ConnectionManager.getInstance().getConnection({
-            id: connection.id,
-            host: connection.host,
-            port: connection.port,
-            username: connection.username,
-            database: item.databaseName,
-            name: connection.name
-        });
+        const { connection, client, metadata } = await getDatabaseConnection(item);
 
         try {
             // Gather comprehensive function information
@@ -397,7 +226,7 @@ export async function cmdShowFunctionProperties(item: DatabaseTreeItem, context:
                     LEFT JOIN pg_language l ON l.oid = p.prolang
                     WHERE n.nspname = $1 AND p.proname = $2
                 `, [item.schema, item.label]),
-                
+
                 // Get objects that depend on this function
                 client.query(`
                     SELECT DISTINCT
@@ -423,8 +252,6 @@ export async function cmdShowFunctionProperties(item: DatabaseTreeItem, context:
 
             const func = functionInfo.rows[0];
             const dependents = dependenciesInfo.rows;
-            const metadata = createMetadata(connection, item.databaseName);
-
 
             // Parse arguments for display
             const argsList = func.arguments ? func.arguments.split(',').map((arg: string, idx: number) => {
@@ -436,7 +263,7 @@ export async function cmdShowFunctionProperties(item: DatabaseTreeItem, context:
             }).join('\n') : '    <tr><td colspan="2" style="text-align: center;">No arguments</td></tr>';
 
             // Build dependencies table HTML
-            const dependencyRows = dependents.map(dep => {
+            const dependencyRows = dependents.map((dep: any) => {
                 return `    <tr>
         <td>${ObjectUtils.getKindLabel(dep.kind)}</td>
         <td><code>${dep.schema}.${dep.name}</code></td>
@@ -484,82 +311,26 @@ ${dependencyRows}
 ` : '') +
                 '---';
 
-            const cells = [
-                new vscode.NotebookCellData(vscode.NotebookCellKind.Markup, markdown, 'markdown'),
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Markup,
-                    `##### 📝 Function Definition`,
-                    'markdown'
-                ),
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Code,
-                    func.definition,
-                    'sql'
-                ),
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Markup,
-                    `##### ⚡ Call Function`,
-                    'markdown'
-                ),
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Code,
-                    `-- Call function\nSELECT ${item.schema}.${item.label}(${func.arguments ? func.arguments.split(',').map((arg: string, idx: number) => {
-                        const parts = arg.trim().split(' ');
-                        const type = parts[parts.length - 1];
-                        if (type.includes('int')) return `${idx + 1}`;
-                        if (type.includes('text') || type.includes('char') || type.includes('varchar')) return `'value${idx + 1}'`;
-                        if (type.includes('bool')) return 'true';
-                        if (type.includes('date')) return `'2024-01-01'`;
-                        if (type.includes('timestamp')) return `'2024-01-01 00:00:00'`;
-                        return `'value${idx + 1}'`;
-                    }).join(', ') : ''});`,
-                    'sql'
-                ),
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Markup,
-                    `##### 🗑️ DROP Function Script`,
-                    'markdown'
-                ),
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Code,
-                    `${SQL_TEMPLATES.DROP.FUNCTION(item.schema!, item.label, func.arguments || '')}
-
--- Drop function (with dependencies)
--- DROP FUNCTION IF EXISTS ${item.schema}.${item.label}(${func.arguments || ''}) CASCADE;
-
--- Drop function (without dependencies - will fail if referenced)
--- DROP FUNCTION IF EXISTS ${item.schema}.${item.label}(${func.arguments || ''}) RESTRICT;`,
-                    'sql'
-                ),
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Markup,
-                    `##### 📊 Function Statistics`,
-                    'markdown'
-                ),
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Code,
-                    `-- Get function details and metadata
-SELECT 
-    p.proname as function_name,
-    pg_get_function_arguments(p.oid) as arguments,
-    pg_get_function_result(p.oid) as return_type,
-    l.lanname as language,
-    CASE p.provolatile
-        WHEN 'i' THEN 'IMMUTABLE'
-        WHEN 's' THEN 'STABLE'
-        WHEN 'v' THEN 'VOLATILE'
-    END as volatility,
-    p.prosecdef as security_definer,
-    p.proisstrict as strict
-FROM pg_proc p
-JOIN pg_namespace n ON n.oid = p.pronamespace
-LEFT JOIN pg_language l ON l.oid = p.prolang
-WHERE n.nspname = '${item.schema}' AND p.proname = '${item.label}';`,
-                    'sql'
-                )
-            ];
-
-            await createAndShowNotebook(cells, metadata);
+            await new NotebookBuilder(metadata)
+                .addMarkdown(markdown)
+                .addMarkdown('##### 📝 Function Definition')
+                .addSql(func.definition)
+                .addMarkdown('##### ⚡ Call Function')
+                .addSql(`-- Call function\nSELECT ${item.schema}.${item.label}(${func.arguments ? func.arguments.split(',').map((arg: string, idx: number) => {
+                    const parts = arg.trim().split(' ');
+                    const type = parts[parts.length - 1];
+                    if (type.includes('int')) return `${idx + 1}`;
+                    if (type.includes('text') || type.includes('char') || type.includes('varchar')) return `'value${idx + 1}'`;
+                    if (type.includes('bool')) return 'true';
+                    if (type.includes('date')) return `'2024-01-01'`;
+                    if (type.includes('timestamp')) return `'2024-01-01 00:00:00'`;
+                    return `'value${idx + 1}'`;
+                }).join(', ') : ''});`)
+                .addMarkdown('##### 🗑️ DROP Function Script')
+                .addSql(`${SQL_TEMPLATES.DROP.FUNCTION(item.schema!, item.label, func.arguments || '')}\n\n-- Drop function (with dependencies)\n-- DROP FUNCTION IF EXISTS ${item.schema}.${item.label}(${func.arguments || ''}) CASCADE;\n\n-- Drop function (without dependencies - will fail if referenced)\n-- DROP FUNCTION IF EXISTS ${item.schema}.${item.label}(${func.arguments || ''}) RESTRICT;`)
+                .addMarkdown('##### 📊 Function Statistics')
+                .addSql(FunctionSQL.metadata(item.schema!, item.label))
+                .show();
         } finally {
             // Do not close shared client
         }
@@ -580,10 +351,7 @@ export async function cmdRefreshFunction(item: DatabaseTreeItem, context: vscode
  */
 export async function cmdCreateFunction(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
-        validateItem(item);
-        const connection = await getConnectionWithPassword(item.connectionId!);
-        const metadata = createMetadata(connection, item.databaseName);
-
+        const { connection, client, metadata } = await getDatabaseConnection(item);
         const schema = item.schema!;
 
         const markdown = MarkdownUtils.header(`➕ Create New Function in Schema: \`${schema}\``) +
@@ -608,153 +376,22 @@ export async function cmdCreateFunction(item: DatabaseTreeItem, context: vscode.
             MarkdownUtils.successBox('Use CREATE OR REPLACE to update existing functions. Functions are schema-scoped objects.') +
             `\n\n---`;
 
-        const cells = [
-            new vscode.NotebookCellData(vscode.NotebookCellKind.Markup, markdown, 'markdown'),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Markup,
-                `##### 📝 Basic SQL Function (Recommended Start)`,
-                'markdown'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Code,
-                `-- Create simple SQL function
-CREATE OR REPLACE FUNCTION ${schema}.function_name(param1 integer, param2 text)
-RETURNS text AS $$
-    SELECT 'Result: ' || param2 || ' with value ' || param1::text;
-$$ LANGUAGE sql IMMUTABLE;
-
--- Add comment
-COMMENT ON FUNCTION ${schema}.function_name(integer, text) IS 'Function description';`,
-                'sql'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Markup,
-                `##### 🔧 PL/pgSQL Function (With Logic)`,
-                'markdown'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Code,
-                `-- Create PL/pgSQL function with variables and control flow
-CREATE OR REPLACE FUNCTION ${schema}.calculate_total(order_id integer)
-RETURNS numeric AS $$
-DECLARE
-    total_amount numeric := 0;
-    item_record record;
-BEGIN
-    FOR item_record IN 
-        SELECT price, quantity 
-        FROM ${schema}.order_items 
-        WHERE order_id = calculate_total.order_id
-    LOOP
-        total_amount := total_amount + (item_record.price * item_record.quantity);
-    END LOOP;
-    
-    RETURN total_amount;
-END;
-$$ LANGUAGE plpgsql STABLE;`,
-                'sql'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Markup,
-                `##### 🔄 Function Returning Table`,
-                'markdown'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Code,
-                `-- Function that returns a table (set of rows)
-CREATE OR REPLACE FUNCTION ${schema}.get_user_orders(user_id integer)
-RETURNS TABLE (
-    order_id integer,
-    order_date timestamp,
-    total_amount numeric
-) AS $$
-BEGIN
-    RETURN QUERY
-    SELECT 
-        o.id,
-        o.created_at,
-        o.total_amount
-    FROM ${schema}.orders o
-    WHERE o.user_id = get_user_orders.user_id
-    ORDER BY o.created_at DESC;
-END;
-$$ LANGUAGE plpgsql STABLE;`,
-                'sql'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Markup,
-                `##### 🔒 Security Definer Function`,
-                'markdown'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Code,
-                `-- Function that runs with owner's privileges (use carefully!)
-CREATE OR REPLACE FUNCTION ${schema}.admin_delete_user(user_id integer)
-RETURNS boolean AS $$
-BEGIN
-    -- This function runs with the privileges of the function owner
-    DELETE FROM ${schema}.users WHERE id = user_id;
-    RETURN FOUND;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- Grant execute to specific roles only
--- GRANT EXECUTE ON FUNCTION ${schema}.admin_delete_user(integer) TO admin_role;`,
-                'sql'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Markup,
-                `##### ⚡ Trigger Function`,
-                'markdown'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Code,
-                `-- Function for triggers (returns trigger type)
-CREATE OR REPLACE FUNCTION ${schema}.update_modified_timestamp()
-RETURNS trigger AS $$
-BEGIN
-    NEW.updated_at := NOW();
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Create trigger to use this function
--- CREATE TRIGGER set_updated_at
---     BEFORE UPDATE ON ${schema}.table_name
---     FOR EACH ROW
---     EXECUTE FUNCTION ${schema}.update_modified_timestamp();`,
-                'sql'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Markup,
-                `##### 📊 Aggregate Function`,
-                'markdown'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Code,
-                `-- Custom aggregate function
-CREATE OR REPLACE FUNCTION ${schema}.sum_state(state numeric, value numeric)
-RETURNS numeric AS $$
-BEGIN
-    RETURN COALESCE(state, 0) + COALESCE(value, 0);
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE AGGREGATE ${schema}.safe_sum(numeric) (
-    SFUNC = ${schema}.sum_state,
-    STYPE = numeric,
-    INITCOND = 0
-);`,
-                'sql'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Markup,
-                MarkdownUtils.warningBox('After creating a function, remember to: 1) Test with sample inputs, 2) Grant appropriate EXECUTE permissions, 3) Document parameters and return values, 4) Consider performance implications of volatility settings.'),
-                'markdown'
-            )
-        ];
-
-        await createAndShowNotebook(cells, metadata);
+        await new NotebookBuilder(metadata)
+            .addMarkdown(markdown)
+            .addMarkdown('##### 📝 Basic SQL Function (Recommended Start)')
+            .addSql(FunctionSQL.create.sqlFunction(schema))
+            .addMarkdown('##### 🔧 PL/pgSQL Function (With Logic)')
+            .addSql(FunctionSQL.create.plpgsqlFunction(schema))
+            .addMarkdown('##### 🔄 Function Returning Table')
+            .addSql(FunctionSQL.create.tableFunction(schema))
+            .addMarkdown('##### 🔒 Security Definer Function')
+            .addSql(FunctionSQL.create.securityDefiner(schema))
+            .addMarkdown('##### ⚡ Trigger Function')
+            .addSql(FunctionSQL.create.triggerFunction(schema))
+            .addMarkdown('##### 📊 Aggregate Function')
+            .addSql(FunctionSQL.create.aggregateFunction(schema))
+            .addMarkdown(MarkdownUtils.warningBox('After creating a function, remember to: 1) Test with sample inputs, 2) Grant appropriate EXECUTE permissions, 3) Document parameters and return values, 4) Consider performance implications of volatility settings.'))
+            .show();
     } catch (err: any) {
         await ErrorHandlers.handleCommandError(err, 'create function notebook');
     }

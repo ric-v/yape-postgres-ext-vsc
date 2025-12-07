@@ -1,26 +1,20 @@
 import { Client } from 'pg';
 import * as vscode from 'vscode';
-import { createAndShowNotebook, createMetadata, getConnectionWithPassword } from '../commands/connection';
+import { createMetadata, getConnectionWithPassword } from '../commands/connection';
 import { DashboardPanel } from '../dashboard/DashboardPanel';
 import { DatabaseTreeItem, DatabaseTreeProvider } from '../providers/DatabaseTreeProvider';
 import { ConnectionManager } from '../services/ConnectionManager';
-import { 
-    MarkdownUtils, 
-    ErrorHandlers
+import {
+    MarkdownUtils,
+    ErrorHandlers,
+    getDatabaseConnection,
+    NotebookBuilder,
+    QueryBuilder,
+    MaintenanceTemplates,
+    validateCategoryItem
 } from './helper';
 
-/**
- * Validates that a database item has the required properties.
- * @throws Error if validation fails
- */
-function validateDatabaseItem(item: DatabaseTreeItem): void {
-    if (!item) {
-        throw new Error('No database selected');
-    }
-    if (!item.connectionId || !item.databaseName) {
-        throw new Error('Invalid database selection - missing connection or database name');
-    }
-}
+
 
 /**
  * cmdShowDatabaseDashboard - Creates a notebook with database statistics and performance metrics.
@@ -40,23 +34,8 @@ function validateDatabaseItem(item: DatabaseTreeItem): void {
  */
 export async function cmdDatabaseDashboard(item: DatabaseTreeItem, context: vscode.ExtensionContext): Promise<void> {
     try {
-        validateDatabaseItem(item);
-
-        const connectionConfig = await getConnectionWithPassword(item.connectionId!);
-        const connection = await ConnectionManager.getInstance().getConnection({
-            id: connectionConfig.id,
-            host: connectionConfig.host,
-            port: connectionConfig.port,
-            username: connectionConfig.username,
-            database: item.databaseName,
-            name: connectionConfig.name
-        });
-
-        if (!connection) {
-            throw new Error('Failed to get database connection');
-        }
-
-        await DashboardPanel.show(connection, item.databaseName!);
+        const { client, connection } = await getDatabaseConnection(item, validateCategoryItem);
+        await DashboardPanel.show(client, item.databaseName!, connection.id);
     } catch (err: any) {
         await ErrorHandlers.handleCommandError(err, 'show dashboard');
     }
@@ -72,724 +51,13 @@ export async function cmdDatabaseDashboard(item: DatabaseTreeItem, context: vsco
  */
 export async function cmdAddObjectInDatabase(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
-        validateDatabaseItem(item);
-
-        const connectionConfig = await getConnectionWithPassword(item.connectionId!);
-        const metadata = createMetadata(connectionConfig, item.databaseName);
-
-        const schemaTemplate = {
-            label: 'Schema',
-            detail: 'Create a new schema in this database',
-            cells: [
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: MarkdownUtils.header('📂 Create New Schema') +
-                        MarkdownUtils.infoBox('This notebook guides you through creating a new PostgreSQL schema and configuring permissions. Schemas help organize database objects and control access.') +
-                        `\n\n#### 🎯 What is a Schema?\n\n` +
-                        `A schema is a named collection of database objects (tables, views, functions) that:\n` +
-                        `- 📦 Organizes objects logically\n` +
-                        `- 🔐 Controls access at the schema level\n` +
-                        `- 🏗️ Prevents naming conflicts\n` +
-                        `- 👥 Supports multi-tenant applications\n\n` +
-                        MarkdownUtils.successBox('Execute cells in order. Skip optional sections if not needed for your use case.')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: `#### 1. Create Schema\nCreate a new schema with optional ownership settings.`
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "##### 📝 Schema Definition"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "code",
-                    metadata: { language: "sql" },
-                    value: [
-                        "-- Basic schema creation",
-                        "CREATE SCHEMA schema_name;",
-                        "",
-                        "-- OR create with specific owner",
-                        "-- CREATE SCHEMA schema_name AUTHORIZATION role_name;"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "#### 2. Basic Permissions",
-                        "Grant basic usage permissions to roles that need to access the schema."
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "##### 🛡️ Grant Usage"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "code",
-                    metadata: { language: "sql" },
-                    value: [
-                        "-- Grant basic schema usage",
-                        "GRANT USAGE ON SCHEMA schema_name TO role_name;"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "#### 3. Object Permissions",
-                        "Grant permissions for existing tables and sequences in the schema."
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "##### 🔐 Object Privileges"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "code",
-                    metadata: { language: "sql" },
-                    value: [
-                        "-- Grant permissions on all tables",
-                        "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA schema_name TO role_name;",
-                        "",
-                        "-- Grant permissions on all sequences",
-                        "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA schema_name TO role_name;"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "#### 4. Default Privileges",
-                        "Set up default privileges for objects that will be created in the future."
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "##### 🔮 Future Objects"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "code",
-                    metadata: { language: "sql" },
-                    value: [
-                        "-- Set default privileges for future tables",
-                        "ALTER DEFAULT PRIVILEGES IN SCHEMA schema_name",
-                        "    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO role_name;",
-                        "",
-                        "-- Set default privileges for future sequences",
-                        "ALTER DEFAULT PRIVILEGES IN SCHEMA schema_name",
-                        "    GRANT USAGE, SELECT ON SEQUENCES TO role_name;"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "#### Example: Complete Schema Setup",
-                        "Here's a practical example of creating an application schema with specific privileges."
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "##### 🚀 Full Example"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "code",
-                    metadata: { language: "sql" },
-                    value: [
-                        "-- Example: Create application schema with specific privileges",
-                        "CREATE SCHEMA app_schema;",
-                        "",
-                        "-- Grant read-only access to app_readonly role",
-                        "GRANT USAGE ON SCHEMA app_schema TO app_readonly;",
-                        "GRANT SELECT ON ALL TABLES IN SCHEMA app_schema TO app_readonly;",
-                        "",
-                        "-- Grant full access to app_admin role",
-                        "GRANT ALL PRIVILEGES ON SCHEMA app_schema TO app_admin;",
-                        "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA app_schema TO app_admin;"
-                    ].join('\n')
-                }
-            ]
-        };
-
-        const userTemplate = {
-            label: 'User',
-            detail: 'Create a new user with login privileges',
-            cells: [
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "### 👤 Create New Database User",
-                        "",
-                        "<div style=\"font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;\">",
-                        "    <strong>ℹ️ Note:</strong> Create a new PostgreSQL user with login capabilities and configure appropriate privileges.",
-                        "</div>",
-                        "",
-                        "#### 🔑 User vs Role",
-                        "",
-                        "<table style=\"font-size: 11px; width: 100%; border-collapse: collapse;\">",
-                        "    <tr><th style=\"text-align: left;\">Aspect</th><th style=\"text-align: left;\">User</th><th style=\"text-align: left;\">Role</th></tr>",
-                        "    <tr><td><strong>Login</strong></td><td>✅ Can login</td><td>❌ Cannot login (by default)</td></tr>",
-                        "    <tr><td><strong>Purpose</strong></td><td>Individual database access</td><td>Group permissions</td></tr>",
-                        "    <tr><td><strong>Password</strong></td><td>Required</td><td>Not required</td></tr>",
-                        "    <tr><td><strong>Inheritance</strong></td><td>Inherits from roles</td><td>Can be granted to users</td></tr>",
-                        "</table>",
-                        "",
-                        "<div style=\"font-size: 12px; background-color: #3e2d2d; border-left: 3px solid #e74c3c; padding: 6px 10px; margin-top: 15px; border-radius: 3px;\">",
-                        "    <strong>⚠️ Important:</strong> Always use strong passwords and follow the principle of least privilege—grant only necessary permissions.",
-                        "</div>"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "#### 1. Create User",
-                        "Create a new user with basic attributes. Uncomment and modify additional attributes as needed."
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "##### 👤 User Definition"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "code",
-                    metadata: { language: "sql" },
-                    value: [
-                        "-- Create new user with basic attributes",
-                        "CREATE USER username WITH",
-                        "    LOGIN",
-                        "    PASSWORD 'strong_password'",
-                        "    -- Additional optional attributes:",
-                        "    -- CREATEDB                    -- Can create new databases",
-                        "    -- SUPERUSER                   -- Has all database privileges",
-                        "    -- CREATEROLE                  -- Can create new roles",
-                        "    -- REPLICATION                 -- Can initiate streaming replication",
-                        "    -- CONNECTION LIMIT 5          -- Maximum concurrent connections",
-                        "    -- VALID UNTIL '2025-12-31'   -- Password expiration date",
-                        ";"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "#### 2. Database Privileges",
-                        "Grant database-level privileges to the new user."
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "##### 🗄️ Database Access"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "code",
-                    metadata: { language: "sql" },
-                    value: [
-                        "-- Grant database connection privileges",
-                        "GRANT CONNECT ON DATABASE database_name TO username;",
-                        "",
-                        "-- Allow creating temporary tables",
-                        "GRANT TEMP ON DATABASE database_name TO username;"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "#### 3. Schema Privileges",
-                        "Grant schema-level privileges. Repeat for each schema as needed."
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "##### 📂 Schema Access"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "code",
-                    metadata: { language: "sql" },
-                    value: [
-                        "-- Grant schema privileges",
-                        "GRANT USAGE ON SCHEMA schema_name TO username;",
-                        "",
-                        "-- Optional: allow creating new objects in schema",
-                        "-- GRANT CREATE ON SCHEMA schema_name TO username;"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "#### 4. Table Privileges",
-                        "Grant table-level privileges within schemas."
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "##### 📊 Table Access"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "code",
-                    metadata: { language: "sql" },
-                    value: [
-                        "-- Grant table privileges",
-                        "GRANT SELECT, INSERT, UPDATE, DELETE ",
-                        "ON ALL TABLES IN SCHEMA schema_name ",
-                        "TO username;"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "#### 5. Default Privileges",
-                        "Set up default privileges for future objects."
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "##### 🔮 Future Objects"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "code",
-                    metadata: { language: "sql" },
-                    value: [
-                        "-- Set default privileges for future tables",
-                        "ALTER DEFAULT PRIVILEGES IN SCHEMA schema_name",
-                        "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES",
-                        "TO username;"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "#### Example: Read-only User",
-                        "Here's a practical example of creating a read-only user."
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "##### 👓 Read-Only Example"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "code",
-                    metadata: { language: "sql" },
-                    value: [
-                        "-- Create read-only user",
-                        "CREATE USER readonly_user WITH",
-                        "    LOGIN",
-                        "    PASSWORD 'strong_password'",
-                        "    CONNECTION LIMIT 10;",
-                        "",
-                        "-- Grant minimal privileges",
-                        "GRANT CONNECT ON DATABASE database_name TO readonly_user;",
-                        "GRANT USAGE ON SCHEMA public TO readonly_user;",
-                        "GRANT SELECT ON ALL TABLES IN SCHEMA public TO readonly_user;",
-                        "",
-                        "-- Set up default privileges for future tables",
-                        "ALTER DEFAULT PRIVILEGES IN SCHEMA public",
-                        "    GRANT SELECT ON TABLES TO readonly_user;"
-                    ].join('\n')
-                }
-            ]
-        };
-
-        const roleTemplate = {
-            label: 'Role',
-            detail: 'Create a new role',
-            cells: [
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "### 👥 Create New Role",
-                        "",
-                        "<div style=\"font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;\">",
-                        "    <strong>ℹ️ Note:</strong> Roles are used to group permissions. Users can be added to roles to inherit their privileges.",
-                        "</div>",
-                        "",
-                        "#### 🎯 Common Role Patterns",
-                        "",
-                        "<table style=\"font-size: 11px; width: 100%; border-collapse: collapse;\">",
-                        "    <tr><th style=\"text-align: left;\">Role Type</th><th style=\"text-align: left;\">Use Case</th><th style=\"text-align: left;\">Permissions</th></tr>",
-                        "    <tr><td><strong>Readonly</strong></td><td>Reporting, analytics</td><td>SELECT only</td></tr>",
-                        "    <tr><td><strong>Read-Write</strong></td><td>Application access</td><td>SELECT, INSERT, UPDATE, DELETE</td></tr>",
-                        "    <tr><td><strong>Admin</strong></td><td>Database administration</td><td>ALL PRIVILEGES</td></tr>",
-                        "    <tr><td><strong>App Role</strong></td><td>Service accounts</td><td>Custom based on needs</td></tr>",
-                        "</table>",
-                        "",
-                        "<div style=\"font-size: 12px; background-color: #2d3e30; border-left: 3px solid #2ecc71; padding: 6px 10px; margin-top: 15px; border-radius: 3px;\">",
-                        "    <strong>💡 Tip:</strong> Create roles for job functions, not individuals. Grant roles to users for easier permission management.",
-                        "</div>"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "#### 1. Create Role",
-                        "Create a new role with basic attributes. Uncomment and modify additional attributes as needed."
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "##### 🎭 Role Definition"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "code",
-                    metadata: { language: "sql" },
-                    value: [
-                        "-- Create new role with basic attributes",
-                        "CREATE ROLE role_name WITH",
-                        "    NOLOGIN                     -- Cannot login (use LOGIN for login capability)",
-                        "    INHERIT                     -- Inherit privileges from parent roles",
-                        "    -- Additional optional attributes:",
-                        "    -- SUPERUSER               -- Has all database privileges",
-                        "    -- CREATEDB               -- Can create new databases",
-                        "    -- CREATEROLE            -- Can create new roles",
-                        "    -- REPLICATION           -- Can initiate streaming replication",
-                        "    -- CONNECTION LIMIT 5    -- Maximum concurrent connections",
-                        "    -- IN GROUP role1, role2 -- Add role to existing groups",
-                        ";"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "#### 2. Database Privileges",
-                        "Grant database-level privileges to the role."
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "##### 🗄️ Database Access"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "code",
-                    metadata: { language: "sql" },
-                    value: [
-                        "-- Grant database privileges",
-                        "GRANT CONNECT ON DATABASE database_name TO role_name;",
-                        "GRANT CREATE ON DATABASE database_name TO role_name;"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "#### 3. Schema Privileges",
-                        "Grant schema-level privileges to the role."
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "##### 📂 Schema Access"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "code",
-                    metadata: { language: "sql" },
-                    value: [
-                        "-- Grant schema privileges",
-                        "GRANT USAGE ON SCHEMA schema_name TO role_name;",
-                        "GRANT CREATE ON SCHEMA schema_name TO role_name;"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "#### 4. Object Privileges",
-                        "Grant privileges on tables, functions, and sequences."
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "##### 🔐 Object Access"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "code",
-                    metadata: { language: "sql" },
-                    value: [
-                        "-- Grant table privileges",
-                        "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA schema_name TO role_name;",
-                        "",
-                        "-- Grant function privileges",
-                        "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA schema_name TO role_name;",
-                        "",
-                        "-- Grant sequence privileges",
-                        "GRANT USAGE ON ALL SEQUENCES IN SCHEMA schema_name TO role_name;"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "#### 5. Default Privileges",
-                        "Set up default privileges for future objects."
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "##### 🔮 Future Objects"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "code",
-                    metadata: { language: "sql" },
-                    value: [
-                        "-- Set default privileges for future objects",
-                        "ALTER DEFAULT PRIVILEGES IN SCHEMA schema_name",
-                        "    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO role_name;",
-                        "",
-                        "ALTER DEFAULT PRIVILEGES IN SCHEMA schema_name",
-                        "    GRANT EXECUTE ON FUNCTIONS TO role_name;",
-                        "",
-                        "ALTER DEFAULT PRIVILEGES IN SCHEMA schema_name",
-                        "    GRANT USAGE ON SEQUENCES TO role_name;"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "#### Example: Application Role",
-                        "Here's a practical example of creating an application role with read-only access."
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "##### 🚀 App Role Example"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "code",
-                    metadata: { language: "sql" },
-                    value: [
-                        "-- Create application role",
-                        "CREATE ROLE app_readonly WITH",
-                        "    NOLOGIN",
-                        "    INHERIT",
-                        "    CONNECTION LIMIT 100;",
-                        "",
-                        "-- Grant minimal privileges",
-                        "GRANT CONNECT ON DATABASE app_db TO app_readonly;",
-                        "GRANT USAGE ON SCHEMA public TO app_readonly;",
-                        "GRANT SELECT ON ALL TABLES IN SCHEMA public TO app_readonly;",
-                        "",
-                        "-- Set up default privileges",
-                        "ALTER DEFAULT PRIVILEGES IN SCHEMA public",
-                        "    GRANT SELECT ON TABLES TO app_readonly;"
-                    ].join('\n')
-                }
-            ]
-        };
-
-        const extensionTemplate = {
-            label: 'Extension',
-            detail: 'Enable a PostgreSQL extension',
-            cells: [
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "### 🧩 Enable PostgreSQL Extension",
-                        "",
-                        "<div style=\"font-size: 12px; background-color: #2b3a42; border-left: 3px solid #3498db; padding: 6px 10px; margin-bottom: 15px; border-radius: 3px;\">",
-                        "    <strong>ℹ️ Note:</strong> PostgreSQL extensions add functionality to your database. Enable only the extensions you need.",
-                        "</div>",
-                        "",
-                        "#### 📦 Popular Extensions",
-                        "",
-                        "<table style=\"font-size: 11px; width: 100%; border-collapse: collapse;\">",
-                        "    <tr><th style=\"text-align: left;\">Extension</th><th style=\"text-align: left;\">Purpose</th><th style=\"text-align: left;\">Use Case</th></tr>",
-                        "    <tr><td><strong>uuid-ossp</strong></td><td>UUID generation</td><td>Unique identifiers</td></tr>",
-                        "    <tr><td><strong>pgcrypto</strong></td><td>Cryptographic functions</td><td>Encryption, hashing</td></tr>",
-                        "    <tr><td><strong>hstore</strong></td><td>Key-value storage</td><td>Semi-structured data</td></tr>",
-                        "    <tr><td><strong>postgis</strong></td><td>Geospatial data</td><td>Maps, location data</td></tr>",
-                        "    <tr><td><strong>pg_stat_statements</strong></td><td>Query statistics</td><td>Performance monitoring</td></tr>",
-                        "    <tr><td><strong>pg_trgm</strong></td><td>Fuzzy text search</td><td>Similarity matching</td></tr>",
-                        "</table>",
-                        "",
-                        "<div style=\"font-size: 12px; background-color: #2d3e30; border-left: 3px solid #2ecc71; padding: 6px 10px; margin-top: 15px; border-radius: 3px;\">",
-                        "    <strong>💡 Tip:</strong> Check if the extension is already installed before enabling it to avoid errors.",
-                        "</div>"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "#### 1. View Available Extensions",
-                        "List extensions that can be installed but aren't yet enabled."
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "##### 🔍 Available Extensions"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "code",
-                    metadata: { language: "sql" },
-                    value: [
-                        "-- List available extensions",
-                        "SELECT name as \"Name\",",
-                        "       default_version as \"Version\",",
-                        "       installed_version as \"Installed\",",
-                        "       comment as \"Description\"",
-                        "FROM pg_available_extensions ",
-                        "WHERE installed_version IS NULL ",
-                        "ORDER BY name;"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "#### 2. Enable Extension",
-                        "Enable a specific extension. Uncomment the extension you want to enable."
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "##### 🔌 Enable Command"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "code",
-                    metadata: { language: "sql" },
-                    value: [
-                        "-- Enable your chosen extension",
-                        "CREATE EXTENSION IF NOT EXISTS extension_name;",
-                        "",
-                        "-- Common extensions (uncomment to use):",
-                        "-- CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\";     -- UUID generation",
-                        "-- CREATE EXTENSION IF NOT EXISTS \"pgcrypto\";      -- Cryptographic functions",
-                        "-- CREATE EXTENSION IF NOT EXISTS \"hstore\";        -- Key-value store",
-                        "-- CREATE EXTENSION IF NOT EXISTS \"postgis\";       -- Spatial database",
-                        "-- CREATE EXTENSION IF NOT EXISTS \"pg_stat_statements\"; -- Query statistics",
-                        "-- CREATE EXTENSION IF NOT EXISTS \"pg_trgm\";       -- Trigram text search",
-                        "-- CREATE EXTENSION IF NOT EXISTS \"tablefunc\";     -- Table functions",
-                        "-- CREATE EXTENSION IF NOT EXISTS \"ltree\";         -- Hierarchical tree structures",
-                        "-- CREATE EXTENSION IF NOT EXISTS \"isn\";           -- Product number standards",
-                        "-- CREATE EXTENSION IF NOT EXISTS \"citext\";        -- Case-insensitive text"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "#### 3. Verify Installation",
-                        "Check if the extension was successfully installed."
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "##### ✅ Verification"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "code",
-                    metadata: { language: "sql" },
-                    value: [
-                        "-- Verify extension installation",
-                        "SELECT * FROM pg_extension WHERE extname = 'extension_name';"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "#### 4. List Installed Extensions",
-                        "View all currently installed extensions in the database."
-                    ].join('\n')
-                },
-                {
-                    cell_type: "markdown",
-                    metadata: { language: "markdown" },
-                    value: [
-                        "##### 📋 Installed Extensions"
-                    ].join('\n')
-                },
-                {
-                    cell_type: "code",
-                    metadata: { language: "sql" },
-                    value: [
-                        "-- List all installed extensions",
-                        "SELECT extname as \"Name\",",
-                        "       extversion as \"Version\",",
-                        "       obj_description(oid, 'pg_extension') as \"Description\"",
-                        "FROM pg_extension",
-                        "ORDER BY extname;"
-                    ].join('\n')
-                }
-            ]
-        };
+        const { connection, client, metadata } = await getDatabaseConnection(item, validateCategoryItem);
 
         const items = [
-            schemaTemplate,
-            userTemplate,
-            roleTemplate,
-            extensionTemplate
+            { label: 'Schema', detail: 'Create a new schema in this database' },
+            { label: 'User', detail: 'Create a new user with login privileges' },
+            { label: 'Role', detail: 'Create a new role' },
+            { label: 'Extension', detail: 'Enable a PostgreSQL extension' }
         ];
 
         const selection = await vscode.window.showQuickPick(items, {
@@ -798,27 +66,264 @@ export async function cmdAddObjectInDatabase(item: DatabaseTreeItem, context: vs
         });
 
         if (selection) {
-            // Create notebook cells with correct language identifiers for both SQL and markdown
-            const notebookCells = selection.cells.map(cell =>
-                new vscode.NotebookCellData(
-                    cell.cell_type === "code" ? vscode.NotebookCellKind.Code : vscode.NotebookCellKind.Markup,
-                    cell.value,
-                    cell.cell_type === "code" ? 'sql' : 'markdown'  // Use appropriate language for each cell type
+            const builder = new NotebookBuilder(metadata);
+
+            if (selection.label === 'Schema') {
+                builder.addMarkdown(
+                    MarkdownUtils.header('📂 Create New Schema') +
+                    MarkdownUtils.infoBox('This notebook guides you through creating a new PostgreSQL schema and configuring permissions. Schemas help organize database objects and control access.') +
+                    `\n\n#### 🎯 What is a Schema?\n\n` +
+                    `A schema is a named collection of database objects (tables, views, functions) that:\n` +
+                    `- 📦 Organizes objects logically\n` +
+                    `- 🔐 Controls access at the schema level\n` +
+                    `- 🏗️ Prevents naming conflicts\n` +
+                    `- 👥 Supports multi-tenant applications\n\n` +
+                    MarkdownUtils.successBox('Execute cells in order. Skip optional sections if not needed for your use case.')
                 )
-            );
+                    .addMarkdown(`#### 1. Create Schema\nCreate a new schema with optional ownership settings.`)
+                    .addMarkdown(`##### 📝 Schema Definition`)
+                    .addSql(`-- Basic schema creation
+CREATE SCHEMA schema_name;
 
-            // Create notebook with only the essential metadata
-            const notebookData = new vscode.NotebookData(notebookCells);
-            notebookData.metadata = {
-                connectionId: metadata.connectionId,
-                databaseName: metadata.databaseName,
-                host: metadata.host,
-                port: metadata.port,
-                username: metadata.username
-            };
+-- OR create with specific owner
+-- CREATE SCHEMA schema_name AUTHORIZATION role_name;`)
+                    .addMarkdown(`#### 2. Basic Permissions\nGrant basic usage permissions to roles that need to access the schema.`)
+                    .addMarkdown(`##### 🛡️ Grant Usage`)
+                    .addSql(`-- Grant basic schema usage
+GRANT USAGE ON SCHEMA schema_name TO role_name;`)
+                    .addMarkdown(`#### 3. Object Permissions\nGrant permissions for existing tables and sequences in the schema.`)
+                    .addMarkdown(`##### 🔐 Object Privileges`)
+                    .addSql(`-- Grant permissions on all tables
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA schema_name TO role_name;
 
-            const document = await vscode.workspace.openNotebookDocument('postgres-notebook', notebookData);
-            await vscode.window.showNotebookDocument(document);
+-- Grant permissions on all sequences
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA schema_name TO role_name;`)
+                    .addMarkdown(`#### 4. Default Privileges\nSet up default privileges for objects that will be created in the future.`)
+                    .addMarkdown(`##### 🔮 Future Objects`)
+                    .addSql(`-- Set default privileges for future tables
+ALTER DEFAULT PRIVILEGES IN SCHEMA schema_name
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO role_name;
+
+-- Set default privileges for future sequences
+ALTER DEFAULT PRIVILEGES IN SCHEMA schema_name
+    GRANT USAGE, SELECT ON SEQUENCES TO role_name;`)
+                    .addMarkdown(`#### Example: Complete Schema Setup\nHere's a practical example of creating an application schema with specific privileges.`)
+                    .addMarkdown(`##### 🚀 Full Example`)
+                    .addSql(`-- Example: Create application schema with specific privileges
+CREATE SCHEMA app_schema;
+
+-- Grant read-only access to app_readonly role
+GRANT USAGE ON SCHEMA app_schema TO app_readonly;
+GRANT SELECT ON ALL TABLES IN SCHEMA app_schema TO app_readonly;
+
+-- Grant full access to app_admin role
+GRANT ALL PRIVILEGES ON SCHEMA app_schema TO app_admin;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA app_schema TO app_admin;`);
+
+            } else if (selection.label === 'User') {
+                builder.addMarkdown(
+                    MarkdownUtils.header('👤 Create New Database User') +
+                    MarkdownUtils.infoBox('Create a new PostgreSQL user with login capabilities and configure appropriate privileges.') +
+                    `\n\n#### 🔑 User vs Role\n\n` +
+                    MarkdownUtils.propertiesTable({
+                        'Login': '✅ Can login (User) vs ❌ Cannot login (Role)',
+                        'Purpose': 'Individual access vs Group permissions',
+                        'Password': 'Required vs Not required',
+                        'Inheritance': 'Inherits from roles vs Can be granted to users'
+                    }) +
+                    `\n\n` +
+                    MarkdownUtils.dangerBox('Always use strong passwords and follow the principle of least privilege—grant only necessary permissions.', 'IMPORTANT')
+                )
+                    .addMarkdown(`#### 1. Create User\nCreate a new user with basic attributes. Uncomment and modify additional attributes as needed.`)
+                    .addMarkdown(`##### 👤 User Definition`)
+                    .addSql(`-- Create new user with basic attributes
+CREATE USER username WITH
+    LOGIN
+    PASSWORD 'strong_password'
+    -- Additional optional attributes:
+    -- CREATEDB                    -- Can create new databases
+    -- SUPERUSER                   -- Has all database privileges
+    -- CREATEROLE                  -- Can create new roles
+    -- REPLICATION                 -- Can initiate streaming replication
+    -- CONNECTION LIMIT 5          -- Maximum concurrent connections
+    -- VALID UNTIL '2025-12-31'   -- Password expiration date
+;`)
+                    .addMarkdown(`#### 2. Database Privileges\nGrant database-level privileges to the new user.`)
+                    .addMarkdown(`##### 🗄️ Database Access`)
+                    .addSql(`-- Grant database connection privileges
+GRANT CONNECT ON DATABASE database_name TO username;
+
+-- Allow creating temporary tables
+GRANT TEMP ON DATABASE database_name TO username;`)
+                    .addMarkdown(`#### 3. Schema Privileges\nGrant schema-level privileges. Repeat for each schema as needed.`)
+                    .addMarkdown(`##### 📂 Schema Access`)
+                    .addSql(`-- Grant schema privileges
+GRANT USAGE ON SCHEMA schema_name TO username;
+
+-- Optional: allow creating new objects in schema
+-- GRANT CREATE ON SCHEMA schema_name TO username;`)
+                    .addMarkdown(`#### 4. Table Privileges\nGrant table-level privileges within schemas.`)
+                    .addMarkdown(`##### 📊 Table Access`)
+                    .addSql(`-- Grant table privileges
+GRANT SELECT, INSERT, UPDATE, DELETE 
+ON ALL TABLES IN SCHEMA schema_name 
+TO username;`)
+                    .addMarkdown(`#### 5. Default Privileges\nSet up default privileges for future objects.`)
+                    .addMarkdown(`##### 🔮 Future Objects`)
+                    .addSql(`-- Set default privileges for future tables
+ALTER DEFAULT PRIVILEGES IN SCHEMA schema_name
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES
+TO username;`)
+                    .addMarkdown(`#### Example: Read-only User\nHere's a practical example of creating a read-only user.`)
+                    .addMarkdown(`##### 👓 Read-Only Example`)
+                    .addSql(`-- Create read-only user
+CREATE USER readonly_user WITH
+    LOGIN
+    PASSWORD 'strong_password'
+    CONNECTION LIMIT 10;
+
+-- Grant minimal privileges
+GRANT CONNECT ON DATABASE database_name TO readonly_user;
+GRANT USAGE ON SCHEMA public TO readonly_user;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO readonly_user;
+
+-- Set up default privileges for future tables
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+    GRANT SELECT ON TABLES TO readonly_user;`);
+
+            } else if (selection.label === 'Role') {
+                builder.addMarkdown(
+                    MarkdownUtils.header('👥 Create New Role') +
+                    MarkdownUtils.infoBox('Roles are used to group permissions. Users can be added to roles to inherit their privileges.') +
+                    `\n\n#### 🎯 Common Role Patterns\n\n` +
+                    MarkdownUtils.operationsTable([
+                        { operation: 'Readonly', description: 'SELECT only (Reporting, analytics)' },
+                        { operation: 'Read-Write', description: 'SELECT, INSERT, UPDATE, DELETE (Application access)' },
+                        { operation: 'Admin', description: 'ALL PRIVILEGES (Database administration)' },
+                        { operation: 'App Role', description: 'Custom based on needs (Service accounts)' }
+                    ]) +
+                    `\n\n` +
+                    MarkdownUtils.successBox('Tip: Create roles for job functions, not individuals. Grant roles to users for easier permission management.')
+                )
+                    .addMarkdown(`#### 1. Create Role\nCreate a new role with basic attributes. Uncomment and modify additional attributes as needed.`)
+                    .addMarkdown(`##### 🎭 Role Definition`)
+                    .addSql(`-- Create new role with basic attributes
+CREATE ROLE role_name WITH
+    NOLOGIN                     -- Cannot login (use LOGIN for login capability)
+    INHERIT                     -- Inherit privileges from parent roles
+    -- Additional optional attributes:
+    -- SUPERUSER               -- Has all database privileges
+    -- CREATEDB               -- Can create new databases
+    -- CREATEROLE            -- Can create new roles
+    -- REPLICATION           -- Can initiate streaming replication
+    -- CONNECTION LIMIT 5    -- Maximum concurrent connections
+    -- IN GROUP role1, role2 -- Add role to existing groups
+;`)
+                    .addMarkdown(`#### 2. Database Privileges\nGrant database-level privileges to the role.`)
+                    .addMarkdown(`##### 🗄️ Database Access`)
+                    .addSql(`-- Grant database privileges
+GRANT CONNECT ON DATABASE database_name TO role_name;
+GRANT CREATE ON DATABASE database_name TO role_name;`)
+                    .addMarkdown(`#### 3. Schema Privileges\nGrant schema-level privileges to the role.`)
+                    .addMarkdown(`##### 📂 Schema Access`)
+                    .addSql(`-- Grant schema privileges
+GRANT USAGE ON SCHEMA schema_name TO role_name;
+GRANT CREATE ON SCHEMA schema_name TO role_name;`)
+                    .addMarkdown(`#### 4. Object Privileges\nGrant privileges on tables, functions, and sequences.`)
+                    .addMarkdown(`##### 🔐 Object Access`)
+                    .addSql(`-- Grant table privileges
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA schema_name TO role_name;
+
+-- Grant function privileges
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA schema_name TO role_name;
+
+-- Grant sequence privileges
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA schema_name TO role_name;`)
+                    .addMarkdown(`#### 5. Default Privileges\nSet up default privileges for future objects.`)
+                    .addMarkdown(`##### 🔮 Future Objects`)
+                    .addSql(`-- Set default privileges for future objects
+ALTER DEFAULT PRIVILEGES IN SCHEMA schema_name
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO role_name;
+
+ALTER DEFAULT PRIVILEGES IN SCHEMA schema_name
+    GRANT EXECUTE ON FUNCTIONS TO role_name;
+
+ALTER DEFAULT PRIVILEGES IN SCHEMA schema_name
+    GRANT USAGE ON SEQUENCES TO role_name;`)
+                    .addMarkdown(`#### Example: Application Role\nHere's a practical example of creating an application role with read-only access.`)
+                    .addMarkdown(`##### 🚀 App Role Example`)
+                    .addSql(`-- Create application role
+CREATE ROLE app_readonly WITH
+    NOLOGIN
+    INHERIT
+    CONNECTION LIMIT 100;
+
+-- Grant minimal privileges
+GRANT CONNECT ON DATABASE app_db TO app_readonly;
+GRANT USAGE ON SCHEMA public TO app_readonly;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO app_readonly;
+
+-- Set up default privileges
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+    GRANT SELECT ON TABLES TO app_readonly;`);
+
+            } else if (selection.label === 'Extension') {
+                builder.addMarkdown(
+                    MarkdownUtils.header('🧩 Enable PostgreSQL Extension') +
+                    MarkdownUtils.infoBox('PostgreSQL extensions add functionality to your database. Enable only the extensions you need.') +
+                    `\n\n#### 📦 Popular Extensions\n\n` +
+                    MarkdownUtils.operationsTable([
+                        { operation: 'uuid-ossp', description: 'UUID generation (Unique identifiers)' },
+                        { operation: 'pgcrypto', description: 'Cryptographic functions (Encryption, hashing)' },
+                        { operation: 'hstore', description: 'Key-value storage (Semi-structured data)' },
+                        { operation: 'postgis', description: 'Geospatial data (Maps, location data)' },
+                        { operation: 'pg_stat_statements', description: 'Query statistics (Performance monitoring)' },
+                        { operation: 'pg_trgm', description: 'Fuzzy text search (Similarity matching)' }
+                    ]) +
+                    `\n\n` +
+                    MarkdownUtils.successBox('Tip: Check if the extension is already installed before enabling it to avoid errors.')
+                )
+                    .addMarkdown(`#### 1. View Available Extensions\nList extensions that can be installed but aren't yet enabled.`)
+                    .addMarkdown(`##### 🔍 Available Extensions`)
+                    .addSql(`-- List available extensions
+SELECT name as "Name",
+       default_version as "Version",
+       installed_version as "Installed",
+       comment as "Description"
+FROM pg_available_extensions 
+WHERE installed_version IS NULL 
+ORDER BY name;`)
+                    .addMarkdown(`#### 2. Enable Extension\nEnable a specific extension. Uncomment the extension you want to enable.`)
+                    .addMarkdown(`##### 🔌 Enable Command`)
+                    .addSql(`-- Enable your chosen extension
+CREATE EXTENSION IF NOT EXISTS extension_name;
+
+-- Common extensions (uncomment to use):
+-- CREATE EXTENSION IF NOT EXISTS "uuid-ossp";     -- UUID generation
+-- CREATE EXTENSION IF NOT EXISTS "pgcrypto";      -- Cryptographic functions
+-- CREATE EXTENSION IF NOT EXISTS "hstore";        -- Key-value store
+-- CREATE EXTENSION IF NOT EXISTS "postgis";       -- Spatial database
+-- CREATE EXTENSION IF NOT EXISTS "pg_stat_statements"; -- Query statistics
+-- CREATE EXTENSION IF NOT EXISTS "pg_trgm";       -- Trigram text search
+-- CREATE EXTENSION IF NOT EXISTS "tablefunc";     -- Table functions
+-- CREATE EXTENSION IF NOT EXISTS "ltree";         -- Hierarchical tree structures
+-- CREATE EXTENSION IF NOT EXISTS "isn";           -- Product number standards
+-- CREATE EXTENSION IF NOT EXISTS "citext";        -- Case-insensitive text`)
+                    .addMarkdown(`#### 3. Verify Installation\nCheck if the extension was successfully installed.`)
+                    .addMarkdown(`##### ✅ Verification`)
+                    .addSql(`-- Verify extension installation
+SELECT * FROM pg_extension WHERE extname = 'extension_name';`)
+                    .addMarkdown(`#### 4. List Installed Extensions\nView all currently installed extensions in the database.`)
+                    .addMarkdown(`##### 📋 Installed Extensions`)
+                    .addSql(`-- List all installed extensions
+SELECT extname as "Name",
+       extversion as "Version",
+       obj_description(oid, 'pg_extension') as "Description"
+FROM pg_extension
+ORDER BY extname;`);
+            }
+
+            await builder.show();
         }
     } catch (err: any) {
         await ErrorHandlers.handleCommandError(err, 'create notebook');
@@ -833,217 +338,85 @@ export async function cmdAddObjectInDatabase(item: DatabaseTreeItem, context: vs
  */
 export async function cmdDatabaseOperations(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
-        validateDatabaseItem(item);
+        const { connection, client, metadata } = await getDatabaseConnection(item, validateCategoryItem);
 
-        const connectionConfig = await getConnectionWithPassword(item.connectionId!);
-        const connection = await ConnectionManager.getInstance().getConnection({
-            id: connectionConfig.id,
-            host: connectionConfig.host,
-            port: connectionConfig.port,
-            username: connectionConfig.username,
-            database: item.databaseName,
-            name: connectionConfig.name
+        // Get database info
+        const dbInfo = await client.query(QueryBuilder.databaseStats());
+        const info = dbInfo.rows[0];
+
+        // Get schema sizes for visualization
+        const schemaSizes = await client.query(QueryBuilder.databaseSchemaSizes());
+
+        // Process schema sizes for visualization
+        const schemaMap = new Map<string, number>();
+        let totalSize = 0;
+        schemaSizes.rows.forEach(row => {
+            const size = Number(row.table_size);
+            const current = schemaMap.get(row.schema_name) || 0;
+            schemaMap.set(row.schema_name, current + size);
+            totalSize += size;
         });
-        let client: Client | undefined;
 
-        try {
-            client = connection;
-            const metadata = createMetadata(connectionConfig, item.databaseName);
+        // Generate ASCII Bar Chart in HTML Table
+        let schemaDistribution = '<table style="font-size: 11px; width: 100%; border-collapse: collapse;"><tr><th style="text-align: left;">Schema</th><th style="text-align: left;">Size</th><th style="text-align: left;">Distribution</th></tr>';
+        schemaMap.forEach((size, schema) => {
+            if (size > 0) {
+                const percentage = (size / totalSize) * 100;
+                const barLength = Math.floor(percentage / 5); // 20 chars max
+                const bar = '█'.repeat(barLength) + '░'.repeat(20 - barLength);
+                schemaDistribution += `<tr><td><strong>${schema}</strong></td><td>${(size / 1024 / 1024).toFixed(2)} MB</td><td><code>${bar}</code> ${percentage.toFixed(1)}%</td></tr>`;
+            }
+        });
+        schemaDistribution += '</table>';
 
-            // Get database info
-            const dbInfoQuery = `
-                SELECT 
-                    d.datname as "Database",
-                    pg_size_pretty(pg_database_size(d.datname)) as "Size",
-                    u.usename as "Owner",
-                    (SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()) as "Active Connections",
-                    (SELECT count(*) FROM pg_namespace WHERE nspname NOT IN ('pg_catalog', 'information_schema')) as "Schemas",
-                    (SELECT count(*) FROM pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema')) as "Tables",
-                    (SELECT count(*) FROM pg_roles) as "Roles"
-                FROM pg_database d
-                JOIN pg_user u ON d.datdba = u.usesysid
-                WHERE d.datname = current_database();`;
-
-            const dbInfo = await client.query(dbInfoQuery);
-            const info = dbInfo.rows[0];
-
-            // Get schema sizes for visualization
-            const schemaSizeQuery = `
-                SELECT 
-                    pg_tables.schemaname as schema_name,
-                    pg_total_relation_size(pg_tables.schemaname || '.' || tablename) as table_size
-                FROM pg_tables
-                WHERE pg_tables.schemaname NOT IN ('pg_catalog', 'information_schema')
-            `;
-            const schemaSizes = await client.query(schemaSizeQuery);
-
-            // Process schema sizes for visualization
-            const schemaMap = new Map<string, number>();
-            let totalSize = 0;
-            schemaSizes.rows.forEach(row => {
-                const size = Number(row.table_size);
-                const current = schemaMap.get(row.schema_name) || 0;
-                schemaMap.set(row.schema_name, current + size);
-                totalSize += size;
-            });
-
-            // Generate ASCII Bar Chart in HTML Table
-            let schemaDistribution = '<table style="font-size: 11px; width: 100%; border-collapse: collapse;"><tr><th style="text-align: left;">Schema</th><th style="text-align: left;">Size</th><th style="text-align: left;">Distribution</th></tr>';
-            schemaMap.forEach((size, schema) => {
-                if (size > 0) {
-                    const percentage = (size / totalSize) * 100;
-                    const barLength = Math.floor(percentage / 5); // 20 chars max
-                    const bar = '█'.repeat(barLength) + '░'.repeat(20 - barLength);
-                    schemaDistribution += `<tr><td><strong>${schema}</strong></td><td>${(size / 1024 / 1024).toFixed(2)} MB</td><td><code>${bar}</code> ${percentage.toFixed(1)}%</td></tr>`;
-                }
-            });
-            schemaDistribution += '</table>';
-
-            const cells = [
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Markup,
-                    MarkdownUtils.header(`📊 Database Operations: \`${item.label}\``) +
-                        MarkdownUtils.infoBox('Comprehensive database management notebook with statistics, monitoring queries, and administrative operations.') +
-                        `\n\n#### 📈 Database Overview\n\n` +
-                        `##### 📊 Schema Size Distribution\n${schemaDistribution}\n\n` +
-                        `##### 🏥 Health Metrics\n` +
-                        MarkdownUtils.propertiesTable({
-                            '🗄️ Database Size': `<code>${info.Size}</code>`,
-                            '👤 Owner': `<code>${info.Owner}</code>`,
-                            '🔗 Active Connections': `<code>${info["Active Connections"]}</code>`,
-                            '📂 Schemas': `<code>${info.Schemas}</code>`,
-                            '📊 Tables': `<code>${info.Tables}</code>`,
-                            '👥 Roles': `<code>${info.Roles}</code>`
-                        }) +
-                        `\n\n#### 🎯 Available Operations\n\n` +
-                        `Execute the cells below to:\n` +
-                        `- 📦 **View schema sizes** - Analyze storage by schema\n` +
-                        `- 👥 **List users/roles** - Review permissions and access\n` +
-                        `- 🔍 **Monitor connections** - Track active sessions\n` +
-                        `- 🧩 **Check extensions** - See installed features\n\n` +
-                        MarkdownUtils.successBox('Use these queries for monitoring, reporting, and database administration. Modify as needed for your specific use case.') +
-                        `\n\n---`,
-                    'markdown'
-                ),
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Markup,
-                    `##### 📦 Schema Sizes`,
-                    'markdown'
-                ),
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Code,
-                    `-- List schemas and sizes
-SELECT schema_name,
-       pg_size_pretty(sum(table_size)::bigint) as "Size",
-       count(table_name) as "Tables"
-FROM (
-    SELECT pg_tables.schemaname as schema_name,
-           tablename as table_name,
-           pg_total_relation_size(pg_tables.schemaname || '.' || tablename) as table_size
-    FROM pg_tables
-) t
-GROUP BY schema_name
-ORDER BY sum(table_size) DESC;`,
-                    'sql'
-                ),
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Markup,
-                    `##### 👥 User Roles & Privileges`,
-                    'markdown'
-                ),
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Code,
-                    `-- List users and roles
-SELECT r.rolname as "Role",
-       r.rolsuper as "Superuser",
-       r.rolcreatedb as "Create DB",
-       r.rolcreaterole as "Create Role",
-       r.rolcanlogin as "Can Login",
-       r.rolconnlimit as "Connection Limit",
-       r.rolvaliduntil as "Valid Until"
-FROM pg_roles r
-ORDER BY r.rolname;`,
-                    'sql'
-                ),
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Markup,
-                    `##### 🔗 Active Connections`,
-                    'markdown'
-                ),
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Code,
-                    `-- Show active connections
-SELECT pid as "Process ID",
-       usename as "User",
-       datname as "Database",
-       client_addr as "Client Address",
-       application_name as "Application",
-       state as "State",
-       query as "Last Query",
-       backend_start as "Connected Since"
-FROM pg_stat_activity
-WHERE datname = current_database()
-ORDER BY backend_start;`,
-                    'sql'
-                ),
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Markup,
-                    `##### 🧩 Installed Extensions`,
-                    'markdown'
-                ),
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Code,
-                    `-- List installed extensions
-SELECT name as "Extension",
-       default_version as "Default Version",
-       installed_version as "Installed Version",
-       comment as "Description"
-FROM pg_available_extensions
-WHERE installed_version IS NOT NULL
-ORDER BY name;`,
-                    'sql'
-                ),
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Code,
-                    `-- Database maintenance
+        await new NotebookBuilder(metadata)
+            .addMarkdown(
+                MarkdownUtils.header(`📊 Database Operations: \`${item.label}\``) +
+                MarkdownUtils.infoBox('Comprehensive database management notebook with statistics, monitoring queries, and administrative operations.') +
+                `\n\n#### 📈 Database Overview\n\n` +
+                `##### 📊 Schema Size Distribution\n${schemaDistribution}\n\n` +
+                `##### 🏥 Health Metrics\n` +
+                MarkdownUtils.propertiesTable({
+                    '🗄️ Database Size': `<code>${info.Size}</code>`,
+                    '👤 Owner': `<code>${info.Owner}</code>`,
+                    '🔗 Active Connections': `<code>${info["Active Connections"]}</code>`,
+                    '📂 Schemas': `<code>${info.Schemas}</code>`,
+                    '📊 Tables': `<code>${info.Tables}</code>`,
+                    '👥 Roles': `<code>${info.Roles}</code>`
+                }) +
+                `\n\n#### 🎯 Available Operations\n\n` +
+                `Execute the cells below to:\n` +
+                `- 📦 **View schema sizes** - Analyze storage by schema\n` +
+                `- 👥 **List users/roles** - Review permissions and access\n` +
+                `- 🔍 **Monitor connections** - Track active sessions\n` +
+                `- 🧩 **Check extensions** - See installed features\n\n` +
+                MarkdownUtils.successBox('Use these queries for monitoring, reporting, and database administration. Modify as needed for your specific use case.') +
+                `\n\n---`
+            )
+            .addMarkdown(`##### 📦 Schema Sizes`)
+            .addSql(`-- List schemas and sizes\n` + QueryBuilder.databaseSchemaSizeSummary())
+            .addMarkdown(`##### 👥 User Roles & Privileges`)
+            .addSql(`-- List users and roles\n` + QueryBuilder.databaseRoles())
+            .addMarkdown(`##### 🔗 Active Connections`)
+            .addSql(`-- Show active connections\n` + QueryBuilder.databaseActiveConnections())
+            .addMarkdown(`##### 🧩 Installed Extensions`)
+            .addSql(`-- List installed extensions\n` + QueryBuilder.databaseExtensions())
+            .addSql(`-- Database maintenance
 -- Note: These operations require appropriate privileges
 
 -- Analyze all tables (updates statistics)
 ANALYZE VERBOSE;
 
 -- List tables that might need vacuuming
-SELECT schemaname, relname, n_dead_tup, last_vacuum, last_autovacuum,
-       pg_size_pretty(pg_total_relation_size(schemaname || '.' || relname)) as total_size
-FROM pg_stat_user_tables
-WHERE n_dead_tup > 0
-ORDER BY n_dead_tup DESC;
+${QueryBuilder.databaseMaintenanceStats()}
 
 -- To vacuum a specific table (uncomment and modify):
--- VACUUM ANALYZE schema_name.table_name;`,
-                    'sql'
-                ),
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Code,
-                    `-- Terminate connections (BE CAREFUL!)
+-- VACUUM ANALYZE schema_name.table_name;`)
+            .addSql(`-- Terminate connections (BE CAREFUL!)
 -- List commands to terminate other connections to this database
-SELECT format(
-    'SELECT pg_terminate_backend(%s) /* %s %s %s */;',
-    pid,
-    usename,
-    application_name,
-    query
-)
-FROM pg_stat_activity
-WHERE datname = current_database()
-AND pid <> pg_backend_pid();`,
-                    'sql'
-                )
-            ];
+${QueryBuilder.databaseTerminateConnections()}`)
+            .show();
 
-            await createAndShowNotebook(cells, metadata);
-        } finally {
-            // Connection is managed by ConnectionManager, no need to close
-        }
     } catch (err: any) {
         await ErrorHandlers.handleCommandError(err, 'create database operations notebook');
     }
@@ -1073,29 +446,21 @@ export async function cmdCreateDatabase(item: DatabaseTreeItem, context: vscode.
         });
         const metadata = createMetadata(connectionConfig, 'postgres');
 
-        const cells = [
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Markup,
+        await new NotebookBuilder(metadata)
+            .addMarkdown(
                 MarkdownUtils.header('🆕 Create New Database') +
-                    MarkdownUtils.infoBox('Execute the cell below to create a new database. Modify the database name and options as needed.') +
-                    `\n\n#### 🎯 Database Options\n\n` +
-                    MarkdownUtils.operationsTable([
-                        { operation: 'OWNER', description: 'Specify the database owner' },
-                        { operation: 'ENCODING', description: 'Character encoding (e.g., UTF8)' },
-                        { operation: 'TEMPLATE', description: 'Template database to copy from' },
-                        { operation: 'TABLESPACE', description: 'Default tablespace for the database' },
-                        { operation: 'CONNECTION LIMIT', description: 'Maximum concurrent connections' }
-                    ]),
-                'markdown'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Markup,
-                `##### 📝 Create Command`,
-                'markdown'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Code,
-                `-- Create database with basic settings
+                MarkdownUtils.infoBox('Execute the cell below to create a new database. Modify the database name and options as needed.') +
+                `\n\n#### 🎯 Database Options\n\n` +
+                MarkdownUtils.operationsTable([
+                    { operation: 'OWNER', description: 'Specify the database owner' },
+                    { operation: 'ENCODING', description: 'Character encoding (e.g., UTF8)' },
+                    { operation: 'TEMPLATE', description: 'Template database to copy from' },
+                    { operation: 'TABLESPACE', description: 'Default tablespace for the database' },
+                    { operation: 'CONNECTION LIMIT', description: 'Maximum concurrent connections' }
+                ])
+            )
+            .addMarkdown(`##### 📝 Create Command`)
+            .addSql(`-- Create database with basic settings
 CREATE DATABASE new_database;
 
 -- Create database with full options
@@ -1105,12 +470,8 @@ CREATE DATABASE new_database;
 --     LC_COLLATE = 'en_US.UTF-8'
 --     LC_CTYPE = 'en_US.UTF-8'
 --     TEMPLATE = template0
---     CONNECTION LIMIT = -1;`,
-                'sql'
-            )
-        ];
-
-        await createAndShowNotebook(cells, metadata);
+--     CONNECTION LIMIT = -1;`)
+            .show();
     } catch (err: any) {
         await ErrorHandlers.handleCommandError(err, 'create database notebook');
     }
@@ -1133,46 +494,23 @@ export async function cmdDeleteDatabase(item: DatabaseTreeItem, context: vscode.
         });
         const metadata = createMetadata(connectionConfig, 'postgres');
 
-        const cells = [
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Markup,
+        await new NotebookBuilder(metadata)
+            .addMarkdown(
                 MarkdownUtils.header(`❌ Delete Database: \`${item.label}\``) +
-                    MarkdownUtils.dangerBox('This action will <strong>PERMANENTLY DELETE</strong> the database and <strong>ALL DATA</strong>. This cannot be undone!', 'DANGER') +
-                    `\n\n#### ⚠️ Before You Drop\n\n` +
-                    `1. **Backup your data** - Create a full backup using pg_dump\n` +
-                    `2. **Verify connections** - Ensure no active connections to the database\n` +
-                    `3. **Test on non-production** - Verify the operation is intended\n\n` +
-                    MarkdownUtils.warningBox('You cannot drop a database while connected to it. This notebook connects to the postgres database to execute the DROP command.'),
-                'markdown'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Markup,
-                `##### 🚨 Terminate Active Connections (if needed)`,
-                'markdown'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Code,
-                `-- Terminate all connections to the database (run this first if needed)
-SELECT pg_terminate_backend(pid)
-FROM pg_stat_activity
-WHERE datname = '${item.label}'
-  AND pid <> pg_backend_pid();`,
-                'sql'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Markup,
-                `##### ❌ Drop Command`,
-                'markdown'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Code,
-                `-- Drop database (use with extreme caution!)
-DROP DATABASE IF EXISTS "${item.label}";`,
-                'sql'
+                MarkdownUtils.dangerBox('This action will <strong>PERMANENTLY DELETE</strong> the database and <strong>ALL DATA</strong>. This cannot be undone!', 'DANGER') +
+                `\n\n#### ⚠️ Before You Drop\n\n` +
+                `1. **Backup your data** - Create a full backup using pg_dump\n` +
+                `2. **Verify connections** - Ensure no active connections to the database\n` +
+                `3. **Test on non-production** - Verify the operation is intended\n\n` +
+                MarkdownUtils.warningBox('You cannot drop a database while connected to it. This notebook connects to the postgres database to execute the DROP command.')
             )
-        ];
-
-        await createAndShowNotebook(cells, metadata);
+            .addMarkdown(`##### 🚨 Terminate Active Connections (if needed)`)
+            .addSql(`-- Terminate all connections to the database (run this first if needed)
+${QueryBuilder.terminateConnectionsByPid(item.label)}`)
+            .addMarkdown(`##### ❌ Drop Command`)
+            .addSql(`-- Drop database (use with extreme caution!)
+DROP DATABASE IF EXISTS "${item.label}";`)
+            .show();
     } catch (err: any) {
         await ErrorHandlers.handleCommandError(err, 'create delete database notebook');
     }
@@ -1336,31 +674,19 @@ export async function cmdGenerateCreateScript(item: DatabaseTreeItem, context: v
 
         const createSql = res.rows[0]?.create_sql || `-- Failed to generate CREATE script for ${item.databaseName}`;
 
-        const cells = [
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Markup,
+        await new NotebookBuilder(metadata)
+            .addMarkdown(
                 MarkdownUtils.header(`📝 CREATE Script: \`${item.label}\``) +
-                    MarkdownUtils.infoBox('This is the SQL script to recreate the database definition. Copy and modify as needed.') +
-                    `\n\n#### 📚 Database Properties\n\n` +
-                    `The script includes:\n` +
-                    `- 👤 Owner specification\n` +
-                    `- 📝 Character encoding\n` +
-                    `- 🌐 Locale settings (collation and ctype)\n`,
-                'markdown'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Markup,
-                `##### 📄 Database Definition`,
-                'markdown'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Code,
-                createSql,
-                'sql'
+                MarkdownUtils.infoBox('This is the SQL script to recreate the database definition. Copy and modify as needed.') +
+                `\n\n#### 📚 Database Properties\n\n` +
+                `The script includes:\n` +
+                `- 👤 Owner specification\n` +
+                `- 📝 Character encoding\n` +
+                `- 🌐 Locale settings (collation and ctype)\n`
             )
-        ];
-
-        await createAndShowNotebook(cells, metadata);
+            .addMarkdown(`##### 📄 Database Definition`)
+            .addSql(createSql)
+            .show();
     } catch (err: any) {
         await ErrorHandlers.handleCommandError(err, 'generate create script');
     }
@@ -1376,78 +702,33 @@ export async function cmdDisconnectDatabase(item: DatabaseTreeItem, context: vsc
 
 export async function cmdMaintenanceDatabase(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
-        const connectionConfig = await getConnectionWithPassword(item.connectionId!);
-        const metadata = createMetadata(connectionConfig, item.databaseName);
+        const { connection, client, metadata } = await getDatabaseConnection(item, validateCategoryItem);
 
-        const cells = [
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Markup,
+        await new NotebookBuilder(metadata)
+            .addMarkdown(
                 MarkdownUtils.header(`🛠️ Database Maintenance: \`${item.label}\``) +
-                    MarkdownUtils.infoBox('Perform standard maintenance operations to optimize database performance.') +
-                    `\n\n#### 🎯 Maintenance Operations\n\n` +
-                    MarkdownUtils.operationsTable([
-                        { operation: 'VACUUM', description: 'Reclaims storage occupied by dead tuples' },
-                        { operation: 'ANALYZE', description: 'Updates optimizer statistics for better query plans' },
-                        { operation: 'REINDEX', description: 'Rebuilds indexes (use during maintenance windows)' },
-                        { operation: 'VACUUM FULL', description: 'Compacts tables (requires exclusive lock)' }
-                    ]) +
-                    `\n\n#### ⏱️ When to Run\n\n` +
-                    `- ✅ After large batch DELETE or UPDATE operations\n` +
-                    `- ✅ When query performance degrades\n` +
-                    `- ✅ Before major reporting operations\n` +
-                    `- ✅ During scheduled maintenance windows\n\n` +
-                    MarkdownUtils.successBox('PostgreSQL has autovacuum running automatically, but manual maintenance can be useful after bulk operations.'),
-                'markdown'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Markup,
-                `##### 🧹 VACUUM & ANALYZE`,
-                'markdown'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Code,
-                `-- Vacuum and update statistics (safe, non-blocking)
-VACUUM (VERBOSE, ANALYZE);`,
-                'sql'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Markup,
-                `##### 📊 Tables Needing Maintenance`,
-                'markdown'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Code,
-                `-- Check tables with dead tuples
-SELECT 
-    schemaname || '.' || relname as "Table",
-    n_dead_tup as "Dead Tuples",
-    n_live_tup as "Live Tuples",
-    last_vacuum as "Last Vacuum",
-    last_autovacuum as "Last Auto Vacuum",
-    pg_size_pretty(pg_total_relation_size(schemaname || '.' || relname)) as "Total Size"
-FROM pg_stat_user_tables
-WHERE n_dead_tup > 0
-ORDER BY n_dead_tup DESC
-LIMIT 20;`,
-                'sql'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Markup,
-                `##### 🔄 REINDEX (Use with Caution)`,
-                'markdown'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Code,
-                `-- Reindex entire database (locks tables during rebuild)
--- REINDEX DATABASE "${item.label}";
-
--- Reindex specific table (safer approach)
--- REINDEX TABLE schema_name.table_name;`,
-                'sql'
+                MarkdownUtils.infoBox('Perform standard maintenance operations to optimize database performance.') +
+                `\n\n#### 🎯 Maintenance Operations\n\n` +
+                MarkdownUtils.operationsTable([
+                    { operation: 'VACUUM', description: 'Reclaims storage occupied by dead tuples' },
+                    { operation: 'ANALYZE', description: 'Updates optimizer statistics for better query plans' },
+                    { operation: 'REINDEX', description: 'Rebuilds indexes (use during maintenance windows)' },
+                    { operation: 'VACUUM FULL', description: 'Compacts tables (requires exclusive lock)' }
+                ]) +
+                `\n\n#### ⏱️ When to Run\n\n` +
+                `- ✅ After large batch DELETE or UPDATE operations\n` +
+                `- ✅ When query performance degrades\n` +
+                `- ✅ Before major reporting operations\n` +
+                `- ✅ During scheduled maintenance windows\n\n` +
+                MarkdownUtils.successBox('PostgreSQL has autovacuum running automatically, but manual maintenance can be useful after bulk operations.')
             )
-        ];
-
-        await createAndShowNotebook(cells, metadata);
+            .addMarkdown(`##### 🧹 VACUUM & ANALYZE`)
+            .addSql(MaintenanceTemplates.vacuumAnalyzeDatabase())
+            .addMarkdown(`##### 📊 Tables Needing Maintenance`)
+            .addSql(`-- Check tables with dead tuples\n` + QueryBuilder.databaseMaintenanceStats())
+            .addMarkdown(`##### 🔄 REINDEX (Use with Caution)`)
+            .addSql(MaintenanceTemplates.reindexDatabase(item.label) + `\n\n-- Reindex specific table (safer approach)\n-- REINDEX TABLE schema_name.table_name;`)
+            .show();
     } catch (err: any) {
         await ErrorHandlers.handleCommandError(err, 'create maintenance notebook');
     }
@@ -1455,25 +736,16 @@ LIMIT 20;`,
 
 export async function cmdQueryTool(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
-        const connectionConfig = await getConnectionWithPassword(item.connectionId!);
-        const metadata = createMetadata(connectionConfig, item.databaseName);
+        const { connection, client, metadata } = await getDatabaseConnection(item, validateCategoryItem);
 
-        const cells = [
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Markup,
+        await new NotebookBuilder(metadata)
+            .addMarkdown(
                 MarkdownUtils.header(`📝 Query Tool: \`${item.label}\``) +
-                    MarkdownUtils.infoBox('Write and execute SQL queries against this database.'),
-                'markdown'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Code,
-                `-- Write your SQL query here
-SELECT 1;`,
-                'sql'
+                MarkdownUtils.infoBox('Write and execute SQL queries against this database.')
             )
-        ];
-
-        await createAndShowNotebook(cells, metadata);
+            .addSql(`-- Write your SQL query here
+SELECT 1;`)
+            .show();
     } catch (err: any) {
         await ErrorHandlers.handleCommandError(err, 'open query tool');
     }
@@ -1494,83 +766,30 @@ export async function cmdPsqlTool(item: DatabaseTreeItem, context: vscode.Extens
 
 export async function cmdShowConfiguration(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
     try {
-        const connectionConfig = await getConnectionWithPassword(item.connectionId!);
-        const metadata = createMetadata(connectionConfig, item.databaseName);
+        const { connection, client, metadata } = await getDatabaseConnection(item, validateCategoryItem);
 
-        const cells = [
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Markup,
+        await new NotebookBuilder(metadata)
+            .addMarkdown(
                 MarkdownUtils.header(`⚙️ Database Configuration: \`${item.label}\``) +
-                    MarkdownUtils.infoBox('View and analyze current configuration settings for this PostgreSQL database.') +
-                    `\n\n#### 📚 Configuration Categories\n\n` +
-                    MarkdownUtils.operationsTable([
-                        { operation: 'Connections', description: 'Connection limits, timeouts, and authentication' },
-                        { operation: 'Memory', description: 'Shared buffers, work memory, maintenance memory' },
-                        { operation: 'WAL', description: 'Write-ahead logging and checkpoint settings' },
-                        { operation: 'Query Tuning', description: 'Planner costs, parallelism, and optimization' },
-                        { operation: 'Logging', description: 'Log destinations, levels, and rotation' }
-                    ]) +
-                    `\n\n` +
-                    MarkdownUtils.successBox('Filter by category to find specific settings. Most settings require a server restart to change.'),
-                'markdown'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Markup,
-                `##### 📋 All Configuration Settings`,
-                'markdown'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Code,
-                `-- View all configuration settings
-SELECT 
-    name as "Setting",
-    setting as "Value",
-    unit as "Unit",
-    category as "Category",
-    short_desc as "Description"
-FROM pg_settings 
-ORDER BY category, name;`,
-                'sql'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Markup,
-                `##### 💻 Memory Settings`,
-                'markdown'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Code,
-                `-- Memory-related settings
-SELECT 
-    name as "Setting",
-    setting as "Value",
-    unit as "Unit",
-    short_desc as "Description"
-FROM pg_settings 
-WHERE category LIKE '%Memory%' OR name LIKE '%memory%' OR name LIKE '%buffer%'
-ORDER BY name;`,
-                'sql'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Markup,
-                `##### 🔗 Connection Settings`,
-                'markdown'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Code,
-                `-- Connection-related settings
-SELECT 
-    name as "Setting",
-    setting as "Value",
-    unit as "Unit",
-    short_desc as "Description"
-FROM pg_settings 
-WHERE category LIKE '%Connection%' OR name LIKE '%connection%'
-ORDER BY name;`,
-                'sql'
+                MarkdownUtils.infoBox('View and analyze current configuration settings for this PostgreSQL database.') +
+                `\n\n#### 📚 Configuration Categories\n\n` +
+                MarkdownUtils.operationsTable([
+                    { operation: 'Connections', description: 'Connection limits, timeouts, and authentication' },
+                    { operation: 'Memory', description: 'Shared buffers, work memory, maintenance memory' },
+                    { operation: 'WAL', description: 'Write-ahead logging and checkpoint settings' },
+                    { operation: 'Query Tuning', description: 'Planner costs, parallelism, and optimization' },
+                    { operation: 'Logging', description: 'Log destinations, levels, and rotation' }
+                ]) +
+                `\n\n` +
+                MarkdownUtils.successBox('Filter by category to find specific settings. Most settings require a server restart to change.')
             )
-        ];
-
-        await createAndShowNotebook(cells, metadata);
+            .addMarkdown(`##### 📋 All Configuration Settings`)
+            .addSql(`-- View all configuration settings\n` + QueryBuilder.databaseConfiguration())
+            .addMarkdown(`##### 💻 Memory Settings`)
+            .addSql(`-- Memory-related settings\n` + QueryBuilder.databaseMemorySettings())
+            .addMarkdown(`##### 🔗 Connection Settings`)
+            .addSql(`-- Connection-related settings\n` + QueryBuilder.databaseConnectionSettings())
+            .show();
     } catch (err: any) {
         await ErrorHandlers.handleCommandError(err, 'show configuration');
     }
@@ -1651,53 +870,29 @@ export async function cmdScriptAlterDatabase(item: DatabaseTreeItem, context: vs
         const connectionConfig = await getConnectionWithPassword(item.connectionId!);
         const metadata = createMetadata(connectionConfig, item.databaseName);
 
-        const cells = [
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Markup,
+        await new NotebookBuilder(metadata)
+            .addMarkdown(
                 MarkdownUtils.header(`📝 ALTER Database: \`${item.label}\``) +
-                    MarkdownUtils.infoBox('Use these commands to modify database attributes. Uncomment and modify the operations you want to perform.') +
-                    `\n\n#### 🎯 Available Modifications\n\n` +
-                    MarkdownUtils.operationsTable([
-                        { operation: 'RENAME', description: 'Change the database name' },
-                        { operation: 'OWNER', description: 'Transfer ownership to another role' },
-                        { operation: 'SET', description: 'Set runtime configuration parameters' },
-                        { operation: 'CONNECTION LIMIT', description: 'Set maximum concurrent connections' },
-                        { operation: 'TABLESPACE', description: 'Change default tablespace' }
-                    ]) +
-                    `\n\n` +
-                    MarkdownUtils.warningBox('Some operations require exclusive access to the database. Rename operations require no active connections.'),
-                'markdown'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Markup,
-                `##### 🔄 Rename Database`,
-                'markdown'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Code,
-                `-- Rename database (requires no active connections)
--- ALTER DATABASE "${item.label}" RENAME TO new_name;`,
-                'sql'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Markup,
-                `##### 👤 Change Owner`,
-                'markdown'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Code,
-                `-- Change database owner
--- ALTER DATABASE "${item.label}" OWNER TO new_owner;`,
-                'sql'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Markup,
-                `##### ⚙️ Set Configuration Parameters`,
-                'markdown'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Code,
-                `-- Set configuration parameter for this database
+                MarkdownUtils.infoBox('Use these commands to modify database attributes. Uncomment and modify the operations you want to perform.') +
+                `\n\n#### 🎯 Available Modifications\n\n` +
+                MarkdownUtils.operationsTable([
+                    { operation: 'RENAME', description: 'Change the database name' },
+                    { operation: 'OWNER', description: 'Transfer ownership to another role' },
+                    { operation: 'SET', description: 'Set runtime configuration parameters' },
+                    { operation: 'CONNECTION LIMIT', description: 'Set maximum concurrent connections' },
+                    { operation: 'TABLESPACE', description: 'Change default tablespace' }
+                ]) +
+                `\n\n` +
+                MarkdownUtils.warningBox('Some operations require exclusive access to the database. Rename operations require no active connections.')
+            )
+            .addMarkdown(`##### 🔄 Rename Database`)
+            .addSql(`-- Rename database (requires no active connections)
+-- ALTER DATABASE "${item.label}" RENAME TO new_name;`)
+            .addMarkdown(`##### 👤 Change Owner`)
+            .addSql(`-- Change database owner
+-- ALTER DATABASE "${item.label}" OWNER TO new_owner;`)
+            .addMarkdown(`##### ⚙️ Set Configuration Parameters`)
+            .addSql(`-- Set configuration parameter for this database
 -- ALTER DATABASE "${item.label}" SET configuration_parameter TO value;
 
 -- Example: Set search path
@@ -1707,34 +902,14 @@ export async function cmdScriptAlterDatabase(item: DatabaseTreeItem, context: vs
 -- ALTER DATABASE "${item.label}" SET timezone TO 'UTC';
 
 -- Reset to default
--- ALTER DATABASE "${item.label}" RESET configuration_parameter;`,
-                'sql'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Markup,
-                `##### 🔌 Connection Limit`,
-                'markdown'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Code,
-                `-- Set connection limit (-1 for unlimited)
--- ALTER DATABASE "${item.label}" WITH CONNECTION LIMIT 50;`,
-                'sql'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Markup,
-                `##### 📁 Change Tablespace`,
-                'markdown'
-            ),
-            new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Code,
-                `-- Move database to different tablespace
--- ALTER DATABASE "${item.label}" SET TABLESPACE new_tablespace;`,
-                'sql'
-            )
-        ];
-
-        await createAndShowNotebook(cells, metadata);
+-- ALTER DATABASE "${item.label}" RESET configuration_parameter;`)
+            .addMarkdown(`##### 🔌 Connection Limit`)
+            .addSql(`-- Set connection limit (-1 for unlimited)
+-- ALTER DATABASE "${item.label}" WITH CONNECTION LIMIT 50;`)
+            .addMarkdown(`##### 📁 Change Tablespace`)
+            .addSql(`-- Move database to different tablespace
+-- ALTER DATABASE "${item.label}" SET TABLESPACE new_tablespace;`)
+            .show();
     } catch (err: any) {
         await ErrorHandlers.handleCommandError(err, 'generate alter script');
     }
