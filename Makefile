@@ -28,7 +28,13 @@ build:
 
 # Package the extension
 package: build
-	$(VSCE_CMD) package
+	@echo "Temporarily moving README.md to ensure MARKETPLACE.md is used..."
+	@if [ -f README.md ]; then mv README.md README.md.bak; fi
+	@trap 'if [ -f README.md.bak ]; then mv README.md.bak README.md; fi' EXIT INT TERM; \
+	$(VSCE_CMD) package; \
+	EXIT_CODE=$$?; \
+	if [ -f README.md.bak ]; then mv README.md.bak README.md; fi; \
+	exit $$EXIT_CODE
 
 # Publish the extension to VS Code Marketplace and Open VSX Registry
 publish: package

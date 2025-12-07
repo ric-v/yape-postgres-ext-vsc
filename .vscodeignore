@@ -21,5 +21,15 @@ webpack.config.js
 .eslintrc.json
 .vscodeignore
 CHANGELOG.md
+README.md
+README.md.bak
+README.md.tmp
 pattern
 pat
+pat-open-vsx
+Makefile
+coverage/**
+.nyc_output/**
+docs/**
+.nycrc
+index.js
