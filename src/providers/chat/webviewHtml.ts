@@ -308,6 +308,33 @@ export function getWebviewHtml(webview: vscode.Webview): string {
             gap: 6px;
         }
 
+        .ai-model-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 8px;
+            background: var(--vscode-badge-background);
+            color: var(--vscode-badge-foreground);
+            border-radius: 10px;
+            font-size: 10px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all var(--transition-fast);
+            border: 1px solid var(--vscode-widget-border);
+            opacity: 0.9;
+        }
+
+        .ai-model-badge:hover {
+            background: var(--vscode-inputOption-hoverBackground);
+            border-color: var(--vscode-focusBorder);
+            transform: translateY(-1px);
+            opacity: 1;
+        }
+
+        .ai-model-badge .sparkle-icon {
+            font-size: 11px;
+        }
+
         .header-icon {
             font-size: 14px;
         }
@@ -1255,7 +1282,11 @@ export function getWebviewHtml(webview: vscode.Webview): string {
                             <path d="M8 3.5a.5.5 0 0 1 .5.5v4H12a.5.5 0 0 1 0 1H8a.5.5 0 0 1-.5-.5V4a.5.5 0 0 1 .5-.5z"/>
                         </svg>
                     </button>
-                    <h3><span class="header-icon">🐘</span> SQL Assistant</h3>
+                    <h3><span class="header-icon">🐘</span></h3>
+                    <span class="ai-model-badge" onclick="openAiSettings()" title="Click to configure AI settings" id="aiModelBadge">
+                        <span class="sparkle-icon">✨</span>
+                        <span id="aiModelName">Loading...</span>
+                    </span>
                 </div>
                 <div class="chat-header-right">
                     <button class="header-btn" onclick="newChat()" title="New Chat">
@@ -1434,6 +1465,10 @@ export function getWebviewHtml(webview: vscode.Webview): string {
 
         function newChat() {
             vscode.postMessage({ type: 'newChat' });
+        }
+
+        function openAiSettings() {
+            vscode.postMessage({ type: 'openAiSettings' });
         }
 
         function formatDate(timestamp) {
@@ -2231,6 +2266,12 @@ export function getWebviewHtml(webview: vscode.Webview): string {
                 case 'schemaError':
                     // Show a toast notification about schema fetch error
                     showToast('⚠️ Could not fetch schema for ' + message.object + ': ' + message.error, 'warning');
+                    break;
+                case 'updateModelInfo':
+                    const aiModelNameEl = document.getElementById('aiModelName');
+                    if (aiModelNameEl) {
+                        aiModelNameEl.textContent = message.modelName || 'Unknown';
+                    }
                     break;
             }
         });

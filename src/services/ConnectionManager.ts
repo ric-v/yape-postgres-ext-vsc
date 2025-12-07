@@ -54,10 +54,41 @@ export class ConnectionManager {
     public async closeConnection(config: ConnectionConfig): Promise<void> {
         const key = this.getConnectionKey(config);
         const client = this.connections.get(key);
+        
         if (client) {
-            await client.end();
-            this.connections.delete(key);
+            try {
+                await client.end();
+                this.connections.delete(key);
+            } catch (e) {
+                console.error('Error closing connection:', e);
+            }
         }
+    }
+
+    public async closeAllConnectionsById(connectionId: string): Promise<void> {
+        const keysToClose: string[] = [];
+        
+        // Find all connections with this ID
+        for (const key of this.connections.keys()) {
+            if (key.startsWith(`${connectionId}:`)) {
+                keysToClose.push(key);
+            }
+        }
+        
+        // Close all found connections
+        for (const key of keysToClose) {
+            const client = this.connections.get(key);
+            if (client) {
+                try {
+                    await client.end();
+                    this.connections.delete(key);
+                } catch (e) {
+                    console.error(`Error closing connection ${key}:`, e);
+                }
+            }
+        }
+        
+        console.log(`Closed ${keysToClose.length} connections for ID: ${connectionId}`);
     }
 
     public async closeAll(): Promise<void> {

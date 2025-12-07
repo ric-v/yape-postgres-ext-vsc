@@ -5,13 +5,34 @@ import { ConnectionManager } from '../services/ConnectionManager';
 export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseTreeItem> {
     private _onDidChangeTreeData: vscode.EventEmitter<DatabaseTreeItem | undefined | null | void> = new vscode.EventEmitter<DatabaseTreeItem | undefined | null | void>();
     readonly onDidChangeTreeData: vscode.Event<DatabaseTreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
+    private disconnectedConnections: Set<string> = new Set();
 
     constructor(private readonly extensionContext: vscode.ExtensionContext) {
-        // Initialize tree provider
+        // Initialize all connections as disconnected by default
+        this.initializeDisconnectedState();
+    }
+
+    private initializeDisconnectedState(): void {
+        const connections = vscode.workspace.getConfiguration().get<any[]>('postgresExplorer.connections') || [];
+        connections.forEach(conn => {
+            this.disconnectedConnections.add(conn.id);
+        });
+    }
+
+    markConnectionDisconnected(connectionId: string): void {
+        this.disconnectedConnections.add(connectionId);
+        // Fire a full refresh to update tree state and collapse items
+        this._onDidChangeTreeData.fire(undefined);
+    }
+
+    markConnectionConnected(connectionId: string): void {
+        this.disconnectedConnections.delete(connectionId);
+        // Fire a full refresh to update tree state
+        this._onDidChangeTreeData.fire(undefined);
     }
 
     refresh(element?: DatabaseTreeItem): void {
-        this._onDidChangeTreeData.fire();
+        this._onDidChangeTreeData.fire(element);
     }
 
     collapseAll(): void {
@@ -32,8 +53,23 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseTre
                 conn.name || `${conn.host}:${conn.port}`,
                 vscode.TreeItemCollapsibleState.Collapsed,
                 'connection',
-                conn.id
+                conn.id,
+                undefined, // databaseName
+                undefined, // schema
+                undefined, // tableName
+                undefined, // columnName
+                undefined, // comment
+                undefined, // isInstalled
+                undefined, // installedVersion
+                undefined, // roleAttributes
+                this.disconnectedConnections.has(conn.id) // isDisconnected
             ));
+        }
+
+        // Check if connection is disconnected - if so, return empty to prevent expansion
+        if (element.connectionId && this.disconnectedConnections.has(element.connectionId)) {
+            console.log(`Connection ${element.connectionId} is disconnected, returning empty children`);
+            return [];
         }
 
         const connection = connections.find(c => c.id === element.connectionId);
@@ -47,6 +83,8 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseTre
         try {
             const dbName = element.type === 'connection' ? 'postgres' : element.databaseName;
 
+            console.log(`Attempting to connect to ${connection.name} (${dbName})`);
+
             // Use ConnectionManager to get a shared connection
             client = await ConnectionManager.getInstance().getConnection({
                 id: connection.id,
@@ -56,6 +94,13 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseTre
                 database: dbName,
                 name: connection.name
             });
+
+            console.log(`Successfully connected to ${connection.name}`);
+
+            // Mark connection as connected when successfully connected (only if not already connected)
+            if (element.connectionId && this.disconnectedConnections.has(element.connectionId)) {
+                this.markConnectionConnected(element.connectionId);
+            }
 
             switch (element.type) {
                 case 'connection':
@@ -311,12 +356,12 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseTre
 
                         case 'Foreign Tables':
                             const foreignTableResult = await client.query(
-                                `SELECT ft.relname as name
+                                `SELECT c.relname as name
                                  FROM pg_foreign_table ft
                                  JOIN pg_class c ON ft.ftrelid = c.oid
                                  JOIN pg_namespace n ON c.relnamespace = n.oid
                                  WHERE n.nspname = $1
-                                 ORDER BY ft.relname`,
+                                 ORDER BY c.relname`,
                                 [element.schema]
                             );
                             return foreignTableResult.rows.map(row => new DatabaseTreeItem(
@@ -354,79 +399,6 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseTre
                         new DatabaseTreeItem('Columns', vscode.TreeItemCollapsibleState.Collapsed, 'category', element.connectionId, element.databaseName, element.schema, element.label)
                     ];
 
-                case 'category':
-                    // Handle table sub-categories
-                    if (element.tableName) {
-                        switch (element.label) {
-                            case 'Columns':
-                                const columnResult = await client.query(
-                                    "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2 ORDER BY ordinal_position",
-                                    [element.schema, element.tableName]
-                                );
-                                return columnResult.rows.map(row => new DatabaseTreeItem(
-                                    `${row.column_name} (${row.data_type})`,
-                                    vscode.TreeItemCollapsibleState.None,
-                                    'column',
-                                    element.connectionId,
-                                    element.databaseName,
-                                    element.schema,
-                                    element.tableName,
-                                    row.column_name
-                                ));
-
-                            case 'Constraints':
-                                const constraintResult = await client.query(
-                                    `SELECT 
-                                        tc.constraint_name,
-                                        tc.constraint_type
-                                    FROM information_schema.table_constraints tc
-                                    WHERE tc.table_schema = $1 AND tc.table_name = $2
-                                    ORDER BY tc.constraint_type, tc.constraint_name`,
-                                    [element.schema, element.tableName]
-                                );
-                                return constraintResult.rows.map(row => {
-                                    return new DatabaseTreeItem(
-                                        row.constraint_name,
-                                        vscode.TreeItemCollapsibleState.None,
-                                        'constraint',
-                                        element.connectionId,
-                                        element.databaseName,
-                                        element.schema,
-                                        element.tableName
-                                    );
-                                });
-
-                            case 'Indexes':
-                                const indexResult2 = await client.query(
-                                    `SELECT 
-                                        i.relname as index_name,
-                                        ix.indisunique as is_unique,
-                                        ix.indisprimary as is_primary
-                                    FROM pg_index ix
-                                    JOIN pg_class i ON i.oid = ix.indexrelid
-                                    JOIN pg_class t ON t.oid = ix.indrelid
-                                    JOIN pg_namespace n ON n.oid = t.relnamespace
-                                    WHERE n.nspname = $1 AND t.relname = $2
-                                    ORDER BY i.relname`,
-                                    [element.schema, element.tableName]
-                                );
-                                return indexResult2.rows.map(row => {
-                                    return new DatabaseTreeItem(
-                                        row.index_name,
-                                        vscode.TreeItemCollapsibleState.None,
-                                        'index',
-                                        element.connectionId,
-                                        element.databaseName,
-                                        element.schema,
-                                        element.tableName
-                                    );
-                                });
-                        }
-                    }
-
-                    // Schema-level categories
-                    return [];
-
                 default:
                     return [];
             }
@@ -462,20 +434,23 @@ export class DatabaseTreeItem extends vscode.TreeItem {
         public readonly comment?: string,
         public readonly isInstalled?: boolean,
         public readonly installedVersion?: string,
-        public readonly roleAttributes?: { [key: string]: boolean }
+        public readonly roleAttributes?: { [key: string]: boolean },
+        public readonly isDisconnected?: boolean
     ) {
         super(label, collapsibleState);
-        if (type === 'category') {
+        if (type === 'category' && label) {
             // Create specific context value for categories (e.g., category-tables, category-views)
             const suffix = label.toLowerCase().replace(/\s+&\s+/g, '-').replace(/\s+/g, '-');
             this.contextValue = `category-${suffix}`;
+        } else if (type === 'connection' && isDisconnected) {
+            this.contextValue = 'connection-disconnected';
         } else {
             this.contextValue = isInstalled ? `${type}-installed` : type;
         }
         this.tooltip = this.getTooltip(type, comment, roleAttributes);
         this.description = this.getDescription(type, isInstalled, installedVersion, roleAttributes);
         this.iconPath = {
-            connection: new vscode.ThemeIcon('plug', new vscode.ThemeColor('charts.blue')),
+            connection: new vscode.ThemeIcon('plug', isDisconnected ? new vscode.ThemeColor('disabledForeground') : new vscode.ThemeColor('charts.blue')),
             database: new vscode.ThemeIcon('database', new vscode.ThemeColor('charts.purple')),
             'databases-group': new vscode.ThemeIcon('database', new vscode.ThemeColor('charts.purple')),
             schema: new vscode.ThemeIcon('symbol-namespace', new vscode.ThemeColor('charts.yellow')),

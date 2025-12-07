@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import { cmdAiAssist } from './commands/aiAssist';
 import { showColumnProperties, copyColumnName, copyColumnNameQuoted, generateSelectStatement, generateWhereClause, generateAlterColumnScript, generateDropColumnScript, generateRenameColumnScript, addColumnComment, generateIndexOnColumn, viewColumnStatistics, cmdAddColumn } from './commands/columns';
 import { showConstraintProperties, copyConstraintName, generateDropConstraintScript, generateAlterConstraintScript, validateConstraint, generateAddConstraintScript, viewConstraintDependencies, cmdConstraintOperations, cmdAddConstraint } from './commands/constraints';
-import { cmdConnectDatabase, cmdDisconnectConnection, cmdDisconnectDatabase } from './commands/connection';
+import { cmdConnectDatabase, cmdDisconnectConnection, cmdDisconnectDatabase, cmdReconnectConnection } from './commands/connection';
 import { showIndexProperties, copyIndexName, generateDropIndexScript, generateReindexScript, generateScriptCreate, analyzeIndexUsage, generateAlterIndexScript, addIndexComment, cmdIndexOperations, cmdAddIndex } from './commands/indexes';
 import { cmdAddObjectInDatabase, cmdBackupDatabase, cmdCreateDatabase, cmdDatabaseDashboard, cmdDatabaseOperations, cmdDeleteDatabase, cmdDisconnectDatabase as cmdDisconnectDatabaseLegacy, cmdGenerateCreateScript, cmdMaintenanceDatabase, cmdPsqlTool, cmdQueryTool, cmdRestoreDatabase, cmdScriptAlterDatabase, cmdShowConfiguration } from './commands/database';
 import { cmdDropExtension, cmdEnableExtension, cmdExtensionOperations, cmdRefreshExtension } from './commands/extensions';
@@ -17,6 +17,7 @@ import { cmdAllOperationsTypes, cmdCreateType, cmdDropType, cmdEditTypes, cmdRef
 import { cmdAddRole, cmdAddUser, cmdDropRole, cmdEditRole, cmdGrantRevokeRole, cmdRefreshRole, cmdRoleOperations, cmdShowRoleProperties } from './commands/usersRoles';
 import { cmdCreateView, cmdDropView, cmdEditView, cmdRefreshView, cmdScriptCreate as cmdViewScriptCreate, cmdScriptSelect as cmdViewScriptSelect, cmdShowViewProperties, cmdViewData, cmdViewOperations } from './commands/views';
 import { PostgresMetadata } from './common/types';
+import { AiSettingsPanel } from './aiSettingsPanel';
 import { ConnectionFormPanel } from './connectionForm';
 import { ConnectionManagementPanel } from './connectionManagement';
 import { PostgresNotebookProvider } from './notebookProvider';
@@ -30,6 +31,13 @@ import { SecretStorageService } from './services/SecretStorageService';
 import { ErrorHandlers } from './commands/helper';
 
 export let outputChannel: vscode.OutputChannel;
+
+// Store chat view provider reference for access by other components
+let chatViewProviderInstance: ChatViewProvider | undefined;
+
+export function getChatViewProvider(): ChatViewProvider | undefined {
+    return chatViewProviderInstance;
+}
 
 export async function activate(context: vscode.ExtensionContext) {
     outputChannel = vscode.window.createOutputChannel('PostgreSQL Explorer');
@@ -51,11 +59,11 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(treeView);
 
     // Register the chat view provider
-    const chatViewProvider = new ChatViewProvider(context.extensionUri, context);
+    chatViewProviderInstance = new ChatViewProvider(context.extensionUri, context);
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(
             ChatViewProvider.viewType,
-            chatViewProvider,
+            chatViewProviderInstance,
             { webviewOptions: { retainContextWhenHidden: true } }
         )
     );
@@ -78,6 +86,12 @@ export async function activate(context: vscode.ExtensionContext) {
             command: 'postgres-explorer.manageConnections',
             callback: () => {
                 ConnectionManagementPanel.show(context.extensionUri, context);
+            }
+        },
+        {
+            command: 'postgres-explorer.aiSettings',
+            callback: () => {
+                AiSettingsPanel.show(context.extensionUri, context);
             }
         },
         {
@@ -426,6 +440,10 @@ export async function activate(context: vscode.ExtensionContext) {
         {
             command: 'postgres-explorer.disconnectConnection',
             callback: async (item: DatabaseTreeItem) => await cmdDisconnectConnection(item, context, databaseTreeProvider)
+        },
+        {
+            command: 'postgres-explorer.reconnectConnection',
+            callback: async (item: DatabaseTreeItem) => await cmdReconnectConnection(item, context, databaseTreeProvider)
         },
         {
             command: 'postgres-explorer.deleteConnection',
