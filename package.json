@@ -1,7 +1,7 @@
 {
   "name": "postgres-explorer",
   "displayName": "PostgreSQL Explorer",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "PostgreSQL database explorer for VS Code with notebook support",
   "publisher": "ric-v",
   "private": false,
@@ -15,7 +15,7 @@
     "url": "https://github.com/dev-asterix/yape-postgres-ext-vsc/issues"
   },
   "homepage": "https://github.com/dev-asterix/yape-postgres-ext-vsc#readme",
-  "icon": "resources/postgres-vsc-icon.png",
+  "icon": "resources/postgres-explorer.png",
   "galleryBanner": {
     "color": "#C80000",
     "theme": "dark"
