@@ -1,12 +1,11 @@
 {
   "name": "postgres-explorer",
   "displayName": "PostgreSQL Explorer",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "PostgreSQL database explorer for VS Code with notebook support",
   "publisher": "ric-v",
   "private": false,
   "license": "MIT",
-  "readme": "MARKETPLACE.md",
   "repository": {
     "type": "git",
     "url": "https://github.com/dev-asterix/yape-postgres-ext-vsc.git"
