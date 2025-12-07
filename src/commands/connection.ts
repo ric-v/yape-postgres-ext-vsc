@@ -154,6 +154,7 @@ export async function cmdDisconnectConnection(item: DatabaseTreeItem, context: v
         }
 
         const connectionManager = ConnectionManager.getInstance();
+        const connectionId = item.connectionId;
         
         // Close all database connections for this connection ID
         await vscode.window.withProgress({
@@ -161,7 +162,7 @@ export async function cmdDisconnectConnection(item: DatabaseTreeItem, context: v
             title: `Closing connections for ${item.label}...`,
             cancellable: false
         }, async () => {
-            await connectionManager.closeAllConnectionsById(item.connectionId);
+            await connectionManager.closeAllConnectionsById(connectionId);
         });
 
         // Mark connection as disconnected and refresh tree
