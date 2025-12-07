@@ -8,12 +8,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dev-asterix/yape-postgres-ext-vsc.git"
+    "url": "https://github.com/dev-asterix/yape.git"
   },
   "bugs": {
-    "url": "https://github.com/dev-asterix/yape-postgres-ext-vsc/issues"
+    "url": "https://github.com/dev-asterix/yape/issues"
   },
-  "homepage": "https://github.com/dev-asterix/yape-postgres-ext-vsc#readme",
+  "homepage": "https://github.com/dev-asterix/yape#readme",
   "icon": "resources/postgres-explorer.png",
   "galleryBanner": {
     "color": "#C80000",
