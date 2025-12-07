@@ -21,7 +21,7 @@ webpack.config.js
 .eslintrc.json
 .vscodeignore
 CHANGELOG.md
-README.md
+MARKETPLACE.md
 README.md.bak
 README.md.tmp
 pattern

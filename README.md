@@ -7,11 +7,11 @@
 [![Version](https://img.shields.io/visual-studio-marketplace/v/ric-v.postgres-explorer?style=for-the-badge&logo=visual-studio-code&logoColor=white&color=0066CC)](https://marketplace.visualstudio.com/items?itemName=ric-v.postgres-explorer)
 [![Downloads](https://img.shields.io/visual-studio-marketplace/d/ric-v.postgres-explorer?style=for-the-badge&logo=visual-studio-code&logoColor=white&color=2ECC71)](https://marketplace.visualstudio.com/items?itemName=ric-v.postgres-explorer)
 [![Rating](https://img.shields.io/visual-studio-marketplace/r/ric-v.postgres-explorer?style=for-the-badge&logo=visual-studio-code&logoColor=white&color=F39C12)](https://marketplace.visualstudio.com/items?itemName=ric-v.postgres-explorer)
-[![Status](https://img.shields.io/badge/status-beta-blue?style=for-the-badge&logo=git&logoColor=white)](https://github.com/dev-asterix/yape-postgres-ext-vsc)
+[![Status](https://img.shields.io/badge/status-beta-blue?style=for-the-badge&logo=git&logoColor=white)](https://github.com/dev-asterix/yape)
 
 A comprehensive PostgreSQL database management extension featuring interactive SQL notebooks, real-time monitoring dashboard, AI-powered assistance, and advanced database operations—all within VS Code.
 
-[📖 **Documentation**](https://dev-asterix.github.io/yape-postgres-ext-vsc/) • [🛒 **Marketplace**](https://marketplace.visualstudio.com/items?itemName=ric-v.postgres-explorer) • [🤝 **Contributing**](#-contributing)
+[📖 **Documentation**](https://dev-asterix.github.io/yape/) • [🛒 **Marketplace**](https://marketplace.visualstudio.com/items?itemName=ric-v.postgres-explorer) • [🤝 **Contributing**](#-contributing)
 
 </div>
 
@@ -51,7 +51,7 @@ Then: **PostgreSQL icon** → **Add Connection** → Enter details → **Connect
 ## 🏗️ Project Structure
 
 ```
-yape-postgres-ext-vsc/
+yape/
 ├── src/
 │   ├── extension.ts          # Extension entry point
 │   ├── commands/             # Command implementations
@@ -96,8 +96,8 @@ yape-postgres-ext-vsc/
 
 ```bash
 # Clone the repository
-git clone https://github.com/dev-asterix/yape-postgres-ext-vsc.git
-cd yape-postgres-ext-vsc
+git clone https://github.com/dev-asterix/yape.git
+cd yape
 
 # Install dependencies
 npm install
@@ -148,8 +148,8 @@ Tests are located in `src/test/unit/` using Mocha + Chai + Sinon.
 
 ## 🤝 Contributing
 
-- 🐛 [Report Bugs](https://github.com/dev-asterix/yape-postgres-ext-vsc/issues/new?template=bug_report.md)
-- 💡 [Request Features](https://github.com/dev-asterix/yape-postgres-ext-vsc/issues/new?template=feature_request.md)
+- 🐛 [Report Bugs](https://github.com/dev-asterix/yape/issues/new?template=bug_report.md)
+- 💡 [Request Features](https://github.com/dev-asterix/yape/issues/new?template=feature_request.md)
 - 🔧 Fork → Branch → PR
 
 ### Commit Convention

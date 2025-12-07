@@ -180,16 +180,16 @@ code --install-extension ric-v.postgres-explorer
 
 ## 📚 Resources
 
-- 📖 [Full Documentation](https://dev-asterix.github.io/yape-postgres-ext-vsc/)
-- 🐛 [Report Issues](https://github.com/dev-asterix/yape-postgres-ext-vsc/issues)
-- 💡 [Request Features](https://github.com/dev-asterix/yape-postgres-ext-vsc/issues/new?template=feature_request.md)
-- ⭐ [Star on GitHub](https://github.com/dev-asterix/yape-postgres-ext-vsc)
+- 📖 [Full Documentation](https://dev-asterix.github.io/yape/)
+- 🐛 [Report Issues](https://github.com/dev-asterix/yape/issues)
+- 💡 [Request Features](https://github.com/dev-asterix/yape/issues/new?template=feature_request.md)
+- ⭐ [Star on GitHub](https://github.com/dev-asterix/yape)
 
 ---
 
 ## 📝 License
 
-This extension is licensed under the [MIT License](https://github.com/dev-asterix/yape-postgres-ext-vsc/blob/main/LICENSE).
+This extension is licensed under the [MIT License](https://github.com/dev-asterix/yape/blob/main/LICENSE).
 
 ---
 
