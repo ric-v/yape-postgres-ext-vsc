@@ -5,6 +5,20 @@ All notable changes to the PostgreSQL Explorer extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.4] - 2025-12-13
+
+### Rebranding
+- **Project Renamed**: The extension is now **PgStudio**! (formerly "YAPE" / "PostgreSQL Explorer").
+- Updated all documentation and UI references to reflect the new professional identity.
+
+### Added
+- **Dashboard Visuals**: Added "glow" and "blur" effects to dashboard charts for a modern, premium look.
+- **Improved Markdown in Chat**: SQL Assistant now renders rich Markdown tables and syntax highlighting correctly.
+
+### Improved
+- **Notebook UX**: The "Open in Notebook" button now provides clearer feedback when no notebook is active.
+- **Documentation**: Comprehensive updates to README and Marketplace page.
+
 ## [0.5.3] - 2025-12-07
 
 ### Fixed

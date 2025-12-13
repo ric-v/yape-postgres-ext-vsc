@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🐘 PostgreSQL Explorer
+# 🐘 PgStudio
 
 ### *Professional Database Management for VS Code*
 
@@ -9,7 +9,7 @@
 [![Rating](https://img.shields.io/visual-studio-marketplace/r/ric-v.postgres-explorer?style=for-the-badge&logo=visual-studio-code&logoColor=white&color=F39C12)](https://marketplace.visualstudio.com/items?itemName=ric-v.postgres-explorer)
 [![Status](https://img.shields.io/badge/status-beta-blue?style=for-the-badge&logo=git&logoColor=white)](https://github.com/dev-asterix/yape)
 
-A comprehensive PostgreSQL database management extension featuring interactive SQL notebooks, real-time monitoring dashboard, AI-powered assistance, and advanced database operations—all within VS Code.
+**PgStudio** (formerly YAPE) is a comprehensive PostgreSQL database management extension featuring interactive SQL notebooks, real-time monitoring dashboard, AI-powered assistance, and advanced database operations—all within VS Code.
 
 [📖 **Documentation**](https://dev-asterix.github.io/yape/) • [🛒 **Marketplace**](https://marketplace.visualstudio.com/items?itemName=ric-v.postgres-explorer) • [🤝 **Contributing**](#-contributing)
 
@@ -35,6 +35,33 @@ A comprehensive PostgreSQL database management extension featuring interactive S
 
 ---
 
+## 🎯 Why PgStudio?
+
+<table>
+<tr>
+<td width="50%">
+
+### 🎨 Modern Interface
+- Beautiful, intuitive UI designed for developers
+- Real-time dashboard with live metrics
+- Context-aware operations
+- Seamless VS Code integration
+
+</td>
+<td width="50%">
+
+### ⚡ Powerful Features
+- Interactive SQL notebooks
+- 🤖 AI-powered Copilot & agentic support
+- Advanced query management
+- Complete CRUD operations
+
+</td>
+</tr>
+</table>
+
+---
+
 ## 🚀 Quick Start
 
 ```bash
@@ -46,6 +73,7 @@ code --install-extension ric-v.postgres-explorer
 ```
 
 Then: **PostgreSQL icon** → **Add Connection** → Enter details → **Connect!**
+
 
 ---
 
@@ -89,6 +117,37 @@ yape/
 ├── tsconfig.json             # TypeScript config
 └── webpack.config.js         # Webpack config
 ```
+
+---
+
+## 🤖 AI-Powered Operations
+
+PgStudio integrates advanced AI capabilities directly into your workflow, but keeps **YOU** in control.
+
+### Chat to Query (Natural Language → SQL)
+Describe what you need in plain English, and PgStudio will generate the SQL for you.
+- **Context-Aware**: The AI understands your table schemas and columns.
+- **Smart Suggestions**: Ask for "top selling products" and it knows to join `orders` and `products`.
+
+### 🛡️ Safe Execution Model (Notebook-First)
+We believe AI should assist, not take over. **No query is ever executed automatically.**
+1. **Ask**: You ask a question in the side panel.
+2. **Review**: The AI generates SQL code.
+3. **Insert**: You click "Open in Notebook" to place the code into a cell.
+4. **Execute**: You review the code and click "Run" when you are ready.
+
+---
+
+## 📊 Advanced Visualizations
+
+Turn any query result into beautiful, interactive charts in seconds.
+
+- **One-Click Charting**: Instantly visualize your data directly from the notebook results.
+- **Customizable**: Toggle between Bar, Line, Pie, Doughnut, and Scatter charts.
+- **Rich Data Display**:
+    - **Log Scale**: Easily analyze data with wide variances.
+    - **Blur/Glow Effects**: Modern, high-fidelity chart aesthetics.
+    - **Zoom & Pan**: Inspect detailed data points interactively.
 
 ---
 

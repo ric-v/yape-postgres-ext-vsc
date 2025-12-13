@@ -718,6 +718,7 @@ export const activate: ActivationFunction = context => {
                     updateAxisLabels();
                     if (typeof updateLabelsVisibility === 'function') updateLabelsVisibility();
                     if (typeof updateSectionsVisibility === 'function') updateSectionsVisibility();
+                    if (typeof updateChartOptionVisibility === 'function') updateChartOptionVisibility();
                     updateChart();
                 });
                 chartTypeBtns.push(btn);
@@ -968,8 +969,8 @@ export const activate: ActivationFunction = context => {
                 currentRows.forEach((row) => {
                     // Apply date formatting if X-axis is a date column
                     const rawValue = row[selectedXAxis];
-                    const sliceLabel = isXAxisDateCol && rawValue 
-                        ? formatDate(rawValue, dateFormat) 
+                    const sliceLabel = isXAxisDateCol && rawValue
+                        ? formatDate(rawValue, dateFormat)
                         : String(rawValue ?? 'Unknown');
                     const existing = aggregatedData.get(sliceLabel) || { value: 0, count: 0 };
 
@@ -1089,7 +1090,226 @@ export const activate: ActivationFunction = context => {
                 labelsSection.style.display = isPieType ? 'block' : 'none';
             };
 
-            // Export button
+            // ============ CHART OPTIONS SECTION ============
+            const optionsSection = document.createElement('div');
+            optionsSection.style.cssText = 'border-top: 1px solid var(--vscode-panel-border); padding-top: 10px;';
+
+            const optionsHeader = document.createElement('div');
+            optionsHeader.textContent = '⚙️ Options';
+            optionsHeader.style.cssText = 'font-weight: 600; margin-bottom: 8px; font-size: 11px; text-transform: uppercase; opacity: 0.8; cursor: pointer;';
+            optionsSection.appendChild(optionsHeader);
+
+            const optionsContainer = document.createElement('div');
+            optionsContainer.style.cssText = 'display: flex; flex-direction: column; gap: 8px;';
+
+            // State variables for options
+            let chartTitle = '';
+            let legendPosition: 'top' | 'bottom' | 'left' | 'right' | 'hidden' = 'bottom';
+            let showGridX = true;
+            let showGridY = true;
+            let enableAnimation = true;
+            let yAxisMin: number | null = null;
+            let yAxisMax: number | null = null;
+            let useLogScale = false;
+            let sortBy: 'none' | 'label-asc' | 'label-desc' | 'value-asc' | 'value-desc' = 'none';
+            let limitRows: number | null = null;
+            let horizontalBars = false;
+            let lineStyle: 'solid' | 'dashed' | 'dotted' = 'solid';
+            let pointStyle: 'circle' | 'triangle' | 'rect' | 'cross' = 'circle';
+            let curveTension = 0.4;
+            let showDataLabels = false;
+            let blurEffect = false;
+
+            // Helper to create option row
+            const createOptionRow = (label: string, control: HTMLElement): HTMLDivElement => {
+                const row = document.createElement('div');
+                row.style.cssText = 'display: flex; align-items: center; justify-content: space-between; gap: 6px;';
+                const lbl = document.createElement('span');
+                lbl.textContent = label;
+                lbl.style.cssText = 'font-size: 11px; flex-shrink: 0;';
+                row.appendChild(lbl);
+                control.style.cssText = (control.style.cssText || '') + 'flex: 1; max-width: 100px;';
+                row.appendChild(control);
+                return row;
+            };
+
+            // Chart Title
+            const titleInput = document.createElement('input');
+            titleInput.type = 'text';
+            titleInput.placeholder = 'Chart title...';
+            titleInput.style.cssText = 'padding: 4px 6px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 3px; font-size: 11px;';
+            titleInput.addEventListener('input', () => { chartTitle = titleInput.value; updateChart(); });
+            optionsContainer.appendChild(createOptionRow('Title', titleInput));
+
+            // Legend Position
+            const legendSelect = document.createElement('select');
+            legendSelect.style.cssText = 'padding: 3px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 3px; font-size: 11px;';
+            ['top', 'bottom', 'left', 'right', 'hidden'].forEach(pos => {
+                const opt = document.createElement('option');
+                opt.value = pos;
+                opt.textContent = pos.charAt(0).toUpperCase() + pos.slice(1);
+                if (pos === legendPosition) opt.selected = true;
+                legendSelect.appendChild(opt);
+            });
+            legendSelect.addEventListener('change', () => { legendPosition = legendSelect.value as any; updateChart(); });
+            optionsContainer.appendChild(createOptionRow('Legend', legendSelect));
+
+            // Grid Lines
+            const gridContainer = document.createElement('div');
+            gridContainer.style.cssText = 'display: flex; gap: 8px;';
+            const gridXLabel = document.createElement('label');
+            gridXLabel.style.cssText = 'font-size: 11px; display: flex; align-items: center; gap: 3px; cursor: pointer;';
+            const gridXCheck = document.createElement('input');
+            gridXCheck.type = 'checkbox';
+            gridXCheck.checked = showGridX;
+            gridXCheck.addEventListener('change', () => { showGridX = gridXCheck.checked; updateChart(); });
+            gridXLabel.appendChild(gridXCheck);
+            gridXLabel.appendChild(document.createTextNode('X'));
+            const gridYLabel = document.createElement('label');
+            gridYLabel.style.cssText = 'font-size: 11px; display: flex; align-items: center; gap: 3px; cursor: pointer;';
+            const gridYCheck = document.createElement('input');
+            gridYCheck.type = 'checkbox';
+            gridYCheck.checked = showGridY;
+            gridYCheck.addEventListener('change', () => { showGridY = gridYCheck.checked; updateChart(); });
+            gridYLabel.appendChild(gridYCheck);
+            gridYLabel.appendChild(document.createTextNode('Y'));
+            gridContainer.appendChild(gridXLabel);
+            gridContainer.appendChild(gridYLabel);
+            optionsContainer.appendChild(createOptionRow('Grid', gridContainer));
+
+            // Animation Toggle
+            const animCheck = document.createElement('input');
+            animCheck.type = 'checkbox';
+            animCheck.checked = enableAnimation;
+            animCheck.style.cssText = 'cursor: pointer;';
+            animCheck.addEventListener('change', () => { enableAnimation = animCheck.checked; updateChart(); });
+            optionsContainer.appendChild(createOptionRow('Animation', animCheck));
+
+            // Y-Axis Range & Log Scale
+            const yRangeContainer = document.createElement('div');
+            yRangeContainer.style.cssText = 'display: flex; gap: 4px; align-items: center;';
+            const yMinInput = document.createElement('input');
+            yMinInput.type = 'number';
+            yMinInput.placeholder = 'Min';
+            yMinInput.style.cssText = 'width: 35px; padding: 3px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 3px; font-size: 10px;';
+            yMinInput.addEventListener('input', () => { yAxisMin = yMinInput.value ? parseFloat(yMinInput.value) : null; updateChart(); });
+            const yMaxInput = document.createElement('input');
+            yMaxInput.type = 'number';
+            yMaxInput.placeholder = 'Max';
+            yMaxInput.style.cssText = 'width: 35px; padding: 3px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 3px; font-size: 10px;';
+            yMaxInput.addEventListener('input', () => { yAxisMax = yMaxInput.value ? parseFloat(yMaxInput.value) : null; updateChart(); });
+
+            yRangeContainer.appendChild(yMinInput);
+            yRangeContainer.appendChild(yMaxInput);
+            optionsContainer.appendChild(createOptionRow('Y Range', yRangeContainer));
+
+            // Log Scale
+            const logCheck = document.createElement('input');
+            logCheck.type = 'checkbox';
+            logCheck.checked = useLogScale;
+            logCheck.style.cssText = 'cursor: pointer;';
+            logCheck.addEventListener('change', () => { useLogScale = logCheck.checked; updateChart(); });
+            optionsContainer.appendChild(createOptionRow('Log Scale', logCheck));
+
+            // Blur Effect
+            const blurCheck = document.createElement('input');
+            blurCheck.type = 'checkbox';
+            blurCheck.checked = blurEffect;
+            blurCheck.style.cssText = 'cursor: pointer;';
+            blurCheck.addEventListener('change', () => { blurEffect = blurCheck.checked; updateChart(); });
+            optionsContainer.appendChild(createOptionRow('Blur Effect', blurCheck));
+
+            // Sort By
+            const sortSelect = document.createElement('select');
+            sortSelect.style.cssText = 'padding: 3px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 3px; font-size: 10px;';
+            [['none', 'None'], ['label-asc', 'Label ↑'], ['label-desc', 'Label ↓'], ['value-asc', 'Value ↑'], ['value-desc', 'Value ↓']].forEach(([val, text]) => {
+                const opt = document.createElement('option');
+                opt.value = val;
+                opt.textContent = text;
+                sortSelect.appendChild(opt);
+            });
+            sortSelect.addEventListener('change', () => { sortBy = sortSelect.value as any; updateChart(); });
+            optionsContainer.appendChild(createOptionRow('Sort', sortSelect));
+
+            // Limit Rows
+            const limitInput = document.createElement('input');
+            limitInput.type = 'number';
+            limitInput.placeholder = 'All';
+            limitInput.min = '1';
+            limitInput.style.cssText = 'padding: 3px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 3px; font-size: 11px;';
+            limitInput.addEventListener('input', () => { limitRows = limitInput.value ? parseInt(limitInput.value) : null; updateChart(); });
+            optionsContainer.appendChild(createOptionRow('Limit', limitInput));
+
+            // Horizontal Bars (for bar charts)
+            const hBarCheck = document.createElement('input');
+            hBarCheck.type = 'checkbox';
+            hBarCheck.checked = horizontalBars;
+            hBarCheck.style.cssText = 'cursor: pointer;';
+            hBarCheck.addEventListener('change', () => { horizontalBars = hBarCheck.checked; updateChart(); });
+            const hBarRow = createOptionRow('Horizontal', hBarCheck);
+            hBarRow.className = 'bar-option';
+            optionsContainer.appendChild(hBarRow);
+
+            // Line Style (for line/area charts)
+            const lineStyleSelect = document.createElement('select');
+            lineStyleSelect.style.cssText = 'padding: 3px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 3px; font-size: 11px;';
+            ['solid', 'dashed', 'dotted'].forEach(style => {
+                const opt = document.createElement('option');
+                opt.value = style;
+                opt.textContent = style.charAt(0).toUpperCase() + style.slice(1);
+                lineStyleSelect.appendChild(opt);
+            });
+            lineStyleSelect.addEventListener('change', () => { lineStyle = lineStyleSelect.value as any; updateChart(); });
+            const lineStyleRow = createOptionRow('Line Style', lineStyleSelect);
+            lineStyleRow.className = 'line-option';
+            optionsContainer.appendChild(lineStyleRow);
+
+            // Point Style (for line charts)
+            const pointStyleSelect = document.createElement('select');
+            pointStyleSelect.style.cssText = 'padding: 3px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 3px; font-size: 11px;';
+            [['circle', '●'], ['triangle', '▲'], ['rect', '■'], ['cross', '✕']].forEach(([val, text]) => {
+                const opt = document.createElement('option');
+                opt.value = val;
+                opt.textContent = text;
+                pointStyleSelect.appendChild(opt);
+            });
+            pointStyleSelect.addEventListener('change', () => { pointStyle = pointStyleSelect.value as any; updateChart(); });
+            const pointStyleRow = createOptionRow('Points', pointStyleSelect);
+            pointStyleRow.className = 'line-option';
+            optionsContainer.appendChild(pointStyleRow);
+
+            // Curve Tension (for line/area)
+            const tensionInput = document.createElement('input');
+            tensionInput.type = 'range';
+            tensionInput.min = '0';
+            tensionInput.max = '1';
+            tensionInput.step = '0.1';
+            tensionInput.value = String(curveTension);
+            tensionInput.style.cssText = 'cursor: pointer;';
+            tensionInput.addEventListener('input', () => { curveTension = parseFloat(tensionInput.value); updateChart(); });
+            const tensionRow = createOptionRow('Curve', tensionInput);
+            tensionRow.className = 'line-option';
+            optionsContainer.appendChild(tensionRow);
+
+            // Data Labels
+            const dataLabelsCheck = document.createElement('input');
+            dataLabelsCheck.type = 'checkbox';
+            dataLabelsCheck.checked = showDataLabels;
+            dataLabelsCheck.style.cssText = 'cursor: pointer;';
+            dataLabelsCheck.addEventListener('change', () => { showDataLabels = dataLabelsCheck.checked; updateChart(); });
+            optionsContainer.appendChild(createOptionRow('Data Labels', dataLabelsCheck));
+
+            optionsSection.appendChild(optionsContainer);
+            chartConfigPanel.appendChild(optionsSection);
+
+            // Update chart-specific option visibility
+            const updateChartOptionVisibility = () => {
+                const isBar = selectedChartType === 'bar' || selectedChartType === 'stackedBar';
+                const isLine = selectedChartType === 'line' || selectedChartType === 'area';
+                optionsContainer.querySelectorAll('.bar-option').forEach((el: any) => el.style.display = isBar ? 'flex' : 'none');
+                optionsContainer.querySelectorAll('.line-option').forEach((el: any) => el.style.display = isLine ? 'flex' : 'none');
+            };
+            updateChartOptionVisibility();
             const exportSection = document.createElement('div');
             exportSection.style.cssText = 'margin-top: auto; padding-top: 12px; border-top: 1px solid var(--vscode-panel-border);';
             const exportPngBtn = createButton('💾 Export PNG', true);
@@ -1124,9 +1344,29 @@ export const activate: ActivationFunction = context => {
 
                 if (selectedYAxes.length === 0 || !currentRows || currentRows.length === 0) return;
 
+                // Apply sorting and limiting to the data
+                let chartData = [...currentRows];
+
+                // Sort data
+                if (sortBy !== 'none') {
+                    const firstYCol = selectedYAxes[0];
+                    chartData.sort((a, b) => {
+                        if (sortBy === 'label-asc') return String(a[selectedXAxis]).localeCompare(String(b[selectedXAxis]));
+                        if (sortBy === 'label-desc') return String(b[selectedXAxis]).localeCompare(String(a[selectedXAxis]));
+                        if (sortBy === 'value-asc') return (parseFloat(a[firstYCol]) || 0) - (parseFloat(b[firstYCol]) || 0);
+                        if (sortBy === 'value-desc') return (parseFloat(b[firstYCol]) || 0) - (parseFloat(a[firstYCol]) || 0);
+                        return 0;
+                    });
+                }
+
+                // Limit rows
+                if (limitRows && limitRows > 0 && chartData.length > limitRows) {
+                    chartData = chartData.slice(0, limitRows);
+                }
+
                 // Create labels with date formatting if applicable
                 const isXAxisDate = isDateColumn(selectedXAxis);
-                const labels = currentRows.map(row => {
+                const labels = chartData.map(row => {
                     const value = row[selectedXAxis];
                     if (isXAxisDate && value) {
                         return formatDate(value, dateFormat);
@@ -1143,25 +1383,44 @@ export const activate: ActivationFunction = context => {
                 let options: any = {
                     responsive: true,
                     maintainAspectRatio: false,
+                    indexAxis: horizontalBars && (selectedChartType === 'bar' || selectedChartType === 'stackedBar') ? 'y' : 'x',
+                    animation: enableAnimation ? { duration: 750 } : false,
                     plugins: {
+                        title: {
+                            display: !!chartTitle,
+                            text: chartTitle,
+                            color: textColor,
+                            font: { size: 14, weight: 'bold' }
+                        },
                         legend: {
-                            display: selectedYAxes.length > 1 || selectedChartType === 'pie' || selectedChartType === 'doughnut',
-                            position: 'top',
+                            display: legendPosition !== 'hidden',
+                            position: legendPosition === 'hidden' ? 'top' : legendPosition,
                             labels: {
                                 color: textColor,
                                 font: { size: 11 }
                             }
-                        }
+                        },
+                        datalabels: showDataLabels ? {
+                            color: textColor,
+                            font: { size: 10, weight: 'bold' },
+                            anchor: 'end',
+                            align: 'top',
+                            formatter: (value: number) => value.toLocaleString()
+                        } : false
                     },
                     scales: {
                         x: {
                             ticks: { color: textColor, font: { size: 10 } },
-                            grid: { color: 'rgba(128, 128, 128, 0.2)' }
+                            grid: { display: showGridX, color: 'rgba(128, 128, 128, 0.2)' }
                         },
                         y: {
+                            type: useLogScale ? 'logarithmic' : 'linear',
                             ticks: { color: textColor, font: { size: 10 } },
-                            grid: { color: 'rgba(128, 128, 128, 0.2)' },
-                            beginAtZero: true
+                            grid: { display: showGridY, color: 'rgba(128, 128, 128, 0.2)' },
+                            beginAtZero: !useLogScale && yAxisMin === null,
+                            min: yAxisMin !== null ? yAxisMin : undefined,
+                            max: yAxisMax !== null ? yAxisMax : undefined,
+                            grace: showDataLabels ? '10%' : '0%'
                         }
                     }
                 };
@@ -1176,7 +1435,7 @@ export const activate: ActivationFunction = context => {
                         const border = customColor ? darkenColor(customColor) : borderColors[colorIdx % borderColors.length];
                         return {
                             label: col,
-                            data: currentRows.map(row => parseFloat(row[col]) || 0),
+                            data: chartData.map(row => parseFloat(row[col]) || 0),
                             backgroundColor: ctx ? createGradient(ctx, colorIdx, customColor) : bgColor,
                             borderColor: border,
                             borderWidth: 2,
@@ -1195,18 +1454,22 @@ export const activate: ActivationFunction = context => {
                     };
                 } else if (selectedChartType === 'line') {
                     chartType = 'line';
+                    // Convert line style to borderDash array
+                    const lineDash = lineStyle === 'dashed' ? [8, 4] : lineStyle === 'dotted' ? [2, 2] : [];
                     datasets = selectedYAxes.map((col, i) => {
                         const colorIdx = numericCols.indexOf(col);
                         const lineColor = seriesColors.get(col) || borderColors[colorIdx % borderColors.length];
                         return {
                             label: col,
-                            data: currentRows.map(row => parseFloat(row[col]) || 0),
+                            data: chartData.map(row => parseFloat(row[col]) || 0),
                             borderColor: lineColor,
                             backgroundColor: 'transparent',
                             borderWidth: 3,
-                            tension: 0.4,
+                            borderDash: lineDash,
+                            tension: curveTension,
                             pointRadius: 4,
                             pointHoverRadius: 7,
+                            pointStyle: pointStyle,
                             pointBackgroundColor: lineColor,
                             pointBorderColor: 'rgba(255, 255, 255, 0.9)',
                             pointBorderWidth: 2,
@@ -1236,7 +1499,7 @@ export const activate: ActivationFunction = context => {
                         const fillColor = customColor || defaultColors[colorIdx % defaultColors.length];
                         return {
                             label: col,
-                            data: currentRows.map(row => parseFloat(row[col]) || 0),
+                            data: chartData.map(row => parseFloat(row[col]) || 0),
                             borderColor: lineColor,
                             backgroundColor: ctx ? (() => {
                                 const grad = ctx.createLinearGradient(0, 0, 0, 400);
@@ -1246,7 +1509,7 @@ export const activate: ActivationFunction = context => {
                             })() : fillColor,
                             fill: true,
                             borderWidth: 3,
-                            tension: 0.4,
+                            tension: curveTension,
                             pointRadius: 0,
                             pointHoverRadius: 6,
                             pointHoverBackgroundColor: 'white',
@@ -1273,7 +1536,7 @@ export const activate: ActivationFunction = context => {
                         const border = customColor ? darkenColor(customColor) : borderColors[colorIdx % borderColors.length];
                         return {
                             label: col,
-                            data: currentRows.map(row => parseFloat(row[col]) || 0),
+                            data: chartData.map(row => parseFloat(row[col]) || 0),
                             backgroundColor: ctx ? createGradient(ctx, colorIdx, customColor) : bgColor,
                             borderColor: border,
                             borderWidth: 1,
@@ -1297,8 +1560,8 @@ export const activate: ActivationFunction = context => {
                     currentRows.forEach((row) => {
                         // Apply date formatting if X-axis is a date column
                         const rawValue = row[selectedXAxis];
-                        const sliceLabel = isXAxisDate && rawValue 
-                            ? formatDate(rawValue, dateFormat) 
+                        const sliceLabel = isXAxisDate && rawValue
+                            ? formatDate(rawValue, dateFormat)
                             : String(rawValue ?? 'Unknown');
                         const existing = aggregatedData.get(sliceLabel) || { value: 0, count: 0 };
 
@@ -1398,10 +1661,92 @@ export const activate: ActivationFunction = context => {
                     }
                 }
 
+                // Custom data labels plugin
+                const dataLabelsPlugin = {
+                    id: 'customDataLabels',
+                    afterDatasetsDraw: (chart: any) => {
+                        if (!showDataLabels) return;
+
+                        const ctx = chart.ctx;
+                        const totalPoints = chart.data.labels?.length || 0;
+
+                        // Hide labels if too many data points
+                        if (totalPoints > 50) return;
+
+                        // Show every Nth label based on data count to avoid overlap
+                        const skipInterval = totalPoints > 30 ? 3 : totalPoints > 15 ? 2 : 1;
+
+                        chart.data.datasets.forEach((dataset: any, datasetIndex: number) => {
+                            const meta = chart.getDatasetMeta(datasetIndex);
+                            if (!meta.hidden) {
+                                meta.data.forEach((element: any, index: number) => {
+                                    // Skip labels based on interval
+                                    if (index % skipInterval !== 0) return;
+
+                                    const value = dataset.data[index];
+                                    if (value === null || value === undefined) return;
+
+                                    // Use border color of the dataset/element
+                                    const borderColor = Array.isArray(dataset.borderColor)
+                                        ? dataset.borderColor[index]
+                                        : dataset.borderColor || textColor;
+
+                                    ctx.save();
+                                    ctx.fillStyle = borderColor;
+                                    ctx.font = 'bold 10px sans-serif';
+                                    ctx.textAlign = 'center';
+                                    ctx.textBaseline = 'bottom';
+
+                                    const position = element.tooltipPosition();
+                                    const yOffset = chart.config.type === 'bar' ? -5 : -10;
+                                    ctx.fillText(
+                                        typeof value === 'number' ? value.toLocaleString() : String(value),
+                                        position.x,
+                                        position.y + yOffset
+                                    );
+                                    ctx.restore();
+                                });
+                            }
+                        });
+                    }
+                };
+                // Blur/Glow effect plugin
+                const blurPlugin = {
+                    id: 'blurEffect',
+                    beforeDatasetsDraw: (chart: any) => {
+                        if (!blurEffect) return;
+                        const ctx = chart.ctx;
+                        ctx.save();
+                        ctx.shadowBlur = 15;
+                        ctx.shadowOffsetX = 0;
+                        ctx.shadowOffsetY = 0;
+                        // Use a generic glow color or specific logic
+                    },
+                    afterDatasetsDraw: (chart: any) => {
+                        if (!blurEffect) return;
+                        chart.ctx.restore();
+                    },
+                    beforeDatasetDraw: (chart: any, args: any) => {
+                        if (!blurEffect) return;
+                        const ctx = chart.ctx;
+                        const dataset = args.event ? null : chart.data.datasets[args.index];
+                        if (dataset) {
+                            // Use the dataset color for the glow
+                            const color = dataset.borderColor || dataset.backgroundColor;
+                            // Check if color is an array (for pie charts)
+                            ctx.shadowColor = Array.isArray(color) ? color[0] : color;
+                        }
+                    }
+                };
+
+                // Combine plugins
+                const plugins = [dataLabelsPlugin, blurPlugin];
+
                 chartInstance = new Chart(chartCanvas, {
                     type: chartType,
                     data: { labels, datasets },
-                    options
+                    options,
+                    plugins
                 });
             };
 

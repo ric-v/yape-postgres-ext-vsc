@@ -1,10 +1,10 @@
 <div align="center">
 
-# 🐘 PostgreSQL Explorer
+# 🐘 PgStudio
 
 ### *Professional Database Management for VS Code*
 
-**A comprehensive PostgreSQL database management extension featuring interactive SQL notebooks, real-time monitoring dashboard, AI-powered assistance, and advanced database operations—all within VS Code.**
+**PgStudio is a comprehensive PostgreSQL database management extension featuring interactive SQL notebooks, real-time monitoring dashboard, AI-powered assistance, and advanced database operations—all within VS Code.**
 
 </div>
 
@@ -45,7 +45,7 @@
 
 ---
 
-## 🎯 Why PostgreSQL Explorer?
+## 🎯 Why PgStudio?
 
 <table>
 <tr>
@@ -122,11 +122,27 @@ Leverage AI to write, optimize, and debug your queries faster:
 - **Error Detection** — Real-time syntax and logical error detection
 - **Natural Language to SQL** — Describe what you need, let AI write the SQL
 
+### 🛡️ Safe AI Execution
+PgStudio provides a **Safe Execution Model** for AI interactions.
+- **Human-in-the-Loop**: AI generates the code, but it is **never executed automatically**. You review it in a notebook cell first.
+- **Context Control**: You decide which tables the AI can see.
+
 **Supported AI Providers:**
 - GitHub Copilot (VS Code LM)
 - OpenAI
 - Anthropic Claude
 - Google Gemini
+
+---
+
+## 🎨 Rich Data Visualization
+
+Transform your data into insights without exporting to Excel.
+
+### Instantly Visualize Results
+- **One-Click Charts**: Create Bar, Line, Area, and Pie charts from any query result.
+- **Customizable**: Adjust log scales, use varied point styles, and control fill opacity.
+- **Modern VFX**: Enable **Glow** and **Blur** effects for stunning, dashboard-ready visuals.
 - Custom Endpoints
 
 ---
