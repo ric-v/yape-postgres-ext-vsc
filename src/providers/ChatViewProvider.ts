@@ -8,10 +8,10 @@
  * - webviewHtml: Provides the webview HTML template
  */
 import * as vscode from 'vscode';
-import { 
-    ChatMessage, 
-    FileAttachment, 
-    DbMention, 
+import {
+    ChatMessage,
+    FileAttachment,
+    DbMention,
     DbObject,
     DbObjectService,
     AiService,
@@ -25,14 +25,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
     private _messages: ChatMessage[] = [];
     private _isProcessing = false;
-    
+
     // Services
     private _dbObjectService: DbObjectService;
     private _aiService: AiService;
     private _sessionService: SessionService;
 
     constructor(
-        private readonly _extensionUri: vscode.Uri, 
+        private readonly _extensionUri: vscode.Uri,
         context: vscode.ExtensionContext
     ) {
         this._dbObjectService = new DbObjectService();
@@ -60,7 +60,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             localResourceRoots: [this._extensionUri]
         };
 
-        webviewView.webview.html = getWebviewHtml(webviewView.webview);
+        // Send URI for marked.js and highlight.js
+        const markedUri = webviewView.webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'resources', 'marked.min.js'));
+        const highlightJsUri = webviewView.webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'resources', 'highlight.min.js'));
+        const highlightCssUri = webviewView.webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'resources', 'highlight.css'));
+
+        webviewView.webview.html = getWebviewHtml(webviewView.webview, markedUri, highlightJsUri, highlightCssUri);
 
         // Send initial history and model info
         setTimeout(() => {
@@ -110,6 +115,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 case 'openAiSettings':
                     vscode.commands.executeCommand('postgres-explorer.aiSettings');
                     break;
+                case 'openInNotebook':
+                    await this._handleOpenInNotebook(data.code);
+                    break;
             }
         });
     }
@@ -122,7 +130,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
 
         this._isProcessing = true;
-        
+
         console.log('[ChatView] ========== HANDLING USER MESSAGE ==========');
         console.log('[ChatView] Message:', message);
         console.log('[ChatView] Attachments:', attachments?.length || 0);
@@ -134,7 +142,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         // Build message with attachments
         let fullMessage = message;
         if (attachments && attachments.length > 0) {
-            const attachmentTexts = attachments.map(att => 
+            const attachmentTexts = attachments.map(att =>
                 `\n\n📎 **Attached File: ${att.name}** (${att.type})\n\`\`\`${att.type}\n${att.content}\n\`\`\``
             ).join('');
             fullMessage = message + attachmentTexts;
@@ -145,7 +153,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         if (mentions && mentions.length > 0) {
             console.log('[ChatView] Processing mentions for schema context...');
             let schemaContext = '\n\n=== DATABASE SCHEMA CONTEXT (Use this information to answer the question) ===\n';
-            
+
             for (const mention of mentions) {
                 console.log('[ChatView] Fetching schema for:', mention.schema + '.' + mention.name, 'type:', mention.type, 'connectionId:', mention.connectionId);
                 const obj: DbObject = {
@@ -157,7 +165,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     connectionName: '',
                     breadcrumb: mention.breadcrumb
                 };
-                
+
                 try {
                     const schemaInfo = await this._dbObjectService.getObjectSchema(obj);
                     mention.schemaInfo = schemaInfo;
@@ -169,22 +177,22 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 } catch (e) {
                     const errorMsg = e instanceof Error ? e.message : String(e);
                     console.error('[ChatView] Failed to get schema for mention:', mention.name, e);
-                    
+
                     // Notify user about the error
                     this._view?.webview.postMessage({
                         type: 'schemaError',
                         object: `${mention.schema}.${mention.name}`,
                         error: errorMsg
                     });
-                    
+
                     // Still add a note in context so AI knows there was an issue
                     schemaContext += `\n### ${mention.type.toUpperCase()}: ${mention.schema}.${mention.name}\n`;
                     schemaContext += `[Schema could not be retrieved: ${errorMsg}]\n`;
                 }
             }
-            
+
             schemaContext += '\n=== END DATABASE SCHEMA CONTEXT ===\n\n';
-            
+
             // Prepend schema context to the message so AI sees it first
             aiMessage = schemaContext + fullMessage;
             console.log('[ChatView] AI message with schema context length:', aiMessage.length);
@@ -222,21 +230,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 console.log('[ChatView] Calling direct API:', provider);
                 response = await this._aiService.callDirectApi(provider, aiMessage, config);
             }
-            
+
             console.log('[ChatView] AI response received, length:', response.length);
-            
+
             // Sanitize response - remove any HTML-like patterns that shouldn't be there
             // This prevents the model from learning bad patterns from previous responses
             response = this._sanitizeResponse(response);
 
             this._messages.push({ role: 'assistant', content: response });
-            
+
             await this._saveCurrentSession();
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
-            this._messages.push({ 
-                role: 'assistant', 
-                content: `❌ Error: ${errorMessage}\n\nPlease check your AI provider settings in the extension configuration.` 
+            this._messages.push({
+                role: 'assistant',
+                content: `❌ Error: ${errorMessage}\n\nPlease check your AI provider settings in the extension configuration.`
             });
         } finally {
             this._setTypingIndicator(false);
@@ -250,19 +258,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         // Remove patterns like: sql-keyword">, sql-string">, sql-function">, sql-number">, function">
         // These are CSS class artifacts that sometimes leak into AI responses
         let cleaned = response;
-        
+
         // Remove CSS class-like patterns followed by ">
         cleaned = cleaned.replace(/\b(sql-keyword|sql-string|sql-function|sql-number|sql-type|sql-comment|sql-operator|sql-special|function)"\s*>/gi, '');
-        
-        // Remove any remaining HTML-like tags that shouldn't be in markdown
-        cleaned = cleaned.replace(/<span[^>]*>/gi, '');
-        cleaned = cleaned.replace(/<\/span>/gi, '');
-        
+
         // Log if we found and cleaned anything
         if (cleaned !== response) {
             console.log('[ChatView] Sanitized AI response - removed HTML artifacts');
         }
-        
+
         return cleaned;
     }
 
@@ -274,9 +278,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             if (this._dbObjectService.getCache().length === 0) {
                 await this._dbObjectService.fetchDbObjects();
             }
-            
+
             const filtered = this._dbObjectService.searchObjects(query);
-            
+
             this._view?.webview.postMessage({
                 type: 'dbObjectsResult',
                 objects: filtered
@@ -338,9 +342,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 const fileContent = await vscode.workspace.fs.readFile(fileUri[0]);
                 const content = new TextDecoder().decode(fileContent);
                 const fileName = fileUri[0].path.split('/').pop() || 'file';
-                
+
                 const maxSize = 50000;
-                const truncatedContent = content.length > maxSize 
+                const truncatedContent = content.length > maxSize
                     ? content.substring(0, maxSize) + '\n... (truncated)'
                     : content;
 
@@ -370,14 +374,58 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         return typeMap[ext] || 'text';
     }
 
+    // ==================== Notebook Integration ====================
+
+    private async _handleOpenInNotebook(code: string): Promise<void> {
+        try {
+            const activeNotebook = vscode.window.activeNotebookEditor;
+
+            if (activeNotebook && activeNotebook.notebook.notebookType === 'postgres-notebook') {
+                // Insert new SQL cell at the end
+                const edit = new vscode.WorkspaceEdit();
+                const cellData = new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Code,
+                    code,
+                    'sql'
+                );
+                const notebookEdit = vscode.NotebookEdit.insertCells(
+                    activeNotebook.notebook.cellCount,
+                    [cellData]
+                );
+                edit.set(activeNotebook.notebook.uri, [notebookEdit]);
+                await vscode.workspace.applyEdit(edit);
+
+                // Send success back to webview
+                this._view?.webview.postMessage({
+                    type: 'notebookResult',
+                    success: true
+                });
+            } else {
+                // No active notebook - send error back to webview
+                this._view?.webview.postMessage({
+                    type: 'notebookResult',
+                    success: false,
+                    error: 'Open notebook first'
+                });
+            }
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            this._view?.webview.postMessage({
+                type: 'notebookResult',
+                success: false,
+                error: errorMessage
+            });
+        }
+    }
+
     // ==================== Session Management ====================
 
     private async _saveCurrentSession(): Promise<void> {
         const config = vscode.workspace.getConfiguration('postgresExplorer');
         const provider = config.get<string>('aiProvider') || 'vscode-lm';
-        
+
         await this._sessionService.saveSession(
-            this._messages, 
+            this._messages,
             (msg) => this._aiService.generateTitle(msg, provider)
         );
         this._sendHistoryToWebview();
@@ -395,12 +443,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         console.log('[ChatView] _deleteSession called with:', sessionId);
         const wasCurrentSession = await this._sessionService.deleteSession(sessionId);
         console.log('[ChatView] Session deleted, wasCurrentSession:', wasCurrentSession);
-        
+
         if (wasCurrentSession) {
             this._messages = [];
             this._updateChatHistory();
         }
-        
+
         console.log('[ChatView] Sending updated history to webview...');
         this._sendHistoryToWebview();
     }
@@ -439,7 +487,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             const config = vscode.workspace.getConfiguration('postgresExplorer');
             const provider = config.get<string>('aiProvider') || 'vscode-lm';
             const modelInfo = await this._aiService.getModelInfo(provider, config);
-            
+
             this._view.webview.postMessage({
                 type: 'updateModelInfo',
                 modelName: modelInfo

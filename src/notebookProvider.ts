@@ -17,6 +17,8 @@ interface NotebookMetadata {
 
 interface Cell {
     value: string;
+    kind?: 'markdown' | 'sql';
+    language?: 'markdown' | 'sql';
 }
 
 export class PostgresNotebookProvider implements vscode.NotebookSerializer {
@@ -34,13 +36,14 @@ export class PostgresNotebookProvider implements vscode.NotebookSerializer {
                     metadata = data.metadata;
                 }
                 if (Array.isArray(data.cells)) {
-                    cells = data.cells.map((cell: Cell) =>
-                        new vscode.NotebookCellData(
-                            vscode.NotebookCellKind.Code,
+                    cells = data.cells.map((cell: Cell) => {
+                        const isMarkdown = cell.kind === 'markdown';
+                        return new vscode.NotebookCellData(
+                            isMarkdown ? vscode.NotebookCellKind.Markup : vscode.NotebookCellKind.Code,
                             cell.value,
-                            'sql'
-                        )
-                    );
+                            isMarkdown ? 'markdown' : 'sql'
+                        );
+                    });
                 }
             } catch {
                 cells = [

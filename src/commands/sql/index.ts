@@ -15,3 +15,4 @@ export { TypeSQL } from './types';
 export { ExtensionSQL } from './extensions';
 export { MaterializedViewSQL } from './materializedViews';
 export { ForeignTableSQL } from './foreignTables';
+export { SQL_TEMPLATES, QueryBuilder, MaintenanceTemplates } from './helper';

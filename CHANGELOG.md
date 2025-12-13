@@ -5,6 +5,90 @@ All notable changes to the PostgreSQL Explorer extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.4] - 2025-12-13
+
+### Rebranding
+- **Project Renamed**: The extension is now **PgStudio**! (formerly "YAPE" / "PostgreSQL Explorer").
+- Updated all documentation and UI references to reflect the new professional identity.
+
+### Added
+- **Dashboard Visuals**: Added "glow" and "blur" effects to dashboard charts for a modern, premium look.
+- **Improved Markdown in Chat**: SQL Assistant now renders rich Markdown tables and syntax highlighting correctly.
+
+### Improved
+- **Notebook UX**: The "Open in Notebook" button now provides clearer feedback when no notebook is active.
+- **Documentation**: Comprehensive updates to README and Marketplace page.
+
+## [0.5.3] - 2025-12-07
+
+### Fixed
+- Minor bug fixes and stability improvements
+- Fixed linting errors and type issues across command files
+
+---
+
+## [0.5.2] - 2025-12-06
+
+### Changed
+- **SQL Template Refactoring**: Extracted embedded SQL from TypeScript command files into dedicated template modules
+  - Created `src/commands/sql/` directory with 13 specialized SQL template modules
+  - Modules: columns, constraints, extensions, foreignTables, functions, indexes, materializedViews, schema, tables, types, usersRoles, views
+  - Improved code maintainability and separation of concerns
+
+---
+
+## [0.5.1] - 2025-12-05
+
+### Changed
+- **Helper Abstractions Refactoring**: Refactored command files to use `getDatabaseConnection` and `NotebookBuilder` methods
+  - Updated `tables.ts`, `database.ts`, and `aiAssist.ts` to use new helper abstractions
+  - Improved code reusability and consistency across commands
+
+---
+
+## [0.5.0] - 2025-12-05
+
+### Added
+- **Enhanced Table Renderer**: New `renderer_v2.ts` with improved table output styling
+- **Export Data Functionality**: Export query results to CSV, JSON, and Excel formats
+- **Column Operations**: Enhanced column context menu with copy, scripts, and statistics
+- **Constraint Operations**: Enhanced constraint management with validation and dependencies
+- **Index Operations**: Enhanced index management with usage analysis and maintenance scripts
+
+### Fixed
+- Fixed persistent renderer cache issues
+- Fixed excessive row height in table output
+- Fixed chart initialization in dashboard
+
+---
+
+## [0.4.0] - 2025-12-03
+
+### Added
+- **Inline Create Buttons**: Added "+" buttons for creating objects directly from category nodes
+  - Tables, Views, Functions, Types, Materialized Views, Foreign Tables, Roles, Extensions, Schemas, Databases
+- **Enhanced Script Generation**: Improved CREATE script generation for indexes
+- **Column Context Menu**: Added comprehensive column operations menu
+
+### Fixed
+- Fixed connection UI button functionality
+- Fixed index creation script visibility in context menu
+
+---
+
+## [0.3.0] - 2025-12-01
+
+### Added
+- **Comprehensive Test Coverage**: Added unit tests for NotebookKernel with improved coverage
+- **Serialization Error Handling**: Improved handling of serialization errors in query results
+
+### Changed
+- Improved dashboard UI with pastel colors and modern styling
+- Enhanced chart visualizations with area charts and translucent effects
+- Fixed Cancel and Kill buttons in active queries table
+
+---
+
 ## [0.2.3] - 2025-11-29
 
 ### Added

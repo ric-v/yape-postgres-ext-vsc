@@ -40,7 +40,7 @@ export function getChatViewProvider(): ChatViewProvider | undefined {
 }
 
 export async function activate(context: vscode.ExtensionContext) {
-    outputChannel = vscode.window.createOutputChannel('PostgreSQL Explorer');
+    outputChannel = vscode.window.createOutputChannel('PgStudio');
     outputChannel.appendLine('postgres-explorer: Activating extension');
     console.log('postgres-explorer: Activating extension');
 
