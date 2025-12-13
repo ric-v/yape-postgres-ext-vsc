@@ -1,7 +1,7 @@
 {
   "name": "postgres-explorer",
   "displayName": "PostgreSQL Explorer",
-  "version": "0.5.3",
+  "version": "0.6",
   "description": "PostgreSQL database explorer for VS Code with notebook support",
   "publisher": "ric-v",
   "private": false,
