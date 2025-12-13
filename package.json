@@ -1493,6 +1493,7 @@
     "coverage": "nyc npm run test"
   },
   "dependencies": {
+    "chart.js": "^4.5.1",
     "esbuild": ">=0.25.0",
     "pg": "^8.11.3"
   },
