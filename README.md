@@ -17,9 +17,19 @@
 
 ---
 
-## 📸 Preview
+## 📺 Video Guides
 
-![Dashboard](resources/screenshots/pg-exp-dash.png)
+### 1. Setup
+<video src="docs/assets/01-setup.mp4" controls width="100%" title="PgStudio Setup"></video>
+
+### 2. Database Explorer
+<video src="docs/assets/03-explorer.mp4" controls width="100%" title="Database Explorer"></video>
+
+### 3. AI Assistant Setup
+<video src="docs/assets/02-ai-assist-setup.mp4" controls width="100%" title="AI Assistant Setup"></video>
+
+### 4. AI Assistant Usage
+<video src="docs/assets/04-ai-assist.mp4" controls width="100%" title="AI Assistant Usage"></video>
 
 ---
 
