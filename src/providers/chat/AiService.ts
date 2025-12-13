@@ -100,22 +100,22 @@ IMPORTANT: At the end of each response, provide 2-4 numbered follow-up questions
 Make these questions relevant to the topic discussed and progressively more advanced.`;
     }
 
-    async callVsCodeLm(userMessage: string, config: vscode.WorkspaceConfiguration): Promise<string> {
+    async callVsCodeLm(userMessage: string, config: vscode.WorkspaceConfiguration, customSystemPrompt?: string): Promise<string> {
         const configuredModel = config.get<string>('aiModel');
         let models: vscode.LanguageModelChat[];
-        
+
         if (configuredModel) {
             // Extract base name if format is "name (family)"
             const baseName = configuredModel.replace(/\s*\(.*\)$/, '').trim();
-            
+
             // Try to find the specific model by name/id/family
             const allModels = await vscode.lm.selectChatModels({});
-            const matchingModels = allModels.filter(m => 
-                m.id === baseName || 
-                m.name === baseName || 
+            const matchingModels = allModels.filter(m =>
+                m.id === baseName ||
+                m.name === baseName ||
                 m.family === baseName ||
-                m.id === configuredModel || 
-                m.name === configuredModel || 
+                m.id === configuredModel ||
+                m.name === configuredModel ||
                 m.family === configuredModel
             );
             models = matchingModels.length > 0 ? matchingModels : allModels;
@@ -132,29 +132,26 @@ Make these questions relevant to the topic discussed and progressively more adva
             throw new Error('No AI models available via VS Code API. Please ensure GitHub Copilot Chat is installed or switch provider.');
         }
 
-        const systemPrompt = this.buildSystemPrompt();
-        const messages = [
-            vscode.LanguageModelChatMessage.User(systemPrompt),
-            ...this._messages.slice(-10).map(msg => 
-                msg.role === 'user' 
+        const systemPrompt = customSystemPrompt !== undefined ? customSystemPrompt : this.buildSystemPrompt();
+
+        const messages = [];
+        if (systemPrompt) {
+            messages.push(vscode.LanguageModelChatMessage.User(systemPrompt));
+        }
+
+        messages.push(
+            ...this._messages.slice(-10).map(msg =>
+                msg.role === 'user'
                     ? vscode.LanguageModelChatMessage.User(this._sanitizeContent(msg.content))
                     : vscode.LanguageModelChatMessage.Assistant(this._sanitizeContent(msg.content))
-            ),
-            vscode.LanguageModelChatMessage.User(userMessage)
-        ];
+            )
+        );
+        messages.push(vscode.LanguageModelChatMessage.User(userMessage));
 
         // Debug: Log all messages being sent to model
         console.log('[AiService] ========== MESSAGES SENT TO MODEL ==========');
         console.log('[AiService] System prompt length:', systemPrompt.length);
         console.log('[AiService] Conversation history messages:', this._messages.length);
-        for (let i = 0; i < messages.length; i++) {
-            const msg = messages[i];
-            const role = i === 0 ? 'SYSTEM' : (msg.role === vscode.LanguageModelChatMessageRole.User ? 'USER' : 'ASSISTANT');
-            const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
-            console.log(`[AiService] Message ${i} (${role}):`, content.substring(0, 500) + (content.length > 500 ? '...' : ''));
-        }
-        console.log('[AiService] Current user message:', userMessage);
-        console.log('[AiService] ========== END MESSAGES ==========');
 
         const chatRequest = await model.sendRequest(messages, {}, new vscode.CancellationTokenSource().token);
         let responseText = '';
@@ -162,11 +159,6 @@ Make these questions relevant to the topic discussed and progressively more adva
         for await (const fragment of chatRequest.text) {
             responseText += fragment;
         }
-
-        // Debug: Log raw response from model
-        console.log('[AiService] ========== RAW RESPONSE FROM MODEL ==========');
-        console.log(responseText);
-        console.log('[AiService] ========== END RAW RESPONSE ==========');
 
         return responseText;
     }
@@ -176,12 +168,10 @@ Make these questions relevant to the topic discussed and progressively more adva
         let cleaned = content;
         // Remove CSS class-like patterns that may have leaked into history
         cleaned = cleaned.replace(/\b(sql-keyword|sql-string|sql-function|sql-number|sql-type|sql-comment|sql-operator|sql-special|function)"\s*>/gi, '');
-        cleaned = cleaned.replace(/<span[^>]*>/gi, '');
-        cleaned = cleaned.replace(/<\/span>/gi, '');
         return cleaned;
     }
 
-    async callDirectApi(provider: string, userMessage: string, config: vscode.WorkspaceConfiguration): Promise<string> {
+    async callDirectApi(provider: string, userMessage: string, config: vscode.WorkspaceConfiguration, customSystemPrompt?: string): Promise<string> {
         const apiKey = config.get<string>('aiApiKey');
         if (!apiKey) {
             throw new Error(`API Key is required for ${provider} provider. Please configure postgresExplorer.aiApiKey.`);
@@ -195,8 +185,8 @@ Make these questions relevant to the topic discussed and progressively more adva
         };
         let body: any = {};
 
-        const systemPrompt = this.buildSystemPrompt();
-        
+        const systemPrompt = customSystemPrompt !== undefined ? customSystemPrompt : this.buildSystemPrompt();
+
         // Sanitize conversation history to remove any HTML artifacts
         const conversationHistory = this._messages.slice(-10).map(msg => ({
             role: msg.role,
@@ -205,14 +195,18 @@ Make these questions relevant to the topic discussed and progressively more adva
 
         if (provider === 'openai') {
             endpoint = 'https://api.openai.com/v1/chat/completions';
-            model = model || 'gpt-4';
+            model = model || 'gpt-4o';
+
+            const messages: any[] = [];
+            if (systemPrompt) {
+                messages.push({ role: 'system', content: systemPrompt });
+            }
+            messages.push(...conversationHistory);
+            messages.push({ role: 'user', content: userMessage });
+
             body = {
                 model: model,
-                messages: [
-                    { role: 'system', content: systemPrompt },
-                    ...conversationHistory,
-                    { role: 'user', content: userMessage }
-                ],
+                messages: messages,
                 temperature: 0.7
             };
         } else if (provider === 'anthropic') {
@@ -231,34 +225,38 @@ Make these questions relevant to the topic discussed and progressively more adva
                 max_tokens: 4096
             };
         } else if (provider === 'gemini') {
-            model = model || 'gemini-pro';
+            model = model || 'gemini-1.5-flash';
             endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
             headers['X-goog-api-key'] = apiKey;
             delete headers['Authorization'];
-            
-            const contents = [
-                { role: 'user', parts: [{ text: systemPrompt }] },
-                ...conversationHistory.map(msg => ({
-                    role: msg.role === 'assistant' ? 'model' : 'user',
-                    parts: [{ text: msg.content }]
-                })),
-                { role: 'user', parts: [{ text: userMessage }] }
-            ];
-            
-            body = { contents };
+
+            body = {
+                systemInstruction: systemPrompt ? { parts: [{ text: systemPrompt }] } : undefined,
+                contents: [
+                    ...conversationHistory.map(msg => ({
+                        role: msg.role === 'assistant' ? 'model' : 'user',
+                        parts: [{ text: msg.content }]
+                    })),
+                    { role: 'user', parts: [{ text: userMessage }] }
+                ]
+            };
         } else if (provider === 'custom') {
             endpoint = config.get<string>('aiEndpoint') || '';
             if (!endpoint) {
                 throw new Error('Endpoint is required for custom provider');
             }
             model = model || 'gpt-3.5-turbo';
+
+            const messages: any[] = [];
+            if (systemPrompt) {
+                messages.push({ role: 'system', content: systemPrompt });
+            }
+            messages.push(...conversationHistory);
+            messages.push({ role: 'user', content: userMessage });
+
             body = {
                 model: model,
-                messages: [
-                    { role: 'system', content: systemPrompt },
-                    ...conversationHistory,
-                    { role: 'user', content: userMessage }
-                ]
+                messages: messages
             };
         } else {
             throw new Error(`Unsupported provider: ${provider}`);
@@ -288,7 +286,7 @@ Make these questions relevant to the topic discussed and progressively more adva
                 res.on('end', () => {
                     try {
                         const response = JSON.parse(data);
-                        
+
                         if (res.statusCode !== 200) {
                             reject(new Error(response.error?.message || `API request failed with status ${res.statusCode}`));
                             return;
@@ -302,10 +300,15 @@ Make these questions relevant to the topic discussed and progressively more adva
                         } else {
                             content = response.choices?.[0]?.message?.content || '';
                         }
-                        
+
+                        if (!content && provider === 'custom') {
+                            content = JSON.stringify(response); // Fallback
+                        }
+
                         resolve(content);
                     } catch (e) {
-                        reject(new Error('Failed to parse API response'));
+                        // If response is not JSON, we might want to log it
+                        reject(new Error(`Failed to parse API response: ${e instanceof Error ? e.message : String(e)}`));
                     }
                 });
             });
@@ -331,7 +334,7 @@ Make these questions relevant to the topic discussed and progressively more adva
                     return title.trim().substring(0, 50);
                 }
             }
-            
+
             // Fallback to simple extraction
             const title = firstMessage.substring(0, 40).replace(/\n/g, ' ').trim();
             return title.length === 40 ? title + '...' : title;
@@ -344,12 +347,12 @@ Make these questions relevant to the topic discussed and progressively more adva
     async getModelInfo(provider: string, config: vscode.WorkspaceConfiguration): Promise<string> {
         try {
             const configuredModel = config.get<string>('aiModel');
-            
+
             if (provider === 'vscode-lm') {
                 if (configuredModel) {
                     const baseName = configuredModel.replace(/\s*\(.*\)$/, '').trim();
-                    const allModels = await vscode.lm.selectChatModels({});
-                    const matchingModels = allModels.filter(m => 
+                    const allModels = await this._selectChatModelsWithTimeout({});
+                    const matchingModels = allModels.filter((m: vscode.LanguageModelChat) =>
                         m.id === baseName || m.name === baseName || m.family === baseName ||
                         m.id === configuredModel || m.name === configuredModel || m.family === configuredModel
                     );
@@ -357,12 +360,12 @@ Make these questions relevant to the topic discussed and progressively more adva
                         return matchingModels[0].name || matchingModels[0].id;
                     }
                 }
-                const models = await vscode.lm.selectChatModels({ family: 'gpt-4o' });
+                const models = await this._selectChatModelsWithTimeout({ family: 'gpt-4o' });
                 if (models.length > 0) {
                     return models[0].name || models[0].id;
                 }
-                const anyModels = await vscode.lm.selectChatModels({});
-                return anyModels.length > 0 ? (anyModels[0].name || anyModels[0].id) : 'Unknown';
+                const anyModels = await this._selectChatModelsWithTimeout({});
+                return anyModels.length > 0 ? (anyModels[0].name || anyModels[0].id) : 'VS Code LM (No Models)';
             } else {
                 return configuredModel || this._getDefaultModel(provider);
             }
@@ -373,11 +376,29 @@ Make these questions relevant to the topic discussed and progressively more adva
 
     private _getDefaultModel(provider: string): string {
         switch (provider) {
-            case 'openai': return 'gpt-4';
+            case 'openai': return 'gpt-4o';
             case 'anthropic': return 'claude-3-5-sonnet-20241022';
-            case 'gemini': return 'gemini-pro';
+            case 'gemini': return 'gemini-1.5-flash';
             case 'custom': return 'custom-model';
             default: return 'Unknown';
         }
+    }
+
+    private async _selectChatModelsWithTimeout(selector: vscode.LanguageModelChatSelector): Promise<vscode.LanguageModelChat[]> {
+        return new Promise((resolve) => {
+            const timeout = setTimeout(() => {
+                console.warn('[AiService] vscode.lm.selectChatModels timed out after 2000ms');
+                resolve([]);
+            }, 2000);
+
+            vscode.lm.selectChatModels(selector).then((models) => {
+                clearTimeout(timeout);
+                resolve(models);
+            }, (error) => {
+                clearTimeout(timeout);
+                console.error('[AiService] vscode.lm.selectChatModels failed:', error);
+                resolve([]);
+            });
+        });
     }
 }

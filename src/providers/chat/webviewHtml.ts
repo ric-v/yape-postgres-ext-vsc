@@ -3,13 +3,19 @@
  */
 import * as vscode from 'vscode';
 
-export function getWebviewHtml(webview: vscode.Webview): string {
+export function getWebviewHtml(webview: vscode.Webview, markedUri: vscode.Uri, highlightJsUri: vscode.Uri, highlightCssUri: vscode.Uri): string {
+    const cspSource = webview.cspSource;
+
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src ${cspSource} 'unsafe-inline';">
     <title>PostgreSQL Chat</title>
+    <link rel="stylesheet" href="${highlightCssUri}">
+    <script src="${markedUri}"></script>
+    <script src="${highlightJsUri}"></script>
     <style>
         :root {
             --chat-spacing: 12px;
@@ -516,6 +522,48 @@ export function getWebviewHtml(webview: vscode.Webview): string {
             height: 12px;
         }
 
+        .code-block-actions {
+            display: flex;
+            gap: 4px;
+        }
+
+        .notebook-btn {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 8px;
+            font-size: 11px;
+            color: var(--vscode-descriptionForeground);
+            background: transparent;
+            border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .notebook-btn:hover {
+            background: var(--vscode-button-secondaryBackground);
+            color: var(--vscode-button-secondaryForeground);
+            border-color: var(--vscode-button-secondaryBackground);
+        }
+
+        .notebook-btn.added {
+            background: var(--vscode-charts-green, #4caf50);
+            color: white;
+            border-color: var(--vscode-charts-green, #4caf50);
+        }
+
+        .notebook-btn svg {
+            width: 12px;
+            height: 12px;
+        }
+
+        .notebook-btn.error {
+            background: var(--vscode-inputValidation-errorBackground, #5a1d1d);
+            color: var(--vscode-errorForeground, #f48771);
+            border-color: var(--vscode-inputValidation-errorBorder, #be1100);
+        }
+
         /* SQL Syntax Highlighting */
         .sql-keyword {
             color: var(--vscode-symbolIcon-keywordForeground, #569cd6);
@@ -541,6 +589,14 @@ export function getWebviewHtml(webview: vscode.Webview): string {
 
         .sql-operator {
             color: var(--vscode-symbolIcon-operatorForeground, #d4d4d4);
+        }
+
+        .sql-identifier {
+            color: var(--vscode-symbolIcon-variableForeground, #9cdcfe);
+        }
+
+        .sql-punctuation {
+            color: var(--vscode-symbolIcon-punctuationForeground, #d4d4d4);
         }
 
         .sql-type {
@@ -591,6 +647,30 @@ export function getWebviewHtml(webview: vscode.Webview): string {
         .message-content h1 { font-size: 1.25em; }
         .message-content h2 { font-size: 1.15em; }
         .message-content h3 { font-size: 1.05em; }
+
+        .message-content table {
+            display: block;
+            overflow-x: auto;
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0;
+        }
+
+        .message-content th,
+        .message-content td {
+            padding: 6px 10px;
+            border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+            text-align: left;
+        }
+
+        .message-content th {
+            background-color: var(--vscode-keybindingTable-headerBackground, rgba(128, 128, 128, 0.1));
+            font-weight: 600;
+        }
+
+        .message-content tr:nth-child(even) {
+            background-color: var(--vscode-keybindingTable-rowsBackground, rgba(128, 128, 128, 0.04));
+        }
 
         .input-container {
             display: flex;
@@ -1929,6 +2009,16 @@ export function getWebviewHtml(webview: vscode.Webview): string {
             return div.innerHTML;
         }
 
+        // Escape characters for HTML attribute values
+        function escapeAttribute(str) {
+            if (!str) return '';
+            return str
+                .replace(/&/g, '&amp;')
+                .replace(/"/g, '&quot;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+        }
+
         // Copy code to clipboard
         function copyCode(button, codeId) {
             const codeElement = document.getElementById(codeId);
@@ -1936,13 +2026,8 @@ export function getWebviewHtml(webview: vscode.Webview): string {
             
             // Use data-raw attribute if available (preserves original code without HTML)
             // Otherwise fall back to textContent
-            let code = codeElement.getAttribute('data-raw');
-            if (code) {
-                // Decode HTML entities that were escaped
-                code = code.replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
-            } else {
-                code = codeElement.textContent || '';
-            }
+            const rawCode = codeElement.getAttribute('data-raw');
+            const code = rawCode !== null ? rawCode : (codeElement.textContent || '');
             
             navigator.clipboard.writeText(code).then(() => {
                 button.classList.add('copied');
@@ -1965,215 +2050,249 @@ export function getWebviewHtml(webview: vscode.Webview): string {
             });
         }
 
-        // SQL Syntax Highlighter - simplified and robust version
-        function highlightSql(code) {
-            // Token-based approach: split code into tokens and classify each
-            const tokens = [];
-            let remaining = code;
+        // Open SQL code in active notebook
+        let pendingNotebookButton = null;
+        let pendingNotebookOriginalHtml = null;
+        
+        function openInNotebook(button, codeId) {
+            const codeElement = document.getElementById(codeId);
+            if (!codeElement) return;
             
-            while (remaining.length > 0) {
-                let matched = false;
-                
-                // Comments: -- single line
-                let match = remaining.match(/^(--[^\\n]*)/);
-                if (match) {
-                    tokens.push({ type: 'comment', text: match[1] });
-                    remaining = remaining.slice(match[1].length);
-                    matched = true;
-                    continue;
-                }
-                
-                // Comments: /* multi-line */
-                match = remaining.match(/^(\\/\\*[\\s\\S]*?\\*\\/)/);
-                if (match) {
-                    tokens.push({ type: 'comment', text: match[1] });
-                    remaining = remaining.slice(match[1].length);
-                    matched = true;
-                    continue;
-                }
-                
-                // Strings: 'single quoted' (handles escaped quotes)
-                match = remaining.match(/^('(?:[^'\\\\]|\\\\.)*')/);
-                if (match) {
-                    tokens.push({ type: 'string', text: match[1] });
-                    remaining = remaining.slice(match[1].length);
-                    matched = true;
-                    continue;
-                }
-                
-                // Numbers (integers and decimals)
-                match = remaining.match(/^(\\d+\\.?\\d*)/);
-                if (match) {
-                    tokens.push({ type: 'number', text: match[1] });
-                    remaining = remaining.slice(match[1].length);
-                    matched = true;
-                    continue;
-                }
-                
-                // Words (identifiers, keywords, functions)
-                match = remaining.match(/^([a-zA-Z_][a-zA-Z0-9_]*)/);
-                if (match) {
-                    const word = match[1];
-                    const upperWord = word.toUpperCase();
-                    
-                    // Check if it's a function (followed by parenthesis)
-                    const afterWord = remaining.slice(word.length);
-                    const isFunction = /^\\s*\\(/.test(afterWord);
-                    
-                    const keywords = ['SELECT', 'FROM', 'WHERE', 'AND', 'OR', 'NOT', 'IN', 'IS', 'NULL', 'INSERT', 'INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE', 'DROP', 'CREATE', 'ALTER', 'TABLE', 'INDEX', 'VIEW', 'DATABASE', 'SCHEMA', 'TRIGGER', 'FUNCTION', 'PROCEDURE', 'RETURNS', 'RETURN', 'BEGIN', 'END', 'IF', 'THEN', 'ELSE', 'ELSIF', 'CASE', 'WHEN', 'LOOP', 'WHILE', 'FOR', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER', 'FULL', 'CROSS', 'ON', 'AS', 'ASC', 'DESC', 'ORDER', 'BY', 'GROUP', 'HAVING', 'LIMIT', 'OFFSET', 'UNION', 'ALL', 'DISTINCT', 'EXISTS', 'BETWEEN', 'LIKE', 'ILIKE', 'SIMILAR', 'TO', 'PRIMARY', 'KEY', 'FOREIGN', 'REFERENCES', 'CONSTRAINT', 'UNIQUE', 'CHECK', 'DEFAULT', 'CASCADE', 'RESTRICT', 'WITH', 'RECURSIVE', 'LATERAL', 'GRANT', 'REVOKE', 'TRUNCATE', 'COMMIT', 'ROLLBACK', 'TRANSACTION', 'SAVEPOINT', 'DECLARE', 'CURSOR', 'FETCH', 'CLOSE', 'EXECUTE', 'PREPARE', 'EXPLAIN', 'ANALYZE', 'VACUUM', 'COPY', 'RAISE', 'EXCEPTION', 'NOTICE', 'COALESCE', 'NULLIF', 'GREATEST', 'LEAST', 'TRUE', 'FALSE', 'OVER', 'PARTITION'];
-                    
-                    const builtinFunctions = ['COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'ARRAY_AGG', 'STRING_AGG', 'CONCAT', 'SUBSTRING', 'TRIM', 'UPPER', 'LOWER', 'LENGTH', 'REPLACE', 'SPLIT_PART', 'REGEXP_REPLACE', 'REGEXP_MATCHES', 'POSITION', 'NOW', 'CURRENT_TIMESTAMP', 'CURRENT_DATE', 'CURRENT_TIME', 'DATE_TRUNC', 'DATE_PART', 'EXTRACT', 'AGE', 'INTERVAL', 'TO_CHAR', 'TO_DATE', 'TO_TIMESTAMP', 'TO_NUMBER', 'CAST', 'CONVERT', 'ROUND', 'FLOOR', 'CEIL', 'ABS', 'MOD', 'POWER', 'SQRT', 'RANDOM', 'GENERATE_SERIES', 'UNNEST', 'JSON_BUILD_OBJECT', 'JSON_AGG', 'JSONB_SET', 'ROW_NUMBER', 'RANK', 'DENSE_RANK', 'LAG', 'LEAD', 'FIRST_VALUE', 'LAST_VALUE', 'NULLIF', 'COALESCE'];
-                    
-                    const types = ['INT', 'INTEGER', 'BIGINT', 'SMALLINT', 'SERIAL', 'BIGSERIAL', 'NUMERIC', 'DECIMAL', 'REAL', 'DOUBLE', 'PRECISION', 'FLOAT', 'VARCHAR', 'CHAR', 'TEXT', 'BYTEA', 'BOOLEAN', 'BOOL', 'DATE', 'TIME', 'TIMESTAMP', 'TIMESTAMPTZ', 'UUID', 'JSON', 'JSONB', 'XML', 'MONEY', 'INET'];
-                    
-                    if (isFunction && builtinFunctions.includes(upperWord)) {
-                        tokens.push({ type: 'function', text: word });
-                    } else if (keywords.includes(upperWord)) {
-                        tokens.push({ type: 'keyword', text: word });
-                    } else if (types.includes(upperWord)) {
-                        tokens.push({ type: 'type', text: word });
-                    } else {
-                        tokens.push({ type: 'text', text: word });
-                    }
-                    remaining = remaining.slice(word.length);
-                    matched = true;
-                    continue;
-                }
-                
-                // Type cast ::
-                match = remaining.match(/^(::[a-zA-Z_][a-zA-Z0-9_]*)/);
-                if (match) {
-                    tokens.push({ type: 'special', text: match[1] });
-                    remaining = remaining.slice(match[1].length);
-                    matched = true;
-                    continue;
-                }
-                
-                // Parameter $1, $2, etc
-                match = remaining.match(/^(\\$\\d+)/);
-                if (match) {
-                    tokens.push({ type: 'special', text: match[1] });
-                    remaining = remaining.slice(match[1].length);
-                    matched = true;
-                    continue;
-                }
-                
-                // Any other character (operators, whitespace, etc)
-                if (!matched) {
-                    tokens.push({ type: 'text', text: remaining[0] });
-                    remaining = remaining.slice(1);
-                }
+            const rawCode = codeElement.getAttribute('data-raw');
+            const code = rawCode !== null ? rawCode : (codeElement.textContent || '');
+            
+            // Store button reference for response handling
+            pendingNotebookButton = button;
+            pendingNotebookOriginalHtml = button.innerHTML;
+            
+            vscode.postMessage({
+                type: 'openInNotebook',
+                code: code
+            });
+        }
+        
+        function handleNotebookResult(success, error) {
+            if (!pendingNotebookButton) return;
+            
+            const button = pendingNotebookButton;
+            const originalHtml = pendingNotebookOriginalHtml;
+            
+            if (success) {
+                button.classList.add('added');
+                button.innerHTML = \`
+                    <svg viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z"/>
+                    </svg>
+                    Added!
+                \`;
+            } else {
+                button.classList.add('error');
+                button.innerHTML = \`
+                    <svg viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M8 1a7 7 0 110 14A7 7 0 018 1zm0 2.5a.75.75 0 00-.75.75v3.5a.75.75 0 001.5 0v-3.5A.75.75 0 008 3.5zm0 8a1 1 0 100-2 1 1 0 000 2z"/>
+                    </svg>
+                    \${error || 'Error'}
+                \`;
             }
             
-            // Build result
-            return tokens.map(token => {
-                switch (token.type) {
-                    case 'keyword': return '<span class="sql-keyword">' + token.text + '</span>';
-                    case 'function': return '<span class="sql-function">' + token.text + '</span>';
-                    case 'string': return '<span class="sql-string">' + token.text + '</span>';
-                    case 'number': return '<span class="sql-number">' + token.text + '</span>';
-                    case 'comment': return '<span class="sql-comment">' + token.text + '</span>';
-                    case 'type': return '<span class="sql-type">' + token.text + '</span>';
-                    case 'special': return '<span class="sql-special">' + token.text + '</span>';
-                    default: return token.text;
+            setTimeout(() => {
+                button.classList.remove('added');
+                button.classList.remove('error');
+                button.innerHTML = originalHtml;
+            }, 2000);
+            
+            pendingNotebookButton = null;
+            pendingNotebookOriginalHtml = null;
+        }
+
+        function highlightSql(code) {
+            const keywords = ['SELECT', 'FROM', 'WHERE', 'INSERT', 'UPDATE', 'DELETE', 'DROP', 'CREATE', 'ALTER', 'TABLE', 'INDEX', 'VIEW', 'FUNCTION', 'TRIGGER', 'PROCEDURE', 'CONSTRAINT', 'PRIMARY KEY', 'FOREIGN KEY', 'REFERENCES', 'JOIN', 'INNER', 'LEFT', 'RIGHT', 'OUTER', 'ON', 'GROUP BY', 'ORDER BY', 'HAVING', 'LIMIT', 'OFFSET', 'UNION', 'ALL', 'DISTINCT', 'AS', 'AND', 'OR', 'NOT', 'IN', 'EXISTS', 'BETWEEN', 'LIKE', 'ILIKE', 'IS', 'NULL', 'TRUE', 'FALSE', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'DEFAULT', 'VALUES', 'SET', 'RETURNING', 'BEGIN', 'COMMIT', 'ROLLBACK', 'TRANSACTION', 'GRANT', 'REVOKE'];
+            const types = ['INT', 'INTEGER', 'VARCHAR', 'TEXT', 'BOOLEAN', 'DATE', 'TIMESTAMP', 'NUMERIC', 'FLOAT', 'REAL', 'JSON', 'JSONB', 'UUID', 'SERIAL', 'BIGSERIAL'];
+            
+            let html = '';
+            let rest = code;
+            
+            while (rest.length > 0) {
+                let match;
+                
+                // Comments -- 
+                if (match = rest.match(/^(--[^\\n]*)/)) {
+                    html += '<span class="sql-comment">' + match[0] + '</span>';
+                    rest = rest.slice(match[0].length);
+                    continue;
                 }
-            }).join('');
+                
+                // Block comments /* */
+                if (match = rest.match(/^(\\/\\*[\\s\\S]*?\\*\\/)/)) {
+                    html += '<span class="sql-comment">' + match[0] + '</span>';
+                    rest = rest.slice(match[0].length);
+                    continue;
+                }
+                
+                // Strings
+                if (match = rest.match(/^('(?:[^'\\\\]|\\\\.)*')/)) {
+                    html += '<span class="sql-string">' + match[0] + '</span>';
+                    rest = rest.slice(match[0].length);
+                    continue;
+                }
+                
+                // Numbers
+                if (match = rest.match(/^(\\d+\\.?\\d*)/)) {
+                    html += '<span class="sql-number">' + match[0] + '</span>';
+                    rest = rest.slice(match[0].length);
+                    continue;
+                }
+                
+                // Keywords & Identifiers
+                if (match = rest.match(/^([a-zA-Z_][a-zA-Z0-9_.]*)/)) {
+                    // Note: added dot . to regex to capture schema.table as one chunk if generic
+                    // But to color them separately, we should stick to simple identifiers and handle dots as operators
+                    // Let's revert to simple identifiers and let the dot fall through to punctuation
+                }
+                if (match = rest.match(/^([a-zA-Z_][a-zA-Z0-9_]*)/)) {
+                    const word = match[0];
+                    const upper = word.toUpperCase();
+                    if (keywords.includes(upper)) {
+                        html += '<span class="sql-keyword">' + word + '</span>';
+                    } else if (types.includes(upper)) {
+                        html += '<span class="sql-type">' + word + '</span>';
+                    } else {
+                        // Function check: look ahead for (
+                        if (/^\\s*\\(/.test(rest.slice(word.length))) {
+                             html += '<span class="sql-function">' + word + '</span>';
+                        } else {
+                            html += '<span class="sql-identifier">' + word + '</span>';
+                        }
+                    }
+                    rest = rest.slice(word.length);
+                    continue;
+                }
+                
+                // HTML entities (skip them or color them)
+                if (match = rest.match(/^(&[a-zA-Z]+;)/)) {
+                     html += match[0];
+                     rest = rest.slice(match[0].length);
+                     continue;
+                }
+
+                // Operators: +, -, *, /, =, <, >, !, |, %
+                if (match = rest.match(/^([+\\-/*=<>!|%]+)/)) {
+                    html += '<span class="sql-operator">' + match[0] + '</span>';
+                    rest = rest.slice(match[0].length);
+                    continue;
+                }
+                
+                // Punctuation: , ; ( ) .
+                if (match = rest.match(/^([,;().]+)/)) {
+                    html += '<span class="sql-punctuation">' + match[0] + '</span>';
+                    rest = rest.slice(match[0].length);
+                    continue;
+                }
+
+                // catch-all
+                html += rest[0];
+                rest = rest.slice(1);
+            }
+            return html;
         }
 
         // Counter for unique code block IDs
         let codeBlockCounter = 0;
 
-        // Simple markdown parser
-        function parseMarkdown(text) {
-            // First, extract code blocks to protect them from HTML escaping
-            const codeBlocks = [];
-            let processedText = text.replace(/\`\`\`(\\w*)\\n([\\s\\S]*?)\`\`\`/g, (match, lang, code) => {
-                const placeholder = '___CODE_BLOCK_' + codeBlocks.length + '___';
-                codeBlocks.push({ lang, code });
-                return placeholder;
-            });
-            
-            // Escape HTML in the non-code parts
-            let html = processedText
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;');
+        // Initialize marked renderer once
+        let markedRenderer;
 
-            // Restore code blocks with syntax highlighting
-            codeBlocks.forEach((block, index) => {
-                const placeholder = '___CODE_BLOCK_' + index + '___';
+        function getMarkedRenderer() {
+            if (markedRenderer) return markedRenderer;
+
+            // Check if marked is available
+            if (typeof marked === 'undefined') {
+                console.error('marked library not loaded');
+                return null;
+            }
+
+            const renderer = new marked.Renderer();
+            
+            // Custom code block renderer
+            renderer.code = function({text, lang}) {
                 const codeId = 'code-block-' + (++codeBlockCounter);
-                const language = block.lang || 'code';
-                const displayLang = language.toUpperCase();
+                const language = lang || 'text';
+                const displayLang = language === 'text' ? 'CODE' : language.toUpperCase();
                 
-                // Escape HTML in code first
-                let escapedCode = block.code
-                    .replace(/&/g, '&amp;')
-                    .replace(/</g, '&lt;')
-                    .replace(/>/g, '&gt;');
+                // Securely escape the raw code for the data-raw attribute
+                const safeRawCode = escapeAttribute(text);
                 
-                // Apply SQL syntax highlighting if language is sql, pgsql, or postgresql
-                let highlightedCode = escapedCode;
-                if (['sql', 'pgsql', 'postgresql', 'plpgsql'].includes(language.toLowerCase())) {
-                    highlightedCode = highlightSql(escapedCode);
+                // Use highlight.js if available
+                let highlightedCode;
+                if (typeof hljs !== 'undefined') {
+                    try {
+                        if (lang && hljs.getLanguage(lang)) {
+                            highlightedCode = hljs.highlight(text, { language: lang }).value;
+                        } else {
+                            highlightedCode = hljs.highlightAuto(text).value;
+                        }
+                    } catch (e) {
+                         console.error('Highlight.js error:', e);
+                         highlightedCode = escapeHtml(text);
+                    }
+                } else {
+                    // Fallback to manual SQL highlighting or simple escape
+                     if (['sql', 'pgsql', 'postgresql', 'plpgsql'].includes(language.toLowerCase())) {
+                        let escapedCode = text
+                            .replace(/&/g, '&amp;')
+                            .replace(/</g, '&lt;')
+                            .replace(/>/g, '&gt;');
+                        highlightedCode = highlightSql(escapedCode);
+                    } else {
+                        highlightedCode = escapeHtml(text);
+                    }
                 }
                 
-                const codeBlockHtml = \`<div class="code-block-wrapper">
+                const isSQL = ['sql', 'pgsql', 'postgresql', 'plpgsql'].includes(language.toLowerCase());
+                
+                return \`<div class="code-block-wrapper">
                     <div class="code-block-header">
                         <span class="code-language">\${displayLang}</span>
-                        <button class="copy-btn" onclick="copyCode(this, '\${codeId}')">
-                            <svg viewBox="0 0 16 16" fill="currentColor">
-                                <path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z"/>
-                                <path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z"/>
-                            </svg>
-                            Copy
-                        </button>
+                        <div class="code-block-actions">
+                            \${isSQL ? \`<button class="notebook-btn" onclick="openInNotebook(this, '\${codeId}')" title="Add to active notebook">
+                                <svg viewBox="0 0 16 16" fill="currentColor">
+                                    <path d="M2.5 2A1.5 1.5 0 001 3.5v9A1.5 1.5 0 002.5 14h11a1.5 1.5 0 001.5-1.5v-9A1.5 1.5 0 0013.5 2h-11zM2 3.5a.5.5 0 01.5-.5h11a.5.5 0 01.5.5v9a.5.5 0 01-.5.5h-11a.5.5 0 01-.5-.5v-9z"/>
+                                    <path d="M7.5 5.5v2h-2v1h2v2h1v-2h2v-1h-2v-2h-1z"/>
+                                </svg>
+                                Notebook
+                            </button>\` : ''}
+                            <button class="copy-btn" onclick="copyCode(this, '\${codeId}')">
+                                <svg viewBox="0 0 16 16" fill="currentColor">
+                                    <path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z"/>
+                                    <path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z"/>
+                                </svg>
+                                Copy
+                            </button>
+                        </div>
                     </div>
-                    <pre><code id="\${codeId}" class="language-\${language}" data-raw="\${block.code.replace(/"/g, '&quot;')}">\${highlightedCode}</code></pre>
+                    <pre><code id="\${codeId}" class="hljs language-\${language}" data-raw="\${safeRawCode}">\${highlightedCode}</code></pre>
                 </div>\`;
-                
-                html = html.replace(placeholder, codeBlockHtml);
-            });
-            
-            // Inline code
-            html = html.replace(/\`([^\`]+)\`/g, '<code>$1</code>');
-            
-            // Bold - must have ** on both sides with content between
-            html = html.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');
-            
-            // Italic - only match *text* when surrounded by whitespace/punctuation
-            // This prevents SQL * from being converted to <em>
-            // Using simpler pattern: space or start, then *content*, then space or end
-            html = html.replace(/(^|\\s)\\*([^*\\s][^*]*[^*\\s])\\*(\\s|[.,;:!?]|$)/gm, '$1<em>$2</em>$3');
-            
-            // Headers
-            html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-            html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-            html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-            
-            // Lists
-            html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
-            html = html.replace(/(<li>.*<\\/li>\\n?)+/g, '<ul>$&</ul>');
-            
-            // Numbered lists
-            html = html.replace(/^\\d+\\. (.+)$/gm, '<li>$1</li>');
-            
-            // Line breaks (double newline = paragraph)
-            html = html.replace(/\\n\\n/g, '</p><p>');
-            html = '<p>' + html + '</p>';
-            
-            // Clean up empty paragraphs
-            html = html.replace(/<p><\\/p>/g, '');
-            html = html.replace(/<p>(<h[123]>)/g, '$1');
-            html = html.replace(/(<\\/h[123]>)<\\/p>/g, '$1');
-            html = html.replace(/<p>(<div class="code-block-wrapper">)/g, '$1');
-            html = html.replace(/(<\\/div>)<\\/p>/g, '$1');
-            html = html.replace(/<p>(<pre>)/g, '$1');
-            html = html.replace(/(<\\/pre>)<\\/p>/g, '$1');
-            html = html.replace(/<p>(<ul>)/g, '$1');
-            html = html.replace(/(<\\/ul>)<\\/p>/g, '$1');
+            };
 
-            return html;
+            markedRenderer = renderer;
+            return markedRenderer;
+        }
+
+        // Markdown parser using marked.js
+        function parseMarkdown(text) {
+            if (typeof marked !== 'undefined') {
+                try {
+                    const renderer = getMarkedRenderer();
+                    if (renderer) {
+                        return marked.parse(text, { renderer: renderer, breaks: true });
+                    }
+                } catch (e) {
+                    console.error('Error parsing markdown with marked:', e);
+                }
+            }
+            
+            // Fallback (simplified) in case marked fails or isn't loaded
+            return text.replace(/\\n/g, '<br>');
         }
 
         // Typing effect for assistant messages
@@ -2272,6 +2391,9 @@ export function getWebviewHtml(webview: vscode.Webview): string {
                     if (aiModelNameEl) {
                         aiModelNameEl.textContent = message.modelName || 'Unknown';
                     }
+                    break;
+                case 'notebookResult':
+                    handleNotebookResult(message.success, message.error);
                     break;
             }
         });

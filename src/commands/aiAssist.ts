@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
-import * as https from 'https';
 import { ErrorHandlers, StringUtils } from './helper';
 import { ConnectionManager } from '../services/ConnectionManager';
 import { PostgresMetadata } from '../common/types';
+import { AiService } from '../providers/chat/AiService';
 
 // Interface for table schema information
 interface TableSchemaInfo {
@@ -75,7 +75,9 @@ export async function cmdAiAssist(cell: vscode.NotebookCell | undefined, context
     try {
         const config = vscode.workspace.getConfiguration('postgresExplorer');
         const provider = config.get<string>('aiProvider') || 'vscode-lm';
-        const modelInfo = await getModelInfo(provider, config);
+
+        const aiService = new AiService();
+        const modelInfo = await aiService.getModelInfo(provider, config);
 
         await vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
@@ -90,12 +92,16 @@ export async function cmdAiAssist(cell: vscode.NotebookCell | undefined, context
 
             progress.report({ message: "Generating response..." });
 
+            // Build the comprehensive prompt to be used as System Prompt
+            const systemPrompt = buildPrompt(userInput, cellContext);
+            const userTrigger = "Please provide the SQL query based on the instructions above.";
+
             let responseText = '';
 
             if (provider === 'vscode-lm') {
-                responseText = await callVsCodeLm(userInput, cellContext, token, config);
+                responseText = await aiService.callVsCodeLm(userTrigger, config, systemPrompt);
             } else {
-                responseText = await callDirectApi(provider, userInput, cellContext, config, outputChannel);
+                responseText = await aiService.callDirectApi(provider, userTrigger, config, systemPrompt);
             }
 
             // Parse the response to check for placement instruction
@@ -479,181 +485,6 @@ async function fetchTableSchema(client: any, tableRef: { schema: string; table: 
     };
 }
 
-async function getModelInfo(provider: string, config: vscode.WorkspaceConfiguration): Promise<string> {
-    try {
-        const configuredModel = config.get<string>('aiModel');
-        
-        if (provider === 'vscode-lm') {
-            if (configuredModel) {
-                const baseName = configuredModel.replace(/\s*\(.*\)$/, '').trim();
-                const allModels = await vscode.lm.selectChatModels({});
-                const matchingModels = allModels.filter(m => 
-                    m.id === baseName || m.name === baseName || m.family === baseName ||
-                    m.id === configuredModel || m.name === configuredModel || m.family === configuredModel
-                );
-                if (matchingModels.length > 0) {
-                    return matchingModels[0].name || matchingModels[0].id;
-                }
-            }
-            const models = await vscode.lm.selectChatModels({ family: 'gpt-4o' });
-            if (models.length > 0) {
-                return models[0].name || models[0].id;
-            }
-            const anyModels = await vscode.lm.selectChatModels({});
-            return anyModels.length > 0 ? (anyModels[0].name || anyModels[0].id) : 'Unknown';
-        } else {
-            if (configuredModel) return configuredModel;
-            switch (provider) {
-                case 'openai': return 'gpt-4';
-                case 'anthropic': return 'claude-3-5-sonnet-20241022';
-                case 'gemini': return 'gemini-pro';
-                case 'custom': return 'custom-model';
-                default: return 'Unknown';
-            }
-        }
-    } catch {
-        return 'Unknown';
-    }
-}
-
-async function callVsCodeLm(userInput: string, cellContext: CellContext, token: vscode.CancellationToken, config: vscode.WorkspaceConfiguration): Promise<string> {
-    const configuredModel = config.get<string>('aiModel');
-    let models: vscode.LanguageModelChat[];
-    
-    if (configuredModel) {
-        // Extract base name if format is "name (family)"
-        const baseName = configuredModel.replace(/\s*\(.*\)$/, '').trim();
-        
-        // Try to find the specific model by name/id/family
-        const allModels = await vscode.lm.selectChatModels({});
-        const matchingModels = allModels.filter(m => 
-            m.id === baseName || 
-            m.name === baseName || 
-            m.family === baseName ||
-            m.id === configuredModel || 
-            m.name === configuredModel || 
-            m.family === configuredModel
-        );
-        models = matchingModels.length > 0 ? matchingModels : allModels;
-    } else {
-        // Default: prefer GPT-4 class models
-        models = await vscode.lm.selectChatModels({ family: 'gpt-4o' });
-        if (models.length === 0) {
-            models = await vscode.lm.selectChatModels({});
-        }
-    }
-
-    const model = models[0];
-    if (!model) {
-        throw new Error('No AI models available via VS Code API. Please ensure GitHub Copilot Chat is installed or switch provider.');
-    }
-
-    const messages = [
-        vscode.LanguageModelChatMessage.User(buildPrompt(userInput, cellContext))
-    ];
-
-    const chatRequest = await model.sendRequest(messages, {}, token);
-    let responseText = '';
-
-    for await (const fragment of chatRequest.text) {
-        responseText += fragment;
-    }
-    return responseText;
-}
-
-async function callDirectApi(provider: string, userInput: string, cellContext: CellContext, config: vscode.WorkspaceConfiguration, outputChannel: vscode.OutputChannel): Promise<string> {
-    const apiKey = config.get<string>('aiApiKey');
-    if (!apiKey) {
-        throw new Error(`API Key is required for ${provider} provider. Please configure postgresExplorer.aiApiKey.`);
-    }
-
-    let endpoint = '';
-    let model = config.get<string>('aiModel');
-    let headers: any = {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-    };
-    let body: any = {};
-    const prompt = buildPrompt(userInput, cellContext);
-
-    if (provider === 'openai') {
-        endpoint = 'https://api.openai.com/v1/chat/completions';
-        model = model || 'gpt-4';
-        body = {
-            model: model,
-            messages: [{ role: 'user', content: prompt }],
-            temperature: 0.1
-        };
-    } else if (provider === 'anthropic') {
-        endpoint = 'https://api.anthropic.com/v1/messages';
-        model = model || 'claude-3-5-sonnet-20241022';
-        headers['x-api-key'] = apiKey;
-        headers['anthropic-version'] = '2023-06-01';
-        delete headers['Authorization']; // Anthropic uses x-api-key
-        body = {
-            model: model,
-            messages: [{ role: 'user', content: prompt }],
-            max_tokens: 4096
-        };
-    } else if (provider === 'gemini') {
-        model = model || 'gemini-pro';
-        endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
-        outputChannel.appendLine(`Using Gemini endpoint: ${endpoint}`);
-        headers['X-goog-api-key'] = apiKey;
-        delete headers['Authorization'];
-        body = {
-            contents: [{
-                parts: [{ text: prompt }]
-            }]
-        };
-    } else if (provider === 'custom') {
-        endpoint = config.get<string>('aiEndpoint') || '';
-        if (!endpoint) throw new Error('Endpoint is required for custom provider');
-        model = model || 'gpt-3.5-turbo'; // Default fallback
-        body = {
-            model: model,
-            messages: [{ role: 'user', content: prompt }]
-        };
-    }
-
-    return new Promise((resolve, reject) => {
-        const url = new URL(endpoint);
-        const options = {
-            hostname: url.hostname,
-            path: url.pathname + url.search,
-            method: 'POST',
-            headers: headers
-        };
-
-        const req = https.request(options, (res) => {
-            let data = '';
-            res.on('data', (chunk) => data += chunk);
-            res.on('end', () => {
-                if (res.statusCode && res.statusCode >= 400) {
-                    reject(new Error(`API Request failed with status ${res.statusCode}: ${data}`));
-                    return;
-                }
-                try {
-                    const json = JSON.parse(data);
-                    if (provider === 'anthropic') {
-                        resolve(json.content[0].text);
-                    } else if (provider === 'gemini') {
-                        resolve(json.candidates[0].content.parts[0].text);
-                    } else {
-                        resolve(json.choices[0].message.content);
-                    }
-                } catch (e) {
-                    reject(new Error('Failed to parse API response'));
-                }
-            });
-        });
-
-        req.on('error', (e) => reject(e));
-        req.write(JSON.stringify(body));
-        req.end();
-    });
-}
-
 function buildPrompt(userInput: string, cellContext: CellContext): string {
     const { currentQuery, previousCells, lastOutput, tableSchemas, databaseInfo } = cellContext;
 
@@ -798,248 +629,48 @@ const AiTaskSelector = {
         { label: '$(add) Add WHERE Clause', description: 'Add filtering conditions', detail: 'Prompts for conditions to filter results' },
         { label: '$(filter) Add Pagination', description: 'Add LIMIT and OFFSET', detail: 'Adds pagination with sensible defaults' },
         { label: '$(sort-precedence) Add ORDER BY', description: 'Add sorting to results', detail: 'Adds ORDER BY clause with appropriate columns' },
-        { label: '$(group-by-ref-type) Add GROUP BY', description: 'Add aggregation', detail: 'Transforms query to use GROUP BY with aggregates' },
+        { label: '$(group-by-ref-type) Add GROUP BY', description: 'Aggregate results', detail: 'Adds GROUP BY and aggregation functions' },
 
-        // Query Transformation
-        { label: '$(file-submodule) Convert to CTE', description: 'Refactor using WITH clause', detail: 'Extracts subqueries into Common Table Expressions' },
-        { label: '$(symbol-interface) Convert to Subquery', description: 'Use subqueries instead of JOINs', detail: 'Transforms JOINs to correlated or uncorrelated subqueries' },
-        { label: '$(references) Add JOINs', description: 'Join with related tables', detail: 'Adds appropriate JOINs based on foreign keys' },
-
-        // Security & Safety
-        { label: '$(shield) Add Safety Checks', description: 'Add guards against common issues', detail: 'Adds NULL checks, type casting, and boundary conditions' },
-        { label: '$(lock) Parameterize Query', description: 'Convert to prepared statement', detail: 'Replaces literals with $1, $2 placeholders' },
-
-        // Data Operations
-        { label: '$(diff-insert) Generate INSERT', description: 'Create INSERT from SELECT', detail: 'Wraps SELECT as INSERT INTO ... SELECT' },
-        { label: '$(diff-modified) Generate UPDATE', description: 'Create UPDATE statement', detail: 'Generates UPDATE with proper WHERE clause' },
-        { label: '$(diff-removed) Generate DELETE', description: 'Create safe DELETE statement', detail: 'Generates DELETE with confirmation checks' },
-
-        // Advanced
-        { label: '$(beaker) Add Window Functions', description: 'Use window functions', detail: 'Adds ROW_NUMBER, RANK, LAG, LEAD, etc.' },
-        { label: '$(combine) Create UNION Query', description: 'Combine with another query', detail: 'Structures query for UNION/INTERSECT/EXCEPT' },
-        { label: '$(json) Handle JSON', description: 'Add JSON operators', detail: 'Uses ->, ->>, jsonb_* functions appropriately' }
+        // Advanced Operations
+        { label: '$(table) Convert to CTE', description: 'Refactor using Common Table Expressions', detail: 'Rewrites subqueries as WITH clauses for readability' },
+        { label: '$(refresh) Convert to View', description: 'Create VIEW from query', detail: 'Wraps query in CREATE OR REPLACE VIEW' },
+        { label: '$(symbol-function) Convert to Function', description: 'Create Function from query', detail: 'Wraps query in CREATE OR REPLACE FUNCTION' }
     ],
 
     /**
-     * Task instruction templates with detailed prompts
-     */
-    instructions: {
-        'Custom Instruction': null, // Will prompt user
-
-        'Explain Query': `Add comprehensive inline comments to this SQL query explaining:
-- The overall purpose of the query
-- What each SELECT column represents
-- The reason for each JOIN and its relationship
-- What each WHERE condition filters
-- The purpose of GROUP BY, ORDER BY, and any other clauses
-- Any complex expressions or subqueries
-Keep the query functional while making it self-documenting.`,
-
-        'What Does This Do?': `Add a detailed block comment at the top of the query that explains:
-- What this query does in plain English
-- What tables it reads from and why
-- What the expected output represents
-- Any important assumptions or limitations
-Do not modify the query logic itself.`,
-
-        'Fix Syntax Errors': `Fix any syntax errors in this SQL query including:
-- Missing or extra commas, parentheses, quotes
-- Incorrect keyword spelling or ordering
-- Missing semicolons or statement terminators
-- Incorrect string escaping
-- Invalid identifier quoting
-Ensure the query is valid PostgreSQL syntax.`,
-
-        'Fix Logic Issues': `Identify and fix logical issues in this query:
-- Incorrect JOIN conditions that could cause cartesian products
-- WHERE conditions that might exclude intended rows
-- NULL handling issues (use COALESCE, IS NULL, etc.)
-- Incorrect aggregate function usage
-- Off-by-one errors in date/number comparisons
-Add comments explaining what was fixed and why.`,
-
-        'Debug Query': `Modify this query to help with debugging:
-- Add EXPLAIN ANALYZE at the start (commented out for easy toggle)
-- Add intermediate CTEs to break down complex logic
-- Add comments showing expected row counts at each step
-- Include RAISE NOTICE statements if this is a function
-- Add diagnostic SELECT statements that can be uncommented`,
-
-        'Optimize Performance': `Optimize this query for better performance:
-- Rewrite to use existing indexes effectively (check the schema info)
-- Eliminate redundant subqueries or JOINs
-- Use appropriate join types (consider LATERAL, EXISTS vs IN)
-- Add query hints or settings if beneficial
-- Consider materialized CTEs for repeated subqueries
-- Optimize predicate pushdown
-Add comments explaining the optimization rationale.`,
-
-        'Add EXPLAIN ANALYZE': `Wrap this query with EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT) to analyze its execution plan. Add a comment header explaining how to interpret the results.`,
-
-        'Suggest Indexes': `Analyze this query and add comments suggesting:
-- CREATE INDEX statements that would improve performance
-- Which columns should be indexed and why
-- Whether composite indexes would help
-- Index type recommendations (B-tree, GIN, GiST, etc.)
-Keep the original query unchanged, only add comments.`,
-
-        'Format Query': `Format this SQL query with proper styling:
-- Consistent indentation (2 or 4 spaces)
-- Each clause (SELECT, FROM, WHERE, etc.) on its own line
-- Align similar elements vertically where it improves readability
-- Logical grouping of related columns and conditions
-- Appropriate line breaks for long expressions
-Use uppercase for SQL keywords.`,
-
-        'Uppercase Keywords': `Convert all SQL keywords to uppercase while preserving:
-- Original case for identifiers (table names, column names)
-- Original case for string literals
-- Original formatting and whitespace
-Keywords include: SELECT, FROM, WHERE, JOIN, AND, OR, ON, AS, etc.`,
-
-        'Add Aliases': `Add meaningful table aliases to this query:
-- Use short but descriptive aliases (e.g., 'u' for users, 'o' for orders)
-- Apply aliases consistently throughout the query
-- Add column aliases for computed/derived columns
-- Use AS keyword explicitly for clarity`,
-
-        'Add WHERE Clause': `Add appropriate WHERE clause filtering based on:
-- The table schemas and likely filter candidates
-- Common filtering patterns for this type of query
-- Add placeholder comments where user should specify values
-Use parameterized placeholders ($1, $2) for values.`,
-
-        'Add Pagination': `Add pagination to this query:
-- Add LIMIT and OFFSET clauses
-- Use reasonable defaults (LIMIT 50, OFFSET 0)
-- Add comments explaining how to adjust for different pages
-- Consider adding a total count CTE if useful
-- Ensure ORDER BY is present for consistent pagination`,
-
-        'Add ORDER BY': `Add an ORDER BY clause to this query:
-- Choose appropriate columns based on the query context
-- Use ASC/DESC based on likely user expectations
-- Consider adding secondary sort columns for stability
-- Add NULLS FIRST/LAST if NULL handling matters`,
-
-        'Add GROUP BY': `Transform this query to use GROUP BY:
-- Identify appropriate grouping columns
-- Add aggregate functions (COUNT, SUM, AVG, etc.) for other columns
-- Include HAVING clause if filtering on aggregates is useful
-- Consider adding grouping sets or rollup if appropriate`,
-
-        'Convert to CTE': `Refactor this query to use Common Table Expressions (WITH clause):
-- Extract subqueries into named CTEs
-- Break complex logic into readable steps
-- Name CTEs descriptively
-- Consider using RECURSIVE if applicable
-- Maintain query correctness and performance`,
-
-        'Convert to Subquery': `Rewrite this query using subqueries instead of JOINs where appropriate:
-- Use correlated subqueries for existence checks
-- Use scalar subqueries for single-value lookups
-- Use derived tables where performance is better
-Add comments explaining the tradeoffs.`,
-
-        'Add JOINs': `Enhance this query by adding JOINs to related tables:
-- Use the foreign key relationships from the schema
-- Choose appropriate JOIN types (INNER, LEFT, etc.)
-- Add useful columns from joined tables
-- Ensure join conditions are correct`,
-
-        'Add Safety Checks': `Add safety checks to this query:
-- COALESCE for potentially NULL values
-- Type casting to prevent type errors
-- Bounds checking for numeric operations
-- Empty string handling
-- Date/timestamp validation
-Add comments explaining each safety measure.`,
-
-        'Parameterize Query': `Convert this query to use parameterized placeholders:
-- Replace string literals with $1, $2, etc.
-- Replace numeric literals that are likely user inputs
-- Add a comment header listing parameters and their types
-- Keep constant values as literals
-Example: WHERE id = $1 AND status = $2`,
-
-        'Generate INSERT': `Transform this SELECT query into an INSERT statement:
-- Create INSERT INTO table_name (columns) SELECT ...
-- Match column order correctly
-- Add RETURNING clause if useful
-- Consider ON CONFLICT handling
-Add comments about the target table.`,
-
-        'Generate UPDATE': `Generate an UPDATE statement based on this query:
-- Create proper SET clauses
-- Use appropriate WHERE conditions from the query
-- Consider using FROM clause for complex updates
-- Add RETURNING clause to see affected rows
-Include safety comments about running updates.`,
-
-        'Generate DELETE': `Generate a safe DELETE statement:
-- Create proper WHERE clause to limit deletion
-- Add a comment with SELECT to preview rows first
-- Consider using RETURNING to see deleted rows
-- Add transaction wrapper comments (BEGIN/ROLLBACK/COMMIT)
-IMPORTANT: Include safety warnings.`,
-
-        'Add Window Functions': `Enhance this query with window functions:
-- Add ROW_NUMBER(), RANK(), or DENSE_RANK() for ordering
-- Add LAG/LEAD for comparing with adjacent rows
-- Add running totals with SUM() OVER
-- Add moving averages if appropriate
-- Use PARTITION BY for grouping within windows`,
-
-        'Create UNION Query': `Structure this query for combining with other results:
-- Format for UNION/UNION ALL
-- Ensure column compatibility
-- Add type casts if needed
-- Add placeholder for the second query
-- Include comments about UNION vs UNION ALL choice`,
-
-        'Handle JSON': `Enhance this query with JSON/JSONB operations:
-- Use appropriate operators (-> for object, ->> for text)
-- Add jsonb_agg or json_agg for aggregation
-- Use jsonb_build_object for constructing JSON
-- Handle nested JSON access properly
-- Add proper type casting from JSON values`
-    },
-
-    /**
-     * Select and get instruction for AI task
+     * Show task selector and return the user's choice/instruction
      */
     async selectTask(): Promise<string | undefined> {
         const selection = await vscode.window.showQuickPick(this.tasks, {
-            placeHolder: 'Select an AI task for your SQL query',
-            ignoreFocusOut: true,
+            placeHolder: 'Select an AI task or enter custom instruction',
             matchOnDescription: true,
-            matchOnDetail: true
+            matchOnDetail: true,
+            ignoreFocusOut: true
         });
 
         if (!selection) {
             return undefined;
         }
 
-        // Find matching instruction key by extracting label text (remove icon)
-        const labelText = selection.label.replace(/^\$\([^)]+\)\s*/, '');
-        const key = Object.keys(this.instructions).find(k => labelText === k);
-
-        if (!key) {
-            return undefined;
-        }
-
-        const instruction = this.instructions[key as keyof typeof AiTaskSelector.instructions];
-
-        // If custom instruction, prompt user
-        if (instruction === null) {
-            const input = await vscode.window.showInputBox({
-                placeHolder: 'Describe how you want to modify this query...',
-                prompt: 'Enter detailed instructions for the AI (e.g., "Add a join with the orders table and filter by date range")',
+        if (selection.label.includes('Custom Instruction')) {
+            return await vscode.window.showInputBox({
+                placeHolder: 'e.g., "Rewrite this query to filter by user status"',
+                prompt: 'Enter your specific instruction for the AI',
                 ignoreFocusOut: true
             });
-            return input;
         }
 
-        return instruction;
+        // For specific tasks that might need extra input
+        if (selection.label.includes('Add WHERE Clause')) {
+            const condition = await vscode.window.showInputBox({
+                placeHolder: 'e.g., status = \'active\' AND created_at > NOW() - INTERVAL \'1 day\'',
+                prompt: 'Enter the filtering condition',
+                ignoreFocusOut: true
+            });
+            if (!condition) return undefined;
+            return `Add WHERE clause: ${condition}`;
+        }
+
+        return selection.label.replace(/\$\([a-z-]+\)\s/, ''); // Return clean label as instruction
     }
 };

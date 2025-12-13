@@ -41,6 +41,7 @@
 | 🛠️ **Object Operations** | Full CRUD operations, scripts, VACUUM, ANALYZE, REINDEX |
 | 🤖 **AI-Powered** | GitHub Copilot, OpenAI, Anthropic, and Google Gemini integration |
 | ⌨️ **Developer Tools** | IntelliSense, keyboard shortcuts, PSQL terminal access |
+| 📤 **Export Data** | Export query results to CSV, JSON, or Excel formats |
 
 ---
 

@@ -31,6 +31,7 @@ A comprehensive PostgreSQL database management extension featuring interactive S
 - 🌳 **Database Explorer** — Browse tables, views, functions, types
 - 🛠️ **Object Operations** — CRUD, scripts, VACUUM, ANALYZE, REINDEX
 - 🤖 **AI-Powered** — GitHub Copilot, OpenAI, Anthropic, Gemini
+- 📤 **Export Data** — Export results to CSV, JSON, or Excel
 
 ---
 
@@ -60,6 +61,13 @@ yape/
 │   │   ├── functions.ts      # Function operations
 │   │   ├── connection.ts     # Connection commands
 │   │   ├── notebook.ts       # Notebook commands
+│   │   ├── helper.ts         # Shared helper utilities
+│   │   ├── sql/              # SQL template modules
+│   │   │   ├── tables.ts     # Table SQL templates
+│   │   │   ├── views.ts      # View SQL templates
+│   │   │   ├── functions.ts  # Function SQL templates
+│   │   │   ├── indexes.ts    # Index SQL templates
+│   │   │   └── ...           # Other SQL templates
 │   │   └── ...
 │   ├── providers/            # VS Code providers
 │   │   ├── DatabaseTreeProvider.ts   # Tree view provider
