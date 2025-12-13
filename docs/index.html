@@ -371,35 +371,39 @@
                     <div class="video-card carousel-item">
                         <h3 style="margin-bottom: 1rem; font-size: 1.2rem;">Detailed Setup Guide</h3>
                         <div class="video-wrapper">
-                            <video src="assets/01-setup.mp4" controls width="100%"></video>
+                            <img src="assets/01-setup.gif" width="100%" alt="PgStudio Setup Guide"
+                                style="border-radius: 8px;" />
                             <button class="expand-btn" aria-label="Expand Video">⤢</button>
                         </div>
                     </div>
                     <div class="video-card carousel-item">
                         <h3 style="margin-bottom: 1rem; font-size: 1.2rem;">Database Explorer</h3>
                         <div class="video-wrapper">
-                            <video src="assets/03-explorer.mp4" controls width="100%"></video>
+                            <img src="assets/03-explorer.gif" width="100%" alt="Database Explorer Guide"
+                                style="border-radius: 8px;" />
                             <button class="expand-btn" aria-label="Expand Video">⤢</button>
                         </div>
                     </div>
                     <div class="video-card carousel-item">
                         <h3 style="margin-bottom: 1rem; font-size: 1.2rem;">AI Assistant Setup</h3>
                         <div class="video-wrapper">
-                            <video src="assets/02-ai-assist-setup.mp4" controls width="100%"></video>
+                            <img src="assets/02-ai-assist-setup.gif" width="100%" alt="AI Assistant Setup Guide"
+                                style="border-radius: 8px;" />
                             <button class="expand-btn" aria-label="Expand Video">⤢</button>
                         </div>
                     </div>
                     <div class="video-card carousel-item">
                         <h3 style="margin-bottom: 1rem; font-size: 1.2rem;">AI Assistant in Action</h3>
                         <div class="video-wrapper">
-                            <video src="assets/04-ai-assist.mp4" controls width="100%"></video>
+                            <img src="assets/04-ai-assist.gif" width="100%" alt="AI Assistant in Action"
+                                style="border-radius: 8px;" />
                             <button class="expand-btn" aria-label="Expand Video">⤢</button>
                         </div>
                     </div>
                 </div>
                 <button class="carousel-btn next-btn" aria-label="Next Video">❯</button>
             </div>
-            
+
             <div class="carousel-indicators">
                 <span class="indicator active" data-index="0"></span>
                 <span class="indicator" data-index="1"></span>
@@ -442,11 +446,12 @@
         </div>
     </footer>
 
-    <!-- Video Modal -->
+    <!-- Media Modal -->
     <div id="video-modal" class="modal">
         <span class="close-modal">&times;</span>
         <div class="modal-content">
-            <video controls width="100%"></video>
+            <img style="display: none; width: 100%; border-radius: 8px;" alt="Expanded view" />
+            <video controls width="100%" style="display: none; border-radius: 8px;"></video>
         </div>
     </div>
 

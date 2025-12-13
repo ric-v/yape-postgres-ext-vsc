@@ -145,9 +145,10 @@ document.addEventListener("DOMContentLoaded", () => {
     })
 })
 
-// Video Modal Logic
+// Media Modal Logic (handles both images and videos)
 document.addEventListener("DOMContentLoaded", () => {
     const modal = document.getElementById("video-modal")
+    const modalImg = modal.querySelector("img")
     const modalVideo = modal.querySelector("video")
     const closeBtn = document.querySelector(".close-modal")
     const expandBtns = document.querySelectorAll(".expand-btn")
@@ -159,15 +160,30 @@ document.addEventListener("DOMContentLoaded", () => {
             e.preventDefault()
             e.stopPropagation()
             const videoWrapper = btn.closest(".video-wrapper")
-            const sourceVideo = videoWrapper.querySelector("video")
-            const sourceSrc = sourceVideo.getAttribute("src")
 
-            modalVideo.src = sourceSrc
-            modal.style.display = "flex"
-            // Slight delay to ensure display:flex renders before playing
-            requestAnimationFrame(() => {
-                modalVideo.play().catch(err => console.error("Auto-play failed:", err))
-            })
+            // Check if it's an image or video
+            const sourceImg = videoWrapper.querySelector("img")
+            const sourceVideo = videoWrapper.querySelector("video")
+
+            if (sourceImg) {
+                // It's an image (GIF)
+                const sourceSrc = sourceImg.getAttribute("src")
+                modalImg.src = sourceSrc
+                modalImg.style.display = "block"
+                modalVideo.style.display = "none"
+                modal.style.display = "flex"
+            } else if (sourceVideo) {
+                // It's a video
+                const sourceSrc = sourceVideo.getAttribute("src")
+                modalVideo.src = sourceSrc
+                modalVideo.style.display = "block"
+                modalImg.style.display = "none"
+                modal.style.display = "flex"
+                // Slight delay to ensure display:flex renders before playing
+                requestAnimationFrame(() => {
+                    modalVideo.play().catch(err => console.error("Auto-play failed:", err))
+                })
+            }
         })
     })
 
@@ -176,6 +192,7 @@ document.addEventListener("DOMContentLoaded", () => {
         modalVideo.pause()
         modalVideo.currentTime = 0
         modalVideo.src = "" // Clear src to stop buffering
+        modalImg.src = "" // Clear img src
     }
 
     closeBtn.addEventListener("click", closeModal)

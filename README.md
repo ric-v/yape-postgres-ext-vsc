@@ -20,16 +20,16 @@
 ## 📺 Video Guides
 
 ### 1. Setup
-<video src="docs/assets/01-setup.mp4" controls width="100%" title="PgStudio Setup"></video>
+![PgStudio Setup](docs/assets/01-setup.gif)
 
 ### 2. Database Explorer
-<video src="docs/assets/03-explorer.mp4" controls width="100%" title="Database Explorer"></video>
+![Database Explorer](docs/assets/03-explorer.gif)
 
 ### 3. AI Assistant Setup
-<video src="docs/assets/02-ai-assist-setup.mp4" controls width="100%" title="AI Assistant Setup"></video>
+![AI Assistant Setup](docs/assets/02-ai-assist-setup.gif)
 
 ### 4. AI Assistant Usage
-<video src="docs/assets/04-ai-assist.mp4" controls width="100%" title="AI Assistant Usage"></video>
+![AI Assistant Usage](docs/assets/04-ai-assist.gif)
 
 ---
 
