@@ -1,19 +1,19 @@
 {
-  "name": "postgres-explorer",
-  "displayName": "PostgreSQL Explorer",
-  "version": "0.6.1",
-  "description": "PostgreSQL database explorer for VS Code with notebook support",
+  "name": "pgstudio",
+  "displayName": "PgStudio (previously PostgreSQL Explorer)",
+  "version": "0.6.2",
+  "description": "PgStudio is a PostgreSQL database explorer for VS Code with notebook support",
   "publisher": "ric-v",
   "private": false,
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dev-asterix/yape.git"
+    "url": "https://github.com/dev-asterix/PgStudio.git"
   },
   "bugs": {
-    "url": "https://github.com/dev-asterix/yape/issues"
+    "url": "https://github.com/dev-asterix/PgStudio/issues"
   },
-  "homepage": "https://github.com/dev-asterix/yape#readme",
+  "homepage": "https://pgstudio.astrx.dev/",
   "icon": "resources/postgres-explorer.png",
   "galleryBanner": {
     "color": "#C80000",
